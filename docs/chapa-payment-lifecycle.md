@@ -78,6 +78,16 @@ that review without granting value.
 
 ## Deployment
 
+To deploy using the Supabase Dashboard editor, run
+`npm run build:chapa-deployment`. It produces single-file functions with no local
+shared-module imports in `deployment/chapa-payment-fix`, plus deployment notes
+and the matching SQL files. Create each function using its exact filename stem.
+`chapa-reconcile` and `chapa-webhook` disable gateway JWT verification and enforce
+their own authentication for POST. Browser OPTIONS is answered before loading
+payment secrets, and configuration errors include the complete CORS headers.
+The allowed checkout origin for the current Vercel deployment is
+`https://serkle-app.vercel.app`.
+
 Deploy alongside the earlier Circle entitlement/membership/leave migrations and
 the matching frontend:
 
@@ -96,9 +106,13 @@ the matching frontend:
    Apply `supabase/setup/chapa-reconciliation.sql` to schedule the minute job.
    Inspect Cron/pg_net failures and intents with persistent `last_error` values.
 
-The workspace does not currently have an authenticated Supabase CLI session;
-these backend changes and provider settings have not been applied to the live
-project. No real Chapa payment is initiated by the tests.
+The four functions were manually deployed and checked on 2026-11-04. Each
+returned HTTP 204 for browser preflight from `https://serkle-app.vercel.app`;
+user endpoints rejected unauthenticated POSTs and the webhook rejected unsigned
+POSTs. These checks confirm deployment and CORS, not successful fulfillment.
+The allowed return origins, database migrations, provider webhook and scheduler
+configuration still need to be verified with the project owner. No real Chapa
+payment is initiated by these checks or by the tests.
 
 Provider references: [Chapa v1 webhook verification](https://developer.chapa.co/integrations/webhooks),
 [transaction verification](https://developer.chapa.co/integrations/verify-payments),

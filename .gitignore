@@ -42,6 +42,7 @@ dev-dist
 /supabase/.branches/
 /src/temp/
 /Serkle-flash-main/
+/deployment/chapa-payment-fix/
 playwright-report/
 test-results/
 coverage/

@@ -1,12 +1,13 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.75.0';
 import { createChapaHandlers, PaymentError, type ChapaIntent, type ChapaStore } from './chapa.ts';
+import { createChapaHttpHandler, type ChapaRoute } from './chapaHttp.ts';
 
 function runtime() {
   const secret=Deno.env.get('CHAPA_SECRET_KEY') || '';
   const mode=Deno.env.get('CHAPA_MODE');
   const origins=(Deno.env.get('PAYMENT_RETURN_ORIGINS') || '').split(',').map(value=>value.trim()).filter(Boolean);
-  if(!secret || !['live','test'].includes(mode || '') || !origins.length
+  if(!secret || !['live','test'].includes(mode || '')
     || (mode==='live' && secret.includes('_TEST-')) || (mode==='test' && !secret.includes('_TEST-'))) throw new Error('Payment configuration unavailable');
   const client=createClient(Deno.env.get('SUPABASE_URL')!,Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,{auth:{persistSession:false,autoRefreshToken:false}});
   const checked=async(request:PromiseLike<any>)=>{const {data,error}=await request;if(error) throw new Error(error.message);return data;};
@@ -55,8 +56,6 @@ function runtime() {
     },
   });
 }
-export function serveChapa(route:keyof ReturnType<typeof createChapaHandlers>) {
-  serve(async request=>{
-    try{return await runtime()[route](request);}catch{return new Response(JSON.stringify({success:false,error:'Payment service is not configured'}),{status:503,headers:{'Content-Type':'application/json','Access-Control-Allow-Origin':'*'}});}
-  });
+export function serveChapa(route:ChapaRoute) {
+  serve(createChapaHttpHandler(route,runtime));
 }

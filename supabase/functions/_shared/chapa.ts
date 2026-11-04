@@ -1,3 +1,5 @@
+import { chapaJson, chapaCorsHeaders } from './chapaHttp.ts';
+
 export type ChapaStatus = 'pending' | 'failed' | 'succeeded' | 'refunded' | 'reversed';
 export interface ChapaIntent {
   id: string; user_id: string; tx_ref: string; amount: number; currency: string;
@@ -82,10 +84,9 @@ export interface ChapaDependencies {
 }
 
 export function createChapaHandlers(deps: ChapaDependencies) {
-  const json=(value: unknown,status=200)=>new Response(JSON.stringify(value),{status,headers:{'Content-Type':'application/json',
-    'Access-Control-Allow-Origin':'*','Access-Control-Allow-Headers':'authorization, x-client-info, apikey, content-type','Access-Control-Allow-Methods':'POST, OPTIONS'}});
+  const json=chapaJson;
   const safe=(action:(req:Request)=>Promise<Response>)=>async(req:Request)=>{
-    if(req.method==='OPTIONS') return json(null);
+    if(req.method==='OPTIONS') return new Response(null,{status:204,headers:chapaCorsHeaders});
     if(req.method!=='POST') return json({error:'Method not allowed'},405);
     try { return await action(req); } catch(error) {
       return json({success:false,error:error instanceof PaymentError ? error.message : 'Payment could not be verified. Please retry reconciliation.'},error instanceof PaymentError ? error.status : 503);
@@ -104,6 +105,7 @@ export function createChapaHandlers(deps: ChapaDependencies) {
   return {
     initialize:safe(async req=>{
       const user=await deps.authenticate(req),body=await req.json();
+      if(!deps.origins.length) throw new PaymentError('PAYMENT_RETURN_ORIGINS is not configured for checkout',503);
       if(typeof body.requestId!=='string' || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(body.requestId)) throw new PaymentError('Payment request ID required');
       const amount=wholeBirr(body.amount);
       const email=typeof body.email==='string' ? body.email.trim() : user.email;
