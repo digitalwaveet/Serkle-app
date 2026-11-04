@@ -1,0 +1,6 @@
+- [x] Analyze codebase for "MomsNest" and logo references
+- [x] Update global metadata (index.html, manifest.json, capacitor.config.json)
+- [x] Replace logo assets in UI (Header, Login, Signup)
+- [x] Update UI text references (Signup, Login, Settings, Notifications)
+- [x] Refactor local database naming (src/lib/db.ts)
+- [x] Final global sweep and verification

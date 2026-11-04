@@ -1,0 +1,27 @@
+# Implementation Plan - Navigation Fix
+
+The Circle Detail page currently experiences "stuck" navigation where the back button and footer buttons fail to return the user to the home page or circles list. This is caused by redundant `navigate` calls and a lack of proper state synchronization.
+
+## Proposed Changes
+
+### [MODIFY] [FooterNav](file:///c:/Users/elink/./.gemini/antigravity/scratch/MomNest/heart-lens-studio-main/src/components/FooterNav.tsx)
+
+- Update [handleTabClick](file:///c:/Users/elink/.gemini/antigravity/scratch/MomNest/heart-lens-studio-main/src/components/FooterNav.tsx#66-82) to prioritize `navigateToTab` and ensure `onSelect` only handles internal state without triggering redundant navigations.
+
+### [MODIFY] [CircleDetailWrapper](file:///c:/Users/elink/./.gemini/antigravity/scratch/MomNest/heart-lens-studio-main/src/components/CircleDetailWrapper.tsx)
+
+- Refactor [handleTabSelect](file:///c:/Users/elink/.gemini/antigravity/scratch/MomNest/heart-lens-studio-main/src/pages/Index.tsx#71-75) to simplify logic and move the responsibility of state management to the router where possible.
+- Ensure that clicking tabs in the footer correctly unmounts the circle view.
+
+### [MODIFY] [CircleDetail](file:///c:/Users/elink/./.gemini/antigravity/scratch/MomNest/heart-lens-studio-main/src/pages/CircleDetail.tsx)
+
+- Change the `ArrowLeft` button's behavior from `navigate('/')` to `navigate(-1)` or a more appropriate back-to-list call.
+- Ensure that any lingering video playback or overlays from the new "Videos" tab are properly cleaned up on unmount.
+
+## Verification Plan
+
+### Manual Verification
+- Open a Circle Detail page and interact with the "Videos" tab.
+- Click the "Back" arrow icon in the header -> Expect to return to the circles browse list.
+- Click the "Home" icon in the footer -> Expect to return to the main feed.
+- Click the "Add" icon in the footer -> Expect the create modal to open on the home/circles page.

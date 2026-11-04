@@ -1,0 +1,6 @@
+{
+  "artifactType": "ARTIFACT_TYPE_IMPLEMENTATION_PLAN",
+  "summary": "I've planned a sequence of fixes for the navigation issues in `CircleDetail`. These include streamlining `FooterNav`'s navigation, removing redundant `navigate` calls in `CircleDetailWrapper`, and updating the `ArrowLeft` button in `CircleDetail` to use `navigate(-1)` for more consistent results across different navigation contexts.",
+  "updatedAt": "2026-03-18T06:12:37.718091700Z",
+  "version": "1"
+}

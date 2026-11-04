@@ -1,0 +1,1 @@
+ALTER TABLE public.circles ADD COLUMN IF NOT EXISTS subscription_method text NOT NULL DEFAULT 'after_join';

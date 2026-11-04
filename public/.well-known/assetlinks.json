@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "app.vercel.serkle_flash.twa",
+      "sha256_cert_fingerprints": [
+        "BF:C8:B7:5E:EB:22:8B:5C:F1:EF:62:9C:74:E6:C3:C5:C0:0F:0C:42:F2:51:CB:41:FC:65:45:4A:3A:F1:04:7E"
+      ]
+    }
+  }
+]

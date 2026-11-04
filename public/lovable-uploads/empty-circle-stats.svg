@@ -1,0 +1,15 @@
+<svg width="200" height="200" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background circle -->
+  <circle cx="100" cy="100" r="88" stroke="#F5F0E8" stroke-width="24" stroke-linecap="round" />
+  <!-- Brown segment -->
+  <circle cx="100" cy="100" r="88" stroke="#7B3F2C" stroke-width="24" stroke-linecap="round" stroke-dasharray="110 442" stroke-dashoffset="0" transform="rotate(-90 100 100)" />
+  <!-- Orange segment -->
+  <circle cx="100" cy="100" r="88" stroke="#E07A4F" stroke-width="24" stroke-linecap="round" stroke-dasharray="90 462" stroke-dashoffset="-120" transform="rotate(-90 100 100)" />
+  <!-- Yellow segment -->
+  <circle cx="100" cy="100" r="88" stroke="#F2B73E" stroke-width="24" stroke-linecap="round" stroke-dasharray="100 452" stroke-dashoffset="-220" transform="rotate(-90 100 100)" />
+  <!-- Cream segment -->
+  <circle cx="100" cy="100" r="88" stroke="#F9EAC2" stroke-width="24" stroke-linecap="round" stroke-dasharray="70 482" stroke-dashoffset="-330" transform="rotate(-90 100 100)" />
+  <!-- Highlight shine -->
+  <path d="M42 60 C50 45 65 35 80 30" stroke="rgba(255,255,255,0.45)" stroke-width="5" stroke-linecap="round" fill="none" />
+  <path d="M150 140 C160 150 165 165 165 180" stroke="rgba(255,255,255,0.35)" stroke-width="5" stroke-linecap="round" fill="none" />
+</svg>

@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Serkle migration check</title></head>
+<body><h1>Serkle migration check</h1><p>Read-only checks. No messages, uploads, or read receipts are written. No credentials or message contents are displayed.</p><pre id="results">Starting…</pre>
+<script type="module">
+if (import.meta.env.DEV) {
+  import('/src/dev/migrationCheck.ts');
+} else {
+  document.querySelector('#results').textContent = 'Available in local development only.';
+}
+</script></body></html>

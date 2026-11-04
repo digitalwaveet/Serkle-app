@@ -1,0 +1,26 @@
+project_id = "zewcewkqruxlniavsrgj"
+
+[functions.moderate-content]
+verify_jwt = false
+
+[functions.send-push-notification]
+verify_jwt = true
+
+[functions.save-push-subscription]
+verify_jwt = true
+
+[functions.chapa-initialize]
+verify_jwt = true
+
+[functions.chapa-verify]
+verify_jwt = true
+
+[functions.chapa-webhook]
+verify_jwt = false
+
+# Checks either the user JWT or a dedicated scheduler secret inside the handler.
+[functions.chapa-reconcile]
+verify_jwt = false
+
+[functions.chapa-transfer]
+verify_jwt = true

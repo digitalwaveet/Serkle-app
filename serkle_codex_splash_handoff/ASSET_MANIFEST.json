@@ -1,0 +1,47 @@
+{
+  "assets": [
+    {
+      "file": "assets/serkle_mark_full.png",
+      "purpose": "Full transparent Serkle symbol"
+    },
+    {
+      "file": "assets/serkle_mark_left.png",
+      "purpose": "Left half, exact 50% clip for split animation"
+    },
+    {
+      "file": "assets/serkle_mark_right.png",
+      "purpose": "Right half, exact 50% clip for split animation"
+    },
+    {
+      "file": "assets/serkle_plus.png",
+      "purpose": "Raster plus for platforms without SVG support"
+    },
+    {
+      "file": "assets/serkle_plus.svg",
+      "purpose": "Preferred scalable plus if stack supports SVG"
+    },
+    {
+      "file": "assets/opening_background_1080x1920.png",
+      "purpose": "Primary opening background"
+    },
+    {
+      "file": "assets/opening_background_fallback.png",
+      "purpose": "Low-cost plain fallback"
+    }
+  ],
+  "references": [
+    {
+      "file": "references/reference_animation_guide.png",
+      "purpose": "Motion/art-direction reference"
+    },
+    {
+      "file": "references/reference_opening_experience.png",
+      "purpose": "Opening-sequence visual reference"
+    },
+    {
+      "file": "references/source_logo.jpg",
+      "purpose": "Original supplied Serkle logo reference"
+    }
+  ],
+  "note": "If the app repository already contains a clean SVG/vector Serkle mark, Codex should prefer that source for production and use these PNGs as visual/masking references."
+}

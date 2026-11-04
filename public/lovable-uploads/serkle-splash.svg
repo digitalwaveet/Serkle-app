@@ -1,0 +1,39 @@
+<svg width="400" height="800" viewBox="0 0 400 800" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="400" y2="800" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#E09F4D"/>
+      <stop offset="55%" stop-color="#B86A35"/>
+      <stop offset="100%" stop-color="#713A20"/>
+    </linearGradient>
+    <filter id="soften" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="24"/>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="400" height="800" fill="url(#bg)"/>
+
+  <!-- Decorative top-left curves -->
+  <path d="M-40 120 C20 40 90 20 140 60 C190 100 180 180 120 220 C60 260 -20 240 -60 180 Z" fill="#F2B73E" fill-opacity="0.25" filter="url(#soften)"/>
+  <path d="M-20 80 C30 20 90 0 130 30" stroke="#FFE2BE" stroke-width="18" stroke-linecap="round" fill="none" opacity="0.35"/>
+
+  <!-- Decorative bottom-left arc -->
+  <path d="M-60 700 C20 640 120 640 180 700 C240 760 200 840 120 860 C40 880 -40 840 -60 760 Z" fill="#FFE2BE" fill-opacity="0.18" filter="url(#soften)"/>
+
+  <!-- Infinity symbol -->
+  <g transform="translate(200 400)">
+    <path
+      d="M-70 0 C-70 -40 -35 -70 0 -35 C35 0 70 -40 70 0 C70 40 35 70 0 35 C-35 0 -70 40 -70 0 Z"
+      fill="#FFF5E0"
+      opacity="0.95"
+    />
+    <path
+      d="M-70 0 C-70 -40 -35 -70 0 -35 C35 0 70 -40 70 0"
+      stroke="#FFF5E0"
+      stroke-width="4"
+      stroke-linecap="round"
+      fill="none"
+      opacity="0.6"
+    />
+  </g>
+</svg>

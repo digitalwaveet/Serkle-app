@@ -1,0 +1,1156 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Keep the supplied black inactive nav artwork visible in the app's dark theme. */
+[data-theme="dark"] .nav-inactive-icon {
+  filter: invert(1);
+}
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+All colors MUST be HSL.
+*/
+
+@layer base {
+  [data-theme="light"],
+  :root:not([data-theme="dark"]) {
+    /* Serkle Design System - Beautiful purple/pink theme */
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --bg: #ffffff;
+    --text: #111111;
+    --white: #ffffff;
+    --black: #000000;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+
+    /* Primary: Brown #713A20 */
+    --primary: 19 55% 28%;
+    /* #713A20 */
+    --primary-foreground: 0 0% 100%;
+    --primary-light: 19 55% 40%;
+
+    /* Secondary: Golden orange #E09F4D */
+    --secondary: 33 69% 59%;
+    /* #E09F4D */
+    --secondary-foreground: 0 0% 100%;
+
+    /* Tertiary: Light cream #FFE2BE */
+    --tertiary: 33 100% 87%;
+    /* #FFE2BE */
+    --tertiary-foreground: 19 55% 28%;
+
+    /* Success: Teal accent */
+    --success: 162 78% 46%;
+    /* #22C3A6 */
+    --success-foreground: 0 0% 100%;
+
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+
+    --accent: 315 85% 97%;
+    --accent-foreground: 302 66% 19%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 19 55% 28%;
+    /* Use primary color for focus rings */
+
+    /* Custom grays */
+    --gray-50: 210 20% 98%;
+    --gray-100: 210 20% 96%;
+    --gray-200: 210 16% 93%;
+    --gray-300: 210 14% 89%;
+    --gray-400: 215 14% 71%;
+    --gray-500: 215 13% 50%;
+    --gray-600: 215 25% 27%;
+    --gray-700: 215 25% 18%;
+    --gray-800: 215 39% 15%;
+    --gray-900: 215 28% 17%;
+
+    --radius: 1rem;
+
+    /* ========== Consistent Typography System ========== */
+    /* Standard post and comment typography sizes for uniform experience */
+    --post-title-size: 0.875rem;
+    /* 14px - sm */
+    --post-content-size: 0.875rem;
+    /* 14px - sm */
+    --comment-text-size: 0.875rem;
+    /* 14px - sm */
+    --comment-text-compact: 0.5625rem;
+    /* 9px - xxs for dense comments */
+    --username-size: 0.875rem;
+    /* 14px - sm */
+    --timestamp-size: 0.75rem;
+    /* 12px - xs */
+    --action-label-size: 0.75rem;
+    /* 12px - xs */
+    --badge-size: 0.75rem;
+    /* 12px - xs */
+    --meta-info-size: 0.875rem;
+    /* 14px - sm */
+
+    /* Beautiful gradients using exact colors */
+    --gradient-primary: linear-gradient(135deg, hsl(19 55% 28%), hsl(19 55% 40%));
+    --gradient-secondary: linear-gradient(135deg, hsl(33 69% 59%), hsl(33 100% 87%));
+    --gradient-subtle: linear-gradient(180deg, hsl(33 100% 87% / 0.5), hsl(33 100% 87% / 0.2));
+
+    /* Smooth transitions */
+    --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-bounce: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+
+    /* Shadows using your brand colors */
+    --shadow-elegant: 0 10px 30px -10px hsl(19 55% 28% / 0.25);
+    --shadow-glow: 0 0 40px hsl(33 69% 59% / 0.4);
+    --shadow-soft: 0 2px 20px hsl(19 55% 28% / 0.1);
+
+    --chart-1: 33 69% 59%;  /* secondary */
+    --chart-2: 210 100% 50%; /* blue */
+    --chart-3: 162 78% 46%; /* success */
+    --chart-4: 280 60% 50%; /* purple */
+
+    /* Premium Player System (light-mode equivalents) */
+    --player-bg: #f8f8fa;
+    --player-surface: #ffffff;
+    --player-card: #f0f0f2;
+    --player-accent: #7c6aef;
+    --player-gold: #d4a730;
+    --player-gold-dim: rgba(212,167,48,0.12);
+    --player-border: rgba(0,0,0,0.08);
+  }
+
+  [data-theme="dark"] {
+    /* Deep dark backgrounds for a premium feel */
+    --background: 220 22% 7%;
+    --foreground: 210 30% 93%;
+    --bg: #111111;
+    --text: #ffffff;
+    --white: #ffffff;
+    --black: #000000;
+
+    /* Cards slightly lighter than background for depth */
+    --card: 220 20% 11%;
+    --card-foreground: 210 30% 93%;
+
+    --popover: 220 20% 12%;
+    --popover-foreground: 210 30% 93%;
+
+    /* Brand primary brightened slightly for dark backgrounds */
+    --primary: 19 60% 45%;
+    --primary-foreground: 0 0% 100%;
+    --primary-light: 19 60% 55%;
+
+    --secondary: 33 70% 55%;
+    --secondary-foreground: 0 0% 100%;
+
+    --tertiary: 33 45% 18%;
+    --tertiary-foreground: 33 100% 87%;
+
+    /* Success stays readable in dark */
+    --success: 162 70% 42%;
+    --success-foreground: 0 0% 100%;
+
+    /* Muted: subtle surface, readable text */
+    --muted: 220 18% 16%;
+    --muted-foreground: 215 18% 62%;
+
+    --accent: 220 18% 16%;
+    --accent-foreground: 210 30% 90%;
+
+    --destructive: 0 65% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 15% 20%;
+    --input: 220 15% 17%;
+    --ring: 19 60% 45%;
+
+    /* Dark-mode gray scale (inverted: 50 = darkest, 900 = lightest) */
+    --gray-50: 220 18% 12%;
+    --gray-100: 220 18% 15%;
+    --gray-200: 220 16% 19%;
+    --gray-300: 220 14% 25%;
+    --gray-400: 215 12% 42%;
+    --gray-500: 215 10% 52%;
+    --gray-600: 215 14% 68%;
+    --gray-700: 215 14% 76%;
+    --gray-800: 215 18% 84%;
+    --gray-900: 215 20% 91%;
+
+    /* Dark-mode gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(19 60% 35%), hsl(19 60% 48%));
+    --gradient-secondary: linear-gradient(135deg, hsl(33 70% 45%), hsl(33 60% 30%));
+    --gradient-subtle: linear-gradient(180deg, hsl(220 18% 16% / 0.8), hsl(220 18% 16% / 0.3));
+
+    /* Dark-mode shadows */
+    --shadow-elegant: 0 10px 30px -10px hsl(0 0% 0% / 0.6);
+    --shadow-glow: 0 0 40px hsl(19 60% 45% / 0.25);
+    --shadow-soft: 0 2px 20px hsl(0 0% 0% / 0.4);
+
+    --chart-1: 33 70% 55%;
+    --chart-2: 210 90% 60%;
+    --chart-3: 162 70% 42%;
+    --chart-4: 280 50% 60%;
+
+    /* Premium Player System */
+    --player-bg: #070709;
+    --player-surface: #121214;
+    --player-card: #1a1a1d;
+    --player-accent: #9b8fff;
+    --player-gold: #f5c842;
+    --player-gold-dim: rgba(245,200,66,0.12);
+    --player-border: rgba(255,255,255,0.08);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+
+  /* Active state for primary interactive elements only */
+
+  /* Remove global focus rings as requested */
+  button:focus-visible,
+  [role="button"]:focus-visible,
+  input:focus-visible,
+  textarea:focus-visible,
+  select:focus-visible {
+    outline: none !important;
+    box-shadow: none !important;
+  }
+
+  /* Remove any default pink/purple colors from webkit */
+  *::-webkit-details-marker {
+    display: none;
+  }
+
+  *::-webkit-calendar-picker-indicator {
+    filter: hue-rotate(180deg);
+  }
+}
+
+@layer utilities {
+  .line-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  /* Mobile-first safe area handling */
+  .safe-area-top {
+    padding-top: env(safe-area-inset-top);
+  }
+
+  .safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .safe-area-left {
+    padding-left: env(safe-area-inset-left);
+  }
+
+  .safe-area-right {
+    padding-right: env(safe-area-inset-right);
+  }
+
+  .safe-area-full {
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+
+  /* Enhanced touch targets for mobile */
+  .touch-target {
+    min-height: 44px;
+    /* iOS minimum */
+    min-width: 44px;
+    touch-action: manipulation;
+  }
+
+  .touch-target-large {
+    min-height: 48px;
+    /* Android Material Design */
+    min-width: 48px;
+    touch-action: manipulation;
+  }
+
+  /* Optimized scroll performance */
+  .scroll-optimized {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    will-change: scroll-position;
+    backface-visibility: hidden;
+    transform: translateZ(0);
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Content visibility for better performance */
+  .content-visibility-auto {
+    content-visibility: auto;
+    contain-intrinsic-size: 0 200px;
+  }
+
+  /* Mobile spacing utilities */
+  .mobile-px {
+    @apply px-4 sm:px-6;
+  }
+
+  .mobile-py {
+    @apply py-3 sm:py-4;
+  }
+
+  .mobile-gap {
+    @apply gap-3 sm:gap-4;
+  }
+
+  /* Swipe indicator */
+  .swipe-indicator {
+    position: relative;
+  }
+
+  .swipe-indicator::after {
+    content: '';
+    position: absolute;
+    bottom: -8px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 30px;
+    height: 3px;
+    background: hsl(var(--muted-foreground));
+    border-radius: 2px;
+    opacity: 0.3;
+  }
+
+  /* Hide scrollbars while keeping scroll functionality */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    /* Internet Explorer 10+ */
+    scrollbar-width: none;
+    /* Firefox */
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+    /* Safari and Chrome */
+  }
+
+  /* Reduced motion support */
+  @media (prefers-reduced-motion: reduce) {
+    .hover-scale {
+      @apply transform-none transition-none;
+    }
+
+    .animate-fade-in,
+    .animate-scale-in,
+    .animate-slide-up,
+    .animate-bounce-in {
+      @apply animate-none;
+    }
+  }
+
+  /* Heart pulse animation for SOS cards */
+  .heart-pulse {
+    animation: heartPulse 1.5s ease-in-out infinite;
+  }
+
+  @keyframes heartPulse {
+    0% {
+      transform: scale(1);
+    }
+
+    50% {
+      transform: scale(1.05);
+    }
+
+    100% {
+      transform: scale(1);
+    }
+  }
+
+  /* Smooth fade-out animation for modal dismissal */
+  .animate-fade-out {
+    opacity: 0;
+    transform: translateY(20px) scale(0.95);
+    transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  }
+
+  /* Update notifier slide down animation */
+  .animate-slide-down {
+    animation: slideDown 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  @keyframes slideDown {
+    from {
+      transform: translate(-50%, calc(-100% - 1rem));
+      opacity: 0;
+    }
+
+    to {
+      transform: translate(-50%, 0);
+      opacity: 1;
+    }
+  }
+
+  /* Prevent pull-to-refresh on modal */
+  .no-pull-refresh {
+    touch-action: none !important;
+    overscroll-behavior: none !important;
+    -webkit-overflow-scrolling: auto !important;
+    overflow: hidden !important;
+  }
+
+  .no-pull-refresh * {
+    overscroll-behavior: none !important;
+  }
+
+  /* Typography Overrides for Rich Text */
+  .prose p {
+    margin-top: 1.25em !important;
+    margin-bottom: 1.25em !important;
+    line-height: 1.6;
+  }
+
+  .prose :first-child {
+    margin-top: 0 !important;
+  }
+
+  .prose :last-child {
+    margin-bottom: 0 !important;
+  }
+
+  /* Text Alignment Classes for Tiptap */
+  .prose .text-left { text-align: left !important; }
+  .prose .text-center { text-align: center !important; }
+  .prose .text-right { text-align: right !important; }
+  .prose .text-justify { text-align: justify !important; }
+}
+
+/* ═══════════════════════════════════════════════════════
+   Body scroll lock — used when wallet overlays are active
+   ═══════════════════════════════════════════════════════ */
+body.modal-overlay-open {
+  overflow: hidden !important;
+  position: fixed;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+/* iOS PWA safe height utility */
+@supports (height: 100dvh) {
+  .pwa-safe-height {
+    height: 100dvh;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   📖 STORY VIEWER — Instagram-Level Design System
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ─── Blur Background Layer ──────────────────────────────────────── */
+.story-bg-blur {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.story-bg-media {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scale(1.15);
+  filter: blur(40px) brightness(0.7);
+  will-change: filter, transform;
+}
+
+.story-bg-overlay {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(0, 0, 0, 0.3) 0%,
+    rgba(0, 0, 0, 0.6) 100%
+  );
+}
+
+@keyframes storyBgFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(1.3);
+    filter: blur(80px) brightness(0.5) saturate(1);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1.15);
+    filter: blur(60px) brightness(0.7) saturate(1.2);
+  }
+}
+
+/* ─── Story Content Frame ────────────────────────────────────────── */
+.story-content-frame {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100dvh;
+  max-width: 100%;
+  overflow: hidden;
+  background: transparent;
+  box-shadow: 0 0 40px rgba(0, 0, 0, 0.4); /* Suble shadow for foreground container */
+}
+
+@media (min-width: 768px) {
+  .story-content-frame {
+    height: 100dvh;
+  }
+}
+
+/* ─── Progress Bars ──────────────────────────────────────────────── */
+.story-progress-track {
+  flex: 1;
+  height: 2.5px;
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 2px;
+  overflow: hidden;
+  backdrop-filter: blur(4px);
+}
+
+.story-progress-fill {
+  height: 100%;
+  background: white;
+  border-radius: 2px;
+  position: relative;
+  will-change: transform;
+}
+
+
+
+/* ─── Gradient Overlays for Readability ──────────────────────────── */
+.story-gradient-top {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 120px;
+  background: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.6) 0%,
+    rgba(0, 0, 0, 0.3) 40%,
+    transparent 100%
+  );
+  z-index: 5;
+  pointer-events: none;
+}
+
+.story-gradient-bottom {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 200px;
+  background: linear-gradient(
+    to top,
+    rgba(0, 0, 0, 0.7) 0%,
+    rgba(0, 0, 0, 0.4) 30%,
+    transparent 100%
+  );
+  z-index: 5;
+  pointer-events: none;
+}
+
+/* ─── Media Transition System ────────────────────────────────────── */
+.story-media-transition {
+  transition: transform 0.4s cubic-bezier(0.32, 0.72, 0, 1),
+              opacity 0.4s ease;
+}
+
+.story-exit-left {
+  transform: translateX(-100%) scale(0.9);
+  opacity: 0;
+}
+
+.story-exit-right {
+  transform: translateX(100%) scale(0.9);
+  opacity: 0;
+}
+
+.story-enter-right {
+  transform: translateX(100%);
+  opacity: 0;
+}
+
+.story-enter-left {
+  transform: translateX(-100%);
+  opacity: 0;
+}
+
+/* ─── Icon Buttons ───────────────────────────────────────────────── */
+.story-icon-btn {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: background 0.2s ease, transform 0.15s ease;
+  touch-action: manipulation;
+}
+
+.story-icon-btn:active {
+  transform: scale(0.92) !important;
+  background: rgba(0, 0, 0, 0.4) !important;
+  color: white !important;
+}
+
+/* ─── Story Actions (Like, Reshare) ──────────────────────────────── */
+.story-action-btn {
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  transition: all 0.2s ease;
+  touch-action: manipulation;
+}
+
+.story-action-btn:active {
+  transform: scale(0.9) !important;
+  background: rgba(255, 255, 255, 0.15) !important;
+  color: white !important;
+}
+
+/* ─── Message Input ──────────────────────────────────────────────── */
+.story-message-input {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-radius: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.story-message-input:focus-within {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+/* ─── Activity Button ────────────────────────────────────────────── */
+.story-activity-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 20px;
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-radius: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: white;
+  font-size: 14px;
+  transition: all 0.2s ease;
+  touch-action: manipulation;
+}
+
+.story-activity-btn:active {
+  transform: scale(0.96) !important;
+  background: rgba(255, 255, 255, 0.18) !important;
+  color: white !important;
+}
+
+/* ─── Mention Tags ───────────────────────────────────────────────── */
+.story-mention-tag {
+  padding: 4px 12px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: white;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  transition: background 0.2s ease;
+  touch-action: manipulation;
+}
+
+.story-mention-tag:active {
+  background: rgba(255, 255, 255, 0.22) !important;
+  color: white !important;
+}
+
+
+
+/* ─── Link Modal ─────────────────────────────────────────────────── */
+.story-link-modal {
+  background: rgba(30, 30, 30, 0.95);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: 20px;
+  padding: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+/* ─── Dropdown Menu ──────────────────────────────────────────────── */
+.story-dropdown {
+  background: rgba(20, 20, 20, 0.95);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+  min-width: 170px;
+  box-shadow: 0 15px 40px rgba(0, 0, 0, 0.5);
+  animation: dropdownIn 0.15s ease-out;
+}
+
+.story-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 18px;
+  font-size: 14px;
+  transition: background 0.15s ease;
+}
+
+.story-dropdown-item:active {
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: inherit !important;
+}
+
+@keyframes dropdownIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* ─── Swipe-Down Indicator ───────────────────────────────────────── */
+.story-swipe-indicator {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  animation: swipeIndicatorPulse 0.8s ease-in-out infinite;
+}
+
+@keyframes swipeIndicatorPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+}
+
+/* ─── Reduced Motion Support ─────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .story-bg-media {
+    animation: none;
+  }
+  .story-media-transition {
+    transition: none;
+  }
+
+  .story-dropdown {
+    animation: none;
+  }
+  .story-swipe-indicator {
+    animation: none;
+  }
+  .story-progress-fill::after {
+    display: none;
+  }
+}
+/* Serkle cold-launch opening */
+.serkle-app-layer {
+  min-height: 100dvh;
+  opacity: 0;
+  transition: opacity 300ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.serkle-app-layer.is-visible {
+  opacity: 1;
+}
+
+.serkle-opening {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left);
+  background: #fffdf9;
+  isolation: isolate;
+  opacity: 1;
+}
+
+.serkle-opening.is-exiting {
+  pointer-events: none;
+  animation: serkleOpeningExit 300ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+.serkle-opening__background {
+  position: absolute;
+  inset: -1%;
+  z-index: -1;
+  background-color: #fffdf9;
+  background-image: url('/opening/opening_background_1080x1920.png');
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: cover;
+}
+
+.serkle-opening__mark {
+  position: relative;
+  width: clamp(132px, 34vw, 220px);
+  aspect-ratio: 1;
+  opacity: 0;
+  transform: scale(0.92);
+  animation: serkleMarkArrival 308ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  will-change: transform, opacity;
+}
+
+.serkle-opening__layer,
+.serkle-opening__split,
+.serkle-opening__shimmer {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.serkle-opening__layer {
+  object-fit: contain;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.serkle-opening__full {
+  animation: serkleFullMark 2100ms steps(1, end) both;
+}
+
+.serkle-opening__split {
+  animation: serkleSplitVisibility 2100ms steps(1, end) both;
+}
+
+.serkle-opening__left {
+  clip-path: inset(0 50% 0 0);
+  animation: serkleLeftHalf 2100ms linear both;
+  will-change: transform, opacity;
+}
+
+.serkle-opening__right {
+  clip-path: inset(0 0 0 50%);
+  animation: serkleRightHalf 2100ms linear both;
+  will-change: transform, opacity;
+}
+
+.serkle-opening__shimmer {
+  overflow: hidden;
+  -webkit-mask: url('/opening/serkle_mark_full.png') center / contain no-repeat;
+  mask: url('/opening/serkle_mark_full.png') center / contain no-repeat;
+}
+
+.serkle-opening__shimmer > span {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  background: linear-gradient(
+    105deg,
+    transparent 32%,
+    rgb(255 250 226 / 0.95) 48%,
+    rgb(255 255 255 / 0.7) 52%,
+    transparent 68%
+  );
+  animation: serkleLightSweep 2100ms ease-in-out both;
+  will-change: transform, opacity;
+}
+
+@keyframes serkleMarkArrival {
+  from { opacity: 0; transform: scale(0.92); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes serkleFullMark {
+  0% { visibility: hidden; }
+  65.33%, 100% { visibility: visible; }
+}
+
+@keyframes serkleSplitVisibility {
+  0% { visibility: visible; }
+  65.33%, 100% { visibility: hidden; }
+}
+
+@keyframes serkleLeftHalf {
+  0%, 14.67% {
+    transform: translate3d(0, 0, 0);
+    animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  36% {
+    transform: translate3d(-14px, 0, 0);
+    animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  60% {
+    transform: translate3d(2px, 0, 0);
+    animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  65.33%, 100% {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes serkleRightHalf {
+  0%, 14.67% {
+    transform: translate3d(0, 0, 0);
+    animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  36% {
+    transform: translate3d(14px, 0, 0);
+    animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  60% {
+    transform: translate3d(-2px, 0, 0);
+    animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  65.33%, 100% {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes serkleLightSweep {
+  0%, 65.33% { opacity: 0; transform: translate3d(-70%, 0, 0); }
+  70% { opacity: 0.16; }
+  82.67% { opacity: 0; transform: translate3d(70%, 0, 0); }
+  100% { opacity: 0; transform: translate3d(70%, 0, 0); }
+}
+
+@keyframes serkleOpeningExit {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+.serkle-opening.is-exiting .serkle-opening__mark {
+  animation: serkleLogoExit 300ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+@keyframes serkleLogoExit {
+  from { opacity: 1; transform: scale(1); }
+  to { opacity: 0.96; transform: scale(0.94); }
+}
+
+.serkle-opening.is-reduced-motion .serkle-opening__mark {
+  animation: serkleReducedArrival 180ms ease-out both;
+}
+
+.serkle-opening.is-reduced-motion .serkle-opening__full {
+  animation: none;
+  visibility: visible;
+  opacity: 1;
+}
+
+.serkle-opening.is-reduced-motion .serkle-opening__split,
+.serkle-opening.is-reduced-motion .serkle-opening__shimmer {
+  display: none;
+}
+
+.serkle-opening.is-reduced-motion.is-exiting {
+  animation-duration: 180ms;
+}
+
+.serkle-opening.is-reduced-motion.is-exiting .serkle-opening__mark {
+  animation: none;
+  opacity: 1;
+  transform: none;
+}
+
+@keyframes serkleReducedArrival {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.serkle-opening__loading {
+  position: absolute;
+  top: calc(50% + clamp(40px, 10.2vw, 66px) + 18px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  color: rgb(113 58 32 / 0.72);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  line-height: 1.5;
+}
+
+.serkle-opening__loading-track {
+  width: 64px;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgb(113 58 32 / 0.12);
+}
+
+.serkle-opening__loading-glide {
+  display: block;
+  width: 28px;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #e09f4d, #713a20);
+  animation: serkleLoadingGlide 1400ms cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes serkleLoadingGlide {
+  0% { transform: translateX(-28px); opacity: 0; }
+  20%, 80% { opacity: 1; }
+  100% { transform: translateX(64px); opacity: 0; }
+}
+
+.serkle-opening.is-reduced-motion .serkle-opening__loading-glide {
+  animation: none;
+  transform: translateX(18px);
+}
+
+/* Start all logo layers together after decoding. Keep the loading cue active. */
+.serkle-opening:not(.is-playing) .serkle-opening__mark,
+.serkle-opening:not(.is-playing) .serkle-opening__layer,
+.serkle-opening:not(.is-playing) .serkle-opening__split,
+.serkle-opening:not(.is-playing) .serkle-opening__shimmer > span {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .serkle-app-layer { transition-duration: 180ms; }
+  .serkle-opening__loading-glide { animation: none; transform: translateX(18px); }
+}
+
+/* ─── Instagram-style story interactions ─────────────────────────── */
+@keyframes storyHeartPop {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.35);
+  }
+  70% {
+    transform: scale(0.92);
+  }
+  100% {
+    transform: scale(1.12);
+  }
+}
+
+.story-heart-pop {
+  animation: storyHeartPop 0.45s cubic-bezier(0.17, 0.89, 0.32, 1.28) both;
+}
+
+/* Smoother, more responsive story page transitions (Instagram-style) */
+.story-media-transition {
+  transition: transform 0.35s cubic-bezier(0.3, 0.7, 0.2, 1),
+              opacity 0.35s ease;
+}
+
+/* Light spring feedback keeps footer navigation lively without shifting layout. */
+@keyframes serkleFooterNavEnter {
+  0% { opacity: 0; transform: translate3d(0, 10px, 0); }
+  72% { opacity: 1; transform: translate3d(0, -1px, 0); }
+  100% { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .serkle-footer-nav--enter {
+    animation: serkleFooterNavEnter 480ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+}
+
+.serkle-footer-nav button[role="tab"]:not([aria-label="Create"]):not([aria-label="Share Story"]) {
+  scale: 1;
+  transform-origin: center;
+  transition: scale 300ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.serkle-footer-nav button[role="tab"][aria-selected="true"]:not([aria-label="Create"]):not([aria-label="Share Story"]) {
+  scale: 1.04;
+}
+
+.serkle-footer-nav button[role="tab"]:active:not([aria-label="Create"]):not([aria-label="Share Story"]) {
+  scale: 0.94;
+}
+
+.serkle-footer-nav button[aria-label="Create"],
+.serkle-footer-nav button[aria-label="Share Story"] {
+  transition: scale 300ms cubic-bezier(0.22, 1, 0.36, 1),
+              box-shadow 300ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.serkle-footer-nav button[aria-label="Create"]:active,
+.serkle-footer-nav button[aria-label="Share Story"]:active {
+  scale: 0.94;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .serkle-footer-nav--enter { animation: none; }
+  .serkle-footer-nav button[role="tab"] { transition: none; }
+}
+
+/* Slow, glossy color flow gives the raised Create button a liquid finish. */
+.serkle-create-button {
+  background-image:
+    radial-gradient(ellipse at 20% 18%, rgb(255 255 255 / 0.32), transparent 46%),
+    radial-gradient(ellipse at 80% 84%, hsl(var(--secondary) / 0.7), transparent 52%),
+    linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary-light)), hsl(var(--secondary)));
+  background-size: 170% 170%, 155% 155%, 220% 220%;
+  background-position: 0% 0%, 100% 100%, 0% 50%;
+  animation: serkleCreateLiquid 7s ease-in-out infinite;
+}
+
+@keyframes serkleCreateLiquid {
+  0%, 100% { background-position: 0% 0%, 100% 100%, 0% 50%; }
+  50% { background-position: 100% 100%, 0% 0%, 100% 50%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .serkle-create-button {
+    animation: none;
+    background-position: 50% 50%, 50% 50%, 50% 50%;
+  }
+}

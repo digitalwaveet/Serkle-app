@@ -1,0 +1,81 @@
+{
+  "name": "Serkle Opening Experience",
+  "version": "1.0",
+  "target_total_duration_ms": 1800,
+  "minimum_visible_duration_ms": 1400,
+  "max_animation_duration_ms": 2200,
+  "play_policy": "Cold launch / once per app session. Do not replay on every resume.",
+  "background": {
+    "asset": "assets/opening_background_1080x1920.png",
+    "fit": "cover",
+    "position": "center",
+    "fallback_color": "#FFFDF9",
+    "background_motion": "Optional 1-2% slow drift only; never distract from the mark."
+  },
+  "logo": {
+    "full": "assets/serkle_mark_full.png",
+    "left": "assets/serkle_mark_left.png",
+    "right": "assets/serkle_mark_right.png",
+    "plus": "assets/serkle_plus.png",
+    "resting_width_percent_of_viewport": 34,
+    "max_width_dp": 220,
+    "min_width_dp": 132
+  },
+  "timeline": [
+    {
+      "from_ms": 0,
+      "to_ms": 220,
+      "action": "Reveal opening scene",
+      "details": "Background already visible. Full Serkle mark fades 0\u21921 and scales 0.92\u21921.00. No rotation.",
+      "easing": "cubic-bezier(0.22,1,0.36,1)"
+    },
+    {
+      "from_ms": 220,
+      "to_ms": 540,
+      "action": "Separate into two halves",
+      "details": "Crossfade from full mark to left/right layers. Left moves -14dp, right +14dp. Plus fades 0\u21920.80 and scales 0.75\u21921.00.",
+      "easing": "cubic-bezier(0.4,0,0.2,1)"
+    },
+    {
+      "from_ms": 540,
+      "to_ms": 980,
+      "action": "Flow together",
+      "details": "Left/right return to zero offset with a tiny 2dp overshoot. Plus fades out during final 140ms. The mark must reconnect perfectly.",
+      "easing": "cubic-bezier(0.16,1,0.3,1)"
+    },
+    {
+      "from_ms": 980,
+      "to_ms": 1240,
+      "action": "Soft light sweep",
+      "details": "Very subtle warm highlight travels left\u2192right across the mark or a low-opacity overlay passes behind it. Keep opacity \u22640.16.",
+      "easing": "ease-in-out"
+    },
+    {
+      "from_ms": 1240,
+      "to_ms": 1500,
+      "action": "Hold",
+      "details": "Full logo rests completely still. No pulse.",
+      "easing": "linear"
+    },
+    {
+      "from_ms": 1500,
+      "to_ms": 1800,
+      "action": "Transition to app",
+      "details": "If home is ready, crossfade splash opacity 1\u21920 while home fades in. Optional: logo scales 1\u21920.94. If app is not ready, hold the final frame until ready, then transition.",
+      "easing": "cubic-bezier(0.4,0,0.2,1)"
+    }
+  ],
+  "reduced_motion": {
+    "behavior": "Show static centered mark over the background, fade in 180ms, hold only until app ready, crossfade out 180ms. No split, plus, shimmer, or scale travel."
+  },
+  "performance": {
+    "goal": "60fps",
+    "rules": [
+      "Animate only transform and opacity where possible.",
+      "Do not decode large images every frame.",
+      "Preload opening assets.",
+      "Use the native launch screen only as a static bridge; animate in an app-level splash component.",
+      "Never delay actual app readiness solely to complete decorative motion beyond max_animation_duration_ms."
+    ]
+  }
+}

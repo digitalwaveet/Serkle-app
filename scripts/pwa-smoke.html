@@ -1,0 +1,47 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>Serkle local PWA smoke test</title>
+<h1>Serkle local PWA smoke test</h1><p>Isolated test origin. No account, backend upload, publication or real notification.</p>
+<button id="run">Run local worker checks</button><pre id="result">Ready</pre>
+<script>
+const out = document.querySelector('#result');
+const report = text => { out.textContent += '\n' + text; };
+document.querySelector('#run').onclick = async () => {
+  document.querySelector('#run').disabled = true; out.textContent = 'Running';
+  let db, fixtureId;
+  try {
+    await fetch('/__pwa-offline-off');
+    await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+    await navigator.serviceWorker.ready;
+    if (!navigator.serviceWorker.controller) await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(Error('Worker control timeout')), 15000);
+      navigator.serviceWorker.addEventListener('controllerchange', () => { clearTimeout(timer); resolve(); }, { once: true });
+    });
+    report('PASS: production service worker activated and controls page');
+    const image = await (await fetch('/icon-192.png')).blob();
+    const data = new FormData(); data.set('text', 'SERKLE LOCAL TEST — not published'); data.append('files', image, 'local-test.png');
+    const shared = await fetch('/share-target', { method: 'POST', body: data });
+    fixtureId = new URL(shared.url).searchParams.get('draft');
+    if (!fixtureId || !shared.ok) throw Error('Share did not redirect to review');
+    db = await new Promise((resolve, reject) => { const r = indexedDB.open('serkle-share-inbox'); r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error); });
+    const draft = await new Promise((resolve, reject) => { const r = db.transaction('drafts').objectStore('drafts').get(fixtureId); r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error); });
+    if (!draft || draft.text !== data.get('text') || draft.files.length !== 1 || draft.files[0].size !== image.size) throw Error('Shared draft did not preserve text/image');
+    report('PASS: multipart text + image stored locally and redirected to review');
+    const empty = await fetch('/share-target', { method: 'POST', body: new FormData() });
+    if (!new URL(empty.url).searchParams.has('error')) throw Error('Empty share was accepted');
+    report('PASS: empty share rejected with safe error route');
+    await fetch('/__pwa-offline-on');
+    const frame = document.createElement('iframe'); frame.title = 'Offline app route'; frame.style = 'width:420px;height:640px';
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(Error('Offline navigation timeout')), 20000);
+      frame.onload = () => { clearTimeout(timer); frame.contentDocument?.getElementById('root') ? resolve() : reject(Error('Offline app shell unavailable')); };
+      frame.src = '/share?error=invalid'; document.body.append(frame);
+    });
+    report('PASS: navigation returns cached app shell while local app host responds 503');
+    report('COMPLETE: production-worker browser smoke tests passed');
+  } catch (error) { report('FAIL: ' + error.message); }
+  finally {
+    await fetch('/__pwa-offline-off');
+    if (db && fixtureId) await new Promise((resolve, reject) => { const tx = db.transaction('drafts', 'readwrite'); tx.objectStore('drafts').delete(fixtureId); tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); });
+    db?.close(); report('Temporary local test draft removed.');
+  }
+};
+</script></html>

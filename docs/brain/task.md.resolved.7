@@ -1,0 +1,29 @@
+# Circle Feed Video Tab Implementation
+
+- [x] Database Schema Setup
+    - [x] Create [20260318085500_circle_videos.sql](file:///c:/Users/elink/.gemini/antigravity/scratch/MomNest/heart-lens-studio-main/supabase/migrations/20260318085500_circle_videos.sql) migration
+    - [x] Create `video_playlists` table
+    - [x] Create `circle_videos` table
+    - [x] Create `video_unlocks` table
+    - [x] Modify `circle_tips` table
+- [x] Hooks & Logic
+    - [x] Refine [useCircleVideos.ts](file:///c:/Users/elink/.gemini/antigravity/scratch/MomNest/heart-lens-studio-main/src/hooks/useCircleVideos.ts) hook
+    - [x] Create [useVideoPlaylists.ts](file:///c:/Users/elink/.gemini/antigravity/scratch/MomNest/heart-lens-studio-main/src/hooks/useVideoPlaylists.ts) hook
+- [x] UI Components
+    - [x] Create [CircleVideoCard.tsx](file:///c:/Users/elink/.gemini/antigravity/scratch/MomNest/heart-lens-studio-main/src/components/circles/CircleVideoCard.tsx)
+    - [x] Create [CircleVideoPlayer.tsx](file:///c:/Users/elink/.gemini/antigravity/scratch/MomNest/heart-lens-studio-main/src/components/circles/CircleVideoPlayer.tsx)
+    - [x] Create [CircleVideoComposer.tsx](file:///c:/Users/elink/.gemini/antigravity/scratch/MomNest/heart-lens-studio-main/src/components/circles/CircleVideoComposer.tsx)
+    - [x] Create [CircleVideos.tsx](file:///c:/Users/elink/.gemini/antigravity/scratch/MomNest/heart-lens-studio-main/src/components/circles/CircleVideos.tsx) (Main Tab)
+- [x] Integration
+    - [x] Modify [CircleDetail.tsx](file:///c:/Users/elink/.gemini/antigravity/scratch/MomNest/heart-lens-studio-main/src/pages/CircleDetail.tsx) to add the Videos tab
+- [x] Verification
+    - [x] Verify upload flow
+    - [x] Verify monetization/unlocking
+    - [x] Verify playlists & autoplay
+    - [x] Add documentation to [walkthrough.md](file:///c:/Users/elink/.gemini/antigravity/brain/772c45db-b869-4d3c-8424-7102f79214c4/walkthrough.md)
+    - [x] Push all changes to GitHub
+- [/] Navigation Fix
+    - [ ] Streamline [FooterNav](file:///c:/Users/elink/.gemini/antigravity/scratch/MomNest/heart-lens-studio-main/src/components/FooterNav.tsx#35-309) navigation
+    - [ ] Remove redundant `navigate` in [CircleDetailWrapper](file:///c:/Users/elink/.gemini/antigravity/scratch/MomNest/heart-lens-studio-main/src/components/CircleDetailWrapper.tsx#6-36)
+    - [ ] Update `ArrowLeft` in [CircleDetail](file:///c:/Users/elink/.gemini/antigravity/scratch/MomNest/heart-lens-studio-main/src/pages/CircleDetail.tsx#38-488)
+    - [ ] Verify fix across all navigation points
