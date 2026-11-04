@@ -4,6 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { CIRCLE_ACCESS_QUERY_KEYS } from '@/lib/circlePayments';
 import { chapaRequestKey, pendingChapaKey, recordTopUpResult, topUpState, readChapaStorage, writeChapaStorage } from '@/lib/chapaPayments';
+import { edgeFunctionErrorMessage } from '@/lib/edgeFunctionError';
 
 export interface CoinWallet {
   user_id: string;
@@ -44,8 +45,9 @@ async function callEdgeFunction(
   });
 
   if (error) {
-    console.error(`Edge Function ${name} error:`, error);
-    throw new Error(error.message || 'Request failed');
+    const message = await edgeFunctionErrorMessage(error);
+    console.error(`Edge Function ${name} error:`, message);
+    throw new Error(message);
   }
 
   if (!data?.success && !data?.status) {

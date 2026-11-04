@@ -16,7 +16,7 @@
     "test:circle-collections": "node --experimental-strip-types --test src/tests/circle-collections.test.ts",
     "test:circle-membership": "node --experimental-strip-types --test src/tests/circle-membership.integration.test.ts",
     "test:circle-leave-ui": "node --experimental-strip-types --test src/tests/circle-leave.ui.test.ts",
-    "test:payments": "node --experimental-strip-types --test src/tests/chapa-lifecycle.integration.test.ts",
+    "test:payments": "node --experimental-strip-types --test src/tests/chapa-lifecycle.integration.test.ts src/tests/edge-function-error.test.ts",
     "build:chapa-deployment": "node scripts/build-chapa-deployment.mjs",
     "test:payment-cors": "node --experimental-strip-types --test src/tests/chapa-cors.test.ts"
   },
