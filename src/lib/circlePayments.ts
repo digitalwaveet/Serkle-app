@@ -23,7 +23,7 @@ export async function purchaseCircleAccess(kind: 'subscription' | 'post' | 'vide
   return result as { charged: number; replayed: boolean; expires_at?: string };
 }
 
-export const CIRCLE_ACCESS_QUERY_KEYS = ['circle-subscription', 'circle-posts', 'circle-post', 'circle-videos', 'circle-resources', 'coin-wallet', 'coin-transactions', 'circle', 'circles', 'circles-search', 'my-circles', 'owned-circles', 'circle-invite-preview'];
+export const CIRCLE_ACCESS_QUERY_KEYS = ['circle-subscription', 'circle-posts', 'circle-post', 'circle-videos', 'circle-resources', 'coin-wallet', 'coin-transactions', 'wallet-payments', 'wallet-activity', 'wallet-payment-receipt', 'circle', 'circles', 'circles-search', 'my-circles', 'owned-circles', 'circle-invite-preview'];
 
 export async function purchaseCircleBooking(kind: 'event' | 'service', targetId: string, expectedPrice: number, details: Record<string, string> = {}) {
   const { data: { user } } = await supabase.auth.getUser();

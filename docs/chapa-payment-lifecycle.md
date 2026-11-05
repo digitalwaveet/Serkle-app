@@ -81,8 +81,10 @@ Already completed receipts remain recoverable after a webhook or background
 reconciliation clears the pending browser reference.
 
 The scheduled job reconciles due payments even when every client is closed.
-Pending/provider-error intents retry after one minute; completed receipts are
-rechecked daily for missed reversals. Webhooks and explicit verification run
+Recent pending/failed intents retry after one minute; provider errors back off
+from one to fifteen minutes. Older unresolved receipts and completed receipts
+are checked daily. Each batch reserves capacity for settled receipts so pending
+payments cannot indefinitely block missed-reversal checks. Webhooks and explicit verification run
 immediately. Protected media URLs already issued retain their existing maximum
 60-second lifetime; downloaded files cannot be recalled.
 
@@ -96,15 +98,72 @@ honored legacy receipt is not credited twice. Ambiguous legacy receipts stay in
 manual review; authenticated unknown-reference webhooks are durably recorded for
 that review without granting value.
 
+## Wallet receipts, accounting and withdrawals
+
+Wallet > History separates **Payments** (every persisted test/live top-up and
+withdrawal attempt) from **Coin activity** (actual balance movements). Both use
+timestamp/UUID cursor pagination, including records beyond 50. Receipts show
+amount, currency, environment, merchant/provider references, method and fee when
+provided, creation/verification/settlement times, masked withdrawal destination,
+linked ledger IDs and balances after each movement. Times include the viewer's
+timezone. Missing fields say they are unavailable. Test successes and pending
+wallet fulfillment cannot look like credited live money. Account-bound read RPCs
+derive ownership from Auth; callers cannot choose a different user ID.
+
+An append-only audit timeline records initialization, provider checks and errors,
+reserve/restore movements, submission starts and review flags. Only allowlisted
+provider fields enter receipts: no secret keys, full bank account numbers, raw
+provider bodies or webhook payloads. The history includes manual status checks
+and automatic checks with their source. Existing receipts get a clearly marked
+import snapshot; previously unrecorded events are not invented. Uncertain
+checkout responses keep the durable reference and request ID. Concurrent check
+leases and per-user check throttling prevent duplicate fulfillment/provider spam.
+
+Live withdrawals atomically reserve coins and create a receipt before contacting
+Chapa. A permanent submission marker is set before the single provider POST.
+It means submission **started**, not proof the provider received or completed it.
+Retries reuse the request and never automatically send that payout again after a
+timeout or process crash. Verified transfer evidence must match the saved amount,
+currency, reference, environment, timezone-aware timestamp and hashed bank/account
+destination. Only a confirmed failure/reversal returns reserved coins, once.
+A reservation abandoned before the submission marker can be safely returned
+without contacting the provider. A completed payout followed by a generic failed
+state, or success after funds were already returned, requires operator review;
+the system neither pays again nor silently debits the user again. Test withdrawals
+are recorded without reserving or returning real coins. Changing from test to
+live requires the user to review the refreshed mode and confirm again.
+
+Legacy opening balances are preserved in immutable accounting baselines. Every
+later balance change must match an immutable journal entry in the same database
+transaction; deferred constraints reject incomplete money mutations. Sequence
+ordering prevents backdated journal timestamps bypassing this comparison. This
+does not prove the correctness of old balances: reconcile those against provider
+records separately. Tips have authenticated, amount-bound request IDs, fixed
+transaction types and linked sender/receiver journal entries. A retry after an
+unknown network response replays the same operation rather than transferring twice.
+
+Use `supabase/setup/wallet-audit-operations.sql` for read-only investigation of
+overdue receipts, provider success awaiting fulfillment, missing journal entries,
+balance discrepancies and unbound historical withdrawals. Never refund a timeout
+blindly or edit ledger rows. If transfer verification cannot establish what
+happened, keep the saved receipt, reconcile with Chapa and authorize a separately
+audited correction only after evidence establishes the outcome. Provider/network
+availability cannot be guaranteed by application code.
+
+The separate Shop coin flow currently deducts coins before creating an order and
+displays dollar totals. It needs an approved conversion and atomic server-priced
+order settlement, or a temporary disablement. No currency conversion, automatic
+refund for an ambiguous order, or silent change in shopper charges is introduced
+by this wallet release. That product decision remains outstanding.
+
 ## Deployment
 
 To deploy using the Supabase Dashboard editor, run
 `npm run build:chapa-deployment`. It produces single-file functions with no local
 shared-module imports in `deployment/chapa-payment-fix`, plus deployment notes
 and the matching SQL files. Create each function using its exact filename stem.
-The return-reference and receipt-recovery update requires redeploying
-`chapa-initialize` and `chapa-verify` using their regenerated files. It needs no
-additional SQL migration beyond the existing payment schema below.
+Follow [the wallet release guide](wallet-audit-deployment.md) for this release's
+four new SQL migrations and all five functions, including `chapa-transfer`.
 `chapa-reconcile` and `chapa-webhook` disable gateway JWT verification and enforce
 their own authentication for POST. Browser OPTIONS is answered before loading
 payment secrets, and configuration errors include the complete CORS headers.
@@ -122,32 +181,34 @@ JSON error response instead of replacing it with the SDK's generic HTTP error.
 Deploy alongside the earlier Circle entitlement/membership/leave migrations and
 the matching frontend:
 
-1. Authenticate/link Supabase and inspect remote migration history. Apply
-   `20261104140000_verified_chapa_payments.sql` after its existing dependencies.
+1. Inspect remote migration history. Apply the November 5 wallet migrations in
+   filename order after `20261104140000_verified_chapa_payments.sql` and its existing
+   dependencies. Do not rerun already applied schema files.
 2. Configure Edge secrets: `CHAPA_SECRET_KEY`, `CHAPA_MODE` (`live` or `test`),
    `CHAPA_WEBHOOK_SECRET`, `CHAPA_RECONCILE_SECRET`, `PAYMENT_RETURN_ORIGINS`
    (comma-separated app origins). Supabase supplies its URL/service-role key.
    Use separate random webhook/scheduler secrets; never put them in Vite variables.
-3. Deploy `chapa-initialize`, `chapa-verify`, `chapa-webhook` and `chapa-reconcile`
+   Optional `CHAPA_LIVE_SECRET_KEY` and `CHAPA_TEST_SECRET_KEY` allow historical
+   receipts from both modes to be checked when the active mode changes.
+3. Deploy `chapa-initialize`, `chapa-verify`, `chapa-transfer`, `chapa-webhook` and `chapa-reconcile`
    with this repository's function JWT settings. Webhook is public but requires
    its signature; reconciliation verifies the JWT or scheduler secret itself.
 4. In Chapa, register the project's `/functions/v1/chapa-webhook` URL and matching
-   webhook secret for v1 transaction success/failure/refund/reversal events.
+   webhook secret for v1 transaction and payout success/failure/refund/reversal events.
 5. In Supabase Vault, configure `chapa_project_url` and `chapa_reconcile_secret`.
    Apply `supabase/setup/chapa-reconciliation.sql` to schedule the minute job.
    Inspect Cron/pg_net failures and intents with persistent `last_error` values.
 
-The four functions were manually deployed and checked on 2026-11-04. Each
-returned HTTP 204 for browser preflight from `https://serkle-app.vercel.app`;
-user endpoints rejected unauthenticated POSTs and the webhook rejected unsigned
-POSTs. These checks confirm deployment and CORS, not successful fulfillment.
-The allowed return origins, database migrations, provider webhook and scheduler
-configuration still need to be verified with the project owner. No real Chapa
-payment is initiated by these checks or by the tests.
+The November 5 wallet release requires a new manual Supabase deployment; earlier
+CORS checks do not validate this schema or fulfillment. Verify all setup steps
+and completed scheduler runs after deployment. No real Chapa payment is initiated
+by the automated tests.
 
 Provider references: [Chapa v1 webhook verification](https://developer.chapa.co/integrations/webhooks),
 [transaction verification](https://developer.chapa.co/integrations/verify-payments),
 [refund states](https://developer.chapa.co/refund),
+[transfer verification](https://developer.chapa.co/transfer/verify-transfers),
+[transfer reference and approval behavior](https://developer.chapa.co/transfer/transfers),
 [Supabase scheduled Edge Functions](https://supabase.com/docs/guides/functions/schedule-functions).
 
 ## Tests
@@ -162,8 +223,14 @@ coverage for included content, excluded events/services and independent purchase
 The purchase endpoint also repairs the caller's paid grants transactionally
 before evaluating another debit, preventing duplicate charges when a grant row
 is missing during recovery.
+It also covers durable uncertain initialization, receipt pagination and ownership,
+mode-specific reconciliation, provider check rate limits, fair scheduler batches,
+concurrent/uncertain withdrawals, payout webhooks and reversals, destination checks,
+tip idempotency, immutable history and legacy accounting baseline integrity.
 
 `npm run test:payment-return-ui` runs the real return screen and wallet hook in
 isolated Chrome with mocked endpoints and external requests blocked. It covers
 successful test payments, cleared pending storage, reloads, legacy bare returns,
-receipt selection, unknown/pending states, unverified success and login redirects.
+receipt selection, unknown/pending states, unverified success and login redirects,
+receipt/status pagination, ledger history beyond 50 entries, account mismatch
+rejection, manual recovery and test/live withdrawal confirmation changes.

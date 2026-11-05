@@ -1,4 +1,4 @@
-import { pendingChapaKey, writeChapaStorage } from '@/lib/chapaPayments';
+import { parseWalletAmount, pendingChapaKey, writeChapaStorage } from '@/lib/chapaPayments';
 import { SerkleLoader } from '@/components/ui/SerkleLoader';
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -42,7 +42,7 @@ export const WalletTopUpTab: React.FC<WalletTopUpTabProps> = ({
   const [tempEmail, setTempEmail] = useState('');
   const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
 
-  const finalTopUp = topUpAmount || parseInt(customTopUp) || 0;
+  const finalTopUp = topUpAmount || parseWalletAmount(customTopUp);
   const needsEmail = !isValidEmail(user?.email);
 
   const handleNext = () => {
@@ -292,18 +292,18 @@ export const WalletTopUpTab: React.FC<WalletTopUpTabProps> = ({
                 <span className="font-semibold text-foreground">{finalTopUp.toLocaleString()} ETB</span>
               </div>
               <div className="flex justify-between items-center text-sm">
-                <span className="text-muted-foreground">Coins Credited</span>
+                <span className="text-muted-foreground">Coins after verified live payment</span>
                 <span className="font-semibold text-primary flex items-center gap-1">
                   <Coins className="w-3.5 h-3.5 text-yellow-500" />
                   {finalTopUp.toLocaleString()}
                 </span>
               </div>
               <div className="flex justify-between items-center text-sm">
-                <span className="text-muted-foreground">Processing Fee</span>
+                <span className="text-muted-foreground">App top-up fee</span>
                 <span className="text-muted-foreground font-medium">Free</span>
               </div>
               <div className="flex justify-between items-center text-xs text-muted-foreground">
-                <span>Receipt sent to</span>
+                <span>Receipt email</span>
                 <span className="truncate max-w-[180px] font-mono">{user?.email}</span>
               </div>
             </div>
@@ -340,6 +340,7 @@ export const WalletTopUpTab: React.FC<WalletTopUpTabProps> = ({
           </div>
         </div>
       )}
+      {initiateTopUp.isError && <p role="alert" className="mt-3 rounded-lg border border-destructive/40 p-3 text-sm">{initiateTopUp.error?.message || 'Checkout could not be confirmed. Check your saved payment in History before paying again.'}</p>}
     </div>
   );
 };

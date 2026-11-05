@@ -13,6 +13,7 @@ import { Heart, Coins, Gift, AlertCircle } from 'lucide-react';
 import { useCoinWallet } from '@/hooks/useCoinWallet';
 import { useUser } from '@/contexts/UserContext';
 import { supabase } from '@/integrations/supabase/client';
+import { parseWalletAmount } from '@/lib/chapaPayments';
 
 interface TipModalProps {
   isOpen: boolean;
@@ -38,7 +39,7 @@ export const TipModal: React.FC<TipModalProps> = ({
   const [isProcessing, setIsProcessing] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
 
-  const finalAmount = selectedAmount || parseInt(customAmount) || 0;
+  const finalAmount = selectedAmount || parseWalletAmount(customAmount,1,1000);
   const isValidAmount = finalAmount > 0 && finalAmount <= 1000;
   const hasEnoughCoins = finalAmount <= balance;
 

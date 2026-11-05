@@ -3,7 +3,7 @@ import { useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { CIRCLE_ACCESS_QUERY_KEYS } from '@/lib/circlePayments';
-import { CHAPA_RETURN_URL, chapaRequestKey, pendingChapaKey, recordTopUpResult, topUpState, readChapaStorage, writeChapaStorage } from '@/lib/chapaPayments';
+import { CHAPA_RETURN_URL, chapaRequestKey, pendingChapaKey, recordTopUpResult, topUpState, readChapaStorage, writeChapaStorage, clearChapaStorage, withdrawalFingerprint, withdrawalRequestKey, withdrawalReferenceKey } from '@/lib/chapaPayments';
 import { edgeFunctionErrorMessage } from '@/lib/edgeFunctionError';
 
 export interface CoinWallet {
@@ -22,6 +22,7 @@ export interface CoinTransaction {
   description: string;
   balance_after: number;
   created_at: string;
+  operation_id?: string | null;
 }
 
 export interface ChapaBank {
@@ -102,6 +103,9 @@ export function useCoinWallet(userId?: string) {
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['coin-wallet', userId] });
     queryClient.invalidateQueries({ queryKey: ['coin-transactions', userId] });
+    queryClient.invalidateQueries({ queryKey: ['wallet-payments', userId] });
+    queryClient.invalidateQueries({ queryKey: ['wallet-activity', userId] });
+    queryClient.invalidateQueries({ queryKey: ['wallet-payment-receipt', userId] });
   };
 
   // ─── TOP UP: Initiate Chapa checkout ─────────────────────────────────────
@@ -120,7 +124,9 @@ export function useCoinWallet(userId?: string) {
       phoneNumber?: string;
     }) => {
       if (!userId) throw new Error('Please sign in');
-      const key=chapaRequestKey(userId,amount);
+      const configuration=await callEdgeFunction('chapa-transfer?action=configuration',null,'GET');
+      if(configuration.userId!==userId || activeAccount.current!==userId || !['live','test'].includes(configuration.mode)) throw new Error('Payment configuration could not be confirmed. Refresh the wallet before continuing.');
+      const key=chapaRequestKey(userId,amount,configuration.mode);
       let requestId=readChapaStorage(key);
       if(!requestId) {requestId=crypto.randomUUID();writeChapaStorage(key,requestId);}
       const result=await callEdgeFunction('chapa-initialize', { amount, email, firstName, lastName, phoneNumber, returnUrl: CHAPA_RETURN_URL, requestId });
@@ -157,8 +163,13 @@ export function useCoinWallet(userId?: string) {
     },
     onSuccess: (data) => {
       if(data.userId!==activeAccount.current) return;
+      invalidate();
       if(data.status==='selection_required' || data.status==='unknown') return;
       if(userId) recordTopUpResult(userId,data);
+      if(data.kind==='withdrawal') {
+        toast({title:data.mode==='test' ? 'Test withdrawal status' : 'Withdrawal status',description:data.message || 'Open this receipt for the latest recorded status.'});
+        return;
+      }
       const state=topUpState(data);
       if (state === 'success') {
         CIRCLE_ACCESS_QUERY_KEYS.forEach(key=>queryClient.invalidateQueries({queryKey:[key]}));
@@ -203,17 +214,24 @@ export function useCoinWallet(userId?: string) {
       referenceId?: string;
       description?: string;
     }) => {
-      const { data, error } = await supabase.rpc('transfer_coins', {
-        _sender_id: userId!,
+      if (!userId || typeSent !== 'tip_sent' || typeReceived !== 'tip_received' || !Number.isSafeInteger(amount) || amount<1) throw new Error('A tip must use a supported transfer type and a positive whole-coin amount');
+      const fingerprint=await withdrawalFingerprint(amount,0,receiverId,`${referenceId || ''}:${description || ''}`);
+      const key=`wallet-tip:${userId}:${fingerprint}`;
+      let requestId=readChapaStorage(key);
+      if(!requestId) {requestId=crypto.randomUUID();writeChapaStorage(key,requestId);}
+      const { data, error } = await supabase.rpc('wallet_transfer_tip' as any, {
+        _request_id: requestId,
         _receiver_id: receiverId,
         _amount: amount,
-        _type_sent: typeSent as any,
-        _type_received: typeReceived as any,
         _reference_id: referenceId || null,
         _description: description || '',
       });
       if (error) throw error;
-      if (!data) throw new Error('Insufficient coin balance');
+      if ((data as any)?.userId !== userId || activeAccount.current !== userId) throw new Error('Your account changed. Check the transfer from the correct account.');
+      // A confirmed response ends this explicit attempt. Unknown network results
+      // keep their key, so the next click replays the same server operation.
+      if(readChapaStorage(key)===requestId) clearChapaStorage(key);
+      if (!(data as any)?.success) throw new Error('Insufficient coin balance');
       return data;
     },
     onSuccess: () => invalidate(),
@@ -258,56 +276,54 @@ export function useCoinWallet(userId?: string) {
       accountName,
       accountNumber,
       bankCode,
+      expectedMode,
     }: {
       amount: number;
       accountName?: string;
       accountNumber?: string;
       bankCode?: number;
       payoutMethod?: string;
+      expectedMode?: 'live' | 'test';
     }) => {
-      // If bank details provided → real Chapa transfer
-      if (accountName && accountNumber && bankCode) {
-        return callEdgeFunction('chapa-transfer', {
-          amount,
-          accountName,
-          accountNumber,
-          bankCode,
-        });
-      }
-      // Fallback: direct Supabase RPC (demo)
-      const { data, error } = await supabase.rpc('request_withdrawal', {
-        _user_id: userId!,
-        _amount: amount,
-        _payout_method: 'bank_transfer',
-      });
-      if (error) throw error;
-      if (!data) throw new Error('Insufficient balance for withdrawal');
+      if (!userId || !accountName || !accountNumber || !bankCode) throw new Error('Sign in and review the bank account before requesting a withdrawal.');
+      const configuration=await callEdgeFunction('chapa-transfer?action=configuration',null,'GET');
+      if(configuration.userId!==userId || activeAccount.current!==userId || configuration.mode!==expectedMode) throw new Error('Payment mode changed. Refresh the wallet and review the withdrawal before confirming.');
+      const fingerprint=await withdrawalFingerprint(amount,bankCode,accountNumber,accountName);
+      const key=withdrawalRequestKey(userId,fingerprint,configuration.mode);
+      let requestId=readChapaStorage(key);
+      if(!requestId) {requestId=crypto.randomUUID();writeChapaStorage(key,requestId);}
+      const data=await callEdgeFunction('chapa-transfer',{amount,accountName,accountNumber,bankCode,expectedMode,requestId});
+      if(data.userId!==userId || activeAccount.current!==userId) throw new Error('Your account changed. Open the withdrawal receipt from the correct account.');
+      if(data.txRef) writeChapaStorage(withdrawalReferenceKey(userId,data.txRef),key);
+      recordTopUpResult(userId,data);
       return data;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      if(data.userId!==activeAccount.current) return;
       invalidate();
       toast({
-        title: '✅ Withdrawal requested',
-        description: 'Your request is being processed (3-5 business days).',
+        title: data.mode==='test' ? 'Test withdrawal recorded' : data.status==='failed' ? 'Withdrawal not completed' : 'Withdrawal recorded',
+        description: data.message || 'Open the saved receipt to check its status.',
       });
     },
     onError: (err: any) => {
-      toast({ title: 'Withdrawal failed', description: err.message, variant: 'destructive' });
+      invalidate();
+      toast({ title: 'Withdrawal needs attention', description: err.message, variant: 'destructive' });
+      queryClient.invalidateQueries({queryKey:['chapa-banks',userId]});
     },
   });
 
   // ─── BANKS: Fetch available Chapa banks ──────────────────────────────────
-  const { data: chapaBanks, isLoading: isBanksLoading } = useQuery({
-    queryKey: ['chapa-banks'],
-    queryFn: async (): Promise<ChapaBank[]> => {
-      try {
-        const data = await callEdgeFunction('chapa-transfer', null, 'GET');
-        return data.banks ?? [];
-      } catch {
-        return [];
-      }
+  const { data: chapaBankData, isLoading: isBanksLoading } = useQuery({
+    queryKey: ['chapa-banks',userId],
+    enabled: !!userId,
+    queryFn: async (): Promise<{banks:ChapaBank[];mode:'test'|'live'}> => {
+      const data = await callEdgeFunction('chapa-transfer', null, 'GET');
+      if(data.userId!==userId || !['live','test'].includes(data.mode)) throw new Error('Wallet configuration could not be confirmed');
+      return {banks:data.banks ?? [],mode:data.mode};
     },
-    staleTime: 1000 * 60 * 60, // Cache for 1 hour
+    staleTime: 60000,
+    refetchOnMount: 'always',
   });
 
   return {
@@ -323,7 +339,8 @@ export function useCoinWallet(userId?: string) {
     transferCoins,
     spendCoins,
     requestWithdrawal,
-    chapaBanks: chapaBanks ?? [],
+    chapaBanks: chapaBankData?.banks ?? [],
+    chapaMode: chapaBankData?.mode,
     isBanksLoading,
     invalidate,
   };

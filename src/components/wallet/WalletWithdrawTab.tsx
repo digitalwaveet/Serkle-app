@@ -16,12 +16,14 @@ import {
 import { Building2, ChevronDown, ArrowDownCircle } from 'lucide-react';
 import { ChapaBank } from '@/hooks/useCoinWallet';
 import { cn } from '@/lib/utils';
+import { parseWalletAmount } from '@/lib/chapaPayments';
 
 interface WalletWithdrawTabProps {
   balance: number;
   chapaBanks: ChapaBank[];
   isBanksLoading: boolean;
   requestWithdrawal: any;
+  mode?: 'test' | 'live';
 }
 
 export const WalletWithdrawTab: React.FC<WalletWithdrawTabProps> = ({
@@ -29,6 +31,7 @@ export const WalletWithdrawTab: React.FC<WalletWithdrawTabProps> = ({
   chapaBanks,
   isBanksLoading,
   requestWithdrawal,
+  mode,
 }) => {
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [accountName, setAccountName] = useState('');
@@ -42,17 +45,17 @@ export const WalletWithdrawTab: React.FC<WalletWithdrawTabProps> = ({
     b.name.toLowerCase().includes(bankSearch.toLowerCase())
   );
 
-  const withdrawAmount_num = parseInt(withdrawAmount) || 0;
+  const withdrawAmount_num = parseWalletAmount(withdrawAmount);
   const withdrawValid =
     withdrawAmount_num >= 10 &&
-    withdrawAmount_num <= balance &&
+    !!mode && (mode === 'test' || withdrawAmount_num <= balance) &&
     accountName.trim().length > 0 &&
     accountNumber.trim().length > 0 &&
     !!selectedBank;
 
   const handleWithdraw = () => {
-    const amount = parseInt(withdrawAmount);
-    if (!amount || amount < 10 || amount > balance) return;
+    const amount = parseWalletAmount(withdrawAmount);
+    if (!mode || !amount || amount < 10 || (mode !== 'test' && amount > balance)) return;
     if (!accountName.trim() || !accountNumber.trim() || !selectedBank) return;
 
     requestWithdrawal.mutate({
@@ -60,22 +63,25 @@ export const WalletWithdrawTab: React.FC<WalletWithdrawTabProps> = ({
       accountName: accountName.trim(),
       accountNumber: accountNumber.trim(),
       bankCode: selectedBank.id,
-    });
-
-    setWithdrawAmount('');
-    setAccountName('');
-    setAccountNumber('');
-    setSelectedBank(null);
-    setBankSearch('');
+      expectedMode: mode,
+    }, { onSuccess: (data: any) => {
+      if (data.status === 'failed') return;
+      setWithdrawAmount('');
+      setAccountName('');
+      setAccountNumber('');
+      setSelectedBank(null);
+      setBankSearch('');
+    } });
   };
 
   return (
     <div className="space-y-4">
+      {mode === 'test' && <p className="rounded-lg border p-3 text-sm">Test mode: withdrawals are recorded for testing. No spendable coins or real funds will be removed.</p>}
       {/* Amount input */}
       <div className="space-y-1.5">
         <div className="flex justify-between">
           <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Amount (ETB)</p>
-          <span className="text-xs text-muted-foreground">Max: {balance.toLocaleString()} ETB</span>
+          <span className="text-xs text-muted-foreground">Max: {mode === 'test' ? '1,000,000' : balance.toLocaleString()} ETB</span>
         </div>
         <Input
           type="number"
@@ -83,7 +89,7 @@ export const WalletWithdrawTab: React.FC<WalletWithdrawTabProps> = ({
           value={withdrawAmount}
           onChange={(e) => setWithdrawAmount(e.target.value)}
           min="10"
-          max={balance}
+          max={mode === 'test' ? 1000000 : balance}
           className="rounded-xl bg-card/40 backdrop-blur-sm border-border/30"
         />
       </div>
@@ -184,7 +190,7 @@ export const WalletWithdrawTab: React.FC<WalletWithdrawTabProps> = ({
           </div>
           <div className="flex justify-between text-xs text-muted-foreground">
             <span>New balance</span>
-            <span>{(balance - withdrawAmount_num).toLocaleString()} coins</span>
+            <span>{mode === 'test' ? 'Unchanged in test mode' : `${(balance - withdrawAmount_num).toLocaleString()} coins`}</span>
           </div>
         </div>
       )}
@@ -206,12 +212,12 @@ export const WalletWithdrawTab: React.FC<WalletWithdrawTabProps> = ({
       <AlertDialog open={showWithdrawConfirm} onOpenChange={setShowWithdrawConfirm}>
         <AlertDialogContent className="z-[250]">
           <AlertDialogHeader>
-            <AlertDialogTitle>Confirm Withdrawal</AlertDialogTitle>
+            <AlertDialogTitle>{mode === 'test' ? 'Confirm Test Withdrawal' : 'Confirm Withdrawal'}</AlertDialogTitle>
             <AlertDialogDescription>
               Withdraw <strong>{withdrawAmount_num} ETB</strong> to{' '}
               <strong>{selectedBank?.name}</strong> account <strong>{accountNumber}</strong> ({accountName})?
               <br /><br />
-              Coins will be debited immediately and this action cannot be undone.
+              {mode === 'test' ? 'This is a test. No spendable coins or real funds will be removed.' : 'Coins will be reserved while Chapa processes this withdrawal. They are returned only after a confirmed failure. Review the bank details carefully.'}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -228,9 +234,10 @@ export const WalletWithdrawTab: React.FC<WalletWithdrawTabProps> = ({
         </AlertDialogContent>
       </AlertDialog>
 
+      {requestWithdrawal.isError && <p role="alert" className="rounded-lg border border-destructive/40 p-3 text-sm">{requestWithdrawal.error?.message || 'The request could not be confirmed. Check History before trying another withdrawal.'}</p>}
+      {requestWithdrawal.isSuccess && requestWithdrawal.data?.message && <p role="status" className="rounded-lg border p-3 text-sm">{requestWithdrawal.data.message} Open History to view its receipt.</p>}
       <p className="text-[10px] text-muted-foreground text-center">
-        Withdrawals are processed via Chapa within 3-5 business days.
-        Coins are debited immediately upon request.
+        Follow the withdrawal receipt in History for its verified status. Checking a receipt never sends another payout.
       </p>
     </div>
   );

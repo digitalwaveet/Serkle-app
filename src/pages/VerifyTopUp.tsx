@@ -13,7 +13,7 @@ const VerifyTopUp = () => {
   const navigate = useNavigate();
   const { user, isLoading: isAuthLoading } = useUser();
   const { verifyTopUp, balance } = useCoinWallet(user?.id);
-  const [status, setStatus] = useState<'verifying' | 'pending' | 'success' | 'test' | 'selection' | 'unknown' | 'error'>('verifying');
+  const [status, setStatus] = useState<'verifying' | 'pending' | 'success' | 'test' | 'withdrawal' | 'selection' | 'unknown' | 'error'>('verifying');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [payment, setPayment] = useState<VerifiedTopUp | null>(null);
   const [candidates, setCandidates] = useState<ChapaRecoveryCandidate[]>([]);
@@ -61,7 +61,9 @@ const VerifyTopUp = () => {
           if (!urlRef) setSearchParams({ tx_ref: result.txRef }, { replace: true });
         }
 
-        if (result.status === 'selection_required') {
+        if (result.kind === 'withdrawal') {
+          setStatus('withdrawal');
+        } else if (result.status === 'selection_required') {
           setCandidates(result.candidates || []);
           setStatus('selection');
         } else if (result.status === 'unknown') {
@@ -186,6 +188,11 @@ const VerifyTopUp = () => {
             <p className="text-muted-foreground mb-6">Chapa confirmed this test payment. Test mode does not add spendable coins to your wallet.</p>
             <Button onClick={handleGoHome}>Go to My Wallet</Button>
           </>}
+          {status === 'withdrawal' && <>
+            <h1 className="text-2xl font-bold mb-2">Withdrawal status</h1>
+            <p className="text-muted-foreground mb-6">{payment?.message}</p>
+            <Button onClick={handleGoHome}>View wallet receipt</Button>
+          </>}
           {status === 'selection' && <>
             <h1 className="text-2xl font-bold mb-2">Choose the payment to check</h1>
             <p className="text-muted-foreground mb-6">We found several recent payments on your account. Select the one from your Chapa receipt.</p>
@@ -207,7 +214,7 @@ const VerifyTopUp = () => {
           </>}
           {status === 'pending' && <>
             <h1 className="text-2xl font-bold mb-2">Payment pending</h1>
-            <p className="text-muted-foreground mb-6">Your payment has not been confirmed yet. Check its status before paying again.</p>
+            <p className="text-muted-foreground mb-6">{payment?.message || 'Your payment has not been confirmed yet. Check its status before paying again.'}</p>
             <Button onClick={() => setAttempt(value => value + 1)}>Check payment status</Button>
             <Button variant="ghost" onClick={handleGoHome}>Go to wallet</Button>
           </>}

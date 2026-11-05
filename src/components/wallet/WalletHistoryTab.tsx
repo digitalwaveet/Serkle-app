@@ -1,10 +1,13 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Coins, History } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { format } from 'date-fns';
-import { CoinTransaction } from '@/hooks/useCoinWallet';
+import { useWalletActivity } from '@/hooks/useWalletHistory';
+import { walletDate } from '@/lib/walletHistory';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { WalletPaymentHistory, type WalletPaymentCheck } from './WalletPaymentHistory';
+import { SerkleLoader } from '@/components/ui/SerkleLoader';
 
 export const transactionTypeLabels: Record<string, { label: string; color: string }> = {
   topup: { label: 'Top Up', color: 'text-green-600' },
@@ -24,37 +27,36 @@ export const transactionTypeLabels: Record<string, { label: string; color: strin
 };
 
 interface WalletHistoryTabProps {
-  transactions: CoinTransaction[];
+  userId?: string;
+  check: WalletPaymentCheck;
 }
 
-export const WalletHistoryTab: React.FC<WalletHistoryTabProps> = ({ transactions }) => {
-  const [txPage, setTxPage] = useState(1);
-  const PAGE_SIZE = 20;
-  const visibleTx = transactions.slice(0, txPage * PAGE_SIZE);
-
-  if (transactions.length === 0) {
-    return (
-      <div className="text-center py-10 text-muted-foreground text-sm">
-        <History className="w-8 h-8 mx-auto mb-2 opacity-40" />
-        No transactions yet
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-2">
-      {visibleTx.map((tx) => {
+export const WalletHistoryTab: React.FC<WalletHistoryTabProps> = ({ userId, check }) => {
+  const activity = useWalletActivity(userId);
+  const transactions = activity.data?.pages.flatMap(page => page.items) || [];
+  return <Tabs defaultValue="payments">
+    <TabsList className="w-full grid grid-cols-2"><TabsTrigger value="payments">Payments</TabsTrigger><TabsTrigger value="activity">Coin activity</TabsTrigger></TabsList>
+    <TabsContent value="payments"><WalletPaymentHistory userId={userId} check={check} /></TabsContent>
+    <TabsContent value="activity"><div className="space-y-2">
+      {activity.data?.pages[0]?.integrity?.status === 'balanced' && <p className="text-xs text-muted-foreground">{activity.data.pages[0].integrity.baselineAt ? `Balance checked against recorded activity since ${walletDate(activity.data.pages[0].integrity.baselineAt)}. The earlier balance was preserved.` : 'Your balance matches the recorded wallet movements.'}</p>}
+      {activity.data?.pages[0]?.integrity?.status === 'needs_review' && <p role="alert" className="rounded-lg border p-3 text-sm">Your wallet balance needs review. Keep your payment receipts and contact support.</p>}
+      {activity.isLoading && <SerkleLoader label="Loading coin activity" showText />}
+      {activity.isError && <div role="alert" className="text-sm">Coin activity could not be refreshed.<Button variant="ghost" onClick={() => void activity.refetch()}>Retry activity</Button></div>}
+      {!activity.isLoading && !activity.isError && !transactions.length && <div className="py-8 text-center text-sm text-muted-foreground"><History className="mx-auto mb-2 size-8" />No coin movements yet. Test and pending payments appear under Payments.</div>}
+      {transactions.map((tx) => {
         const meta = transactionTypeLabels[tx.type] || { label: tx.type, color: 'text-foreground' };
         const isPositive = tx.amount > 0;
+        const label = tx.type === 'refund' && tx.amount < 0 ? 'Funding reversed' : meta.label;
         return (
-          <div key={tx.id} className="rounded-xl bg-card/40 backdrop-blur-sm border border-border/30 p-3.5 flex items-center justify-between">
+          <div key={tx.id} className="rounded-xl bg-card/40 backdrop-blur-sm border border-border/30 p-3.5">
+            <div className="flex items-center justify-between">
             <div className="flex-1 min-w-0">
-              <Badge variant="outline" className={cn('text-[10px] px-1.5 py-0 bg-card/30 border-border/40', meta.color)}>
-                {meta.label}
+              <Badge variant="outline" className={cn('text-[10px] px-1.5 py-0 bg-card/30 border-border/40', tx.type === 'refund' && !isPositive ? 'text-destructive' : meta.color)}>
+                {label}
               </Badge>
               <p className="text-xs text-muted-foreground mt-1 truncate">{tx.description}</p>
               <p className="text-[10px] text-muted-foreground">
-                {format(new Date(tx.created_at), 'MMM d, yyyy h:mm a')}
+                {walletDate(tx.created_at)}
               </p>
             </div>
             <div className="text-right ml-3">
@@ -64,19 +66,24 @@ export const WalletHistoryTab: React.FC<WalletHistoryTabProps> = ({ transactions
               </span>
               <p className="text-[10px] text-muted-foreground">bal: {tx.balance_after}</p>
             </div>
+            </div>
+            <details className="mt-3 text-xs"><summary className="cursor-pointer text-primary">View movement details</summary>
+              <dl className="mt-2 space-y-1 break-all text-muted-foreground"><dt>Ledger entry</dt><dd className="font-mono">{tx.id}</dd><dt>Linked reference</dt><dd className="font-mono">{tx.reference_id || 'Legacy record: no linked receipt'}</dd>{tx.operation_id && <><dt>Wallet operation</dt><dd className="font-mono">{tx.operation_id}</dd></>}<dt>Recorded balance after</dt><dd>{tx.balance_after.toLocaleString()} coins</dd></dl>
+            </details>
           </div>
         );
       })}
-      {visibleTx.length < transactions.length && (
+      {activity.hasNextPage && (
         <Button
           variant="ghost"
           size="sm"
           className="w-full text-muted-foreground hover:text-foreground mt-2"
-          onClick={() => setTxPage((p) => p + 1)}
+          disabled={activity.isFetchingNextPage}
+          onClick={() => void activity.fetchNextPage()}
         >
-          Load {Math.min(PAGE_SIZE, transactions.length - visibleTx.length)} more
+          {activity.isFetchingNextPage ? 'Loading…' : 'Load more coin activity'}
         </Button>
       )}
-    </div>
-  );
+    </div></TabsContent>
+  </Tabs>;
 };

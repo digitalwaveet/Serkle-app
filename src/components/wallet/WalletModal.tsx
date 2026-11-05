@@ -24,12 +24,12 @@ const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => {
     balance,
     totalEarned,
     totalSpent,
-    transactions,
     isWalletLoading,
     initiateTopUp,
     verifyTopUp,
     requestWithdrawal,
     chapaBanks,
+    chapaMode,
     isBanksLoading,
   } = useCoinWallet(user?.id);
 
@@ -63,7 +63,7 @@ const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => {
       if (topUpState(result) === 'success') {
         setTopUpDone(true);
         setTopUpError(null);
-      } else if(topUpState(result) === 'pending') {
+      } else if(topUpState(result) === 'pending' || topUpState(result) === 'test') {
         setTopUpError(null);
       } else {
         setTopUpError(result.message || 'No credit is available for this payment.');
@@ -186,7 +186,7 @@ const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => {
 
               {/* ── HISTORY TAB ──────────────────────────────────────── */}
               <TabsContent value="transactions" className="mt-3">
-                <WalletHistoryTab transactions={transactions} />
+                <WalletHistoryTab userId={user?.id} check={verifyTopUp} />
               </TabsContent>
 
               {/* ── TOP UP TAB ────────────────────────────────────────── */}
@@ -207,6 +207,7 @@ const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => {
                 <WalletWithdrawTab
                   balance={balance}
                   chapaBanks={chapaBanks}
+                  mode={chapaMode}
                   isBanksLoading={isBanksLoading}
                   requestWithdrawal={requestWithdrawal}
                 />

@@ -26,6 +26,8 @@ Supabase service-role key in server secrets.
 ```sh
 npm run build
 npm run test:payments
+npm run test:payment-cors
+npm run test:payment-return-ui
 npm run test:circle-entitlements
 npm run test:circle-membership
 npm run test:circle-collections
@@ -45,6 +47,7 @@ Supabase migrations are in `supabase/migrations`, and Edge Functions are in
 
 - [Circle entitlements and payments](docs/circle-entitlements.md)
 - [Chapa verification, webhooks, and reconciliation](docs/chapa-payment-lifecycle.md)
+- [Wallet audit deployment and recovery operations](docs/wallet-audit-deployment.md)
 - [Circle membership and leaving](docs/circle-membership.md)
 
 Chapa requires server secrets, a registered signed webhook, and the reconciliation

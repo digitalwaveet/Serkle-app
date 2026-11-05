@@ -10,7 +10,7 @@ const fixtureSource = await readFile(new URL('./fixtures/chapa-return-client.ts'
 before(async () => {
   server = await createServer({ configFile: false, cacheDir: 'node_modules/.vite-chapa-return-ui',
     resolve: { alias: { '@': fileURLToPath(new URL('../', import.meta.url)) } },
-    optimizeDeps: { entries: ['src/tests/fixtures/chapa-return-ui.tsx'], include: ['react', 'react-dom/client', 'react-router-dom', '@tanstack/react-query'] },
+    optimizeDeps: { entries: ['src/tests/fixtures/chapa-return-ui.tsx'], include: ['react', 'react-dom/client', 'react-router-dom', '@tanstack/react-query', '@radix-ui/react-tabs', '@radix-ui/react-popover', '@radix-ui/react-alert-dialog', '@radix-ui/react-dialog'] },
     server: { host: '127.0.0.1', port: 8995, hmr: false, watch: null },
     plugins: [{ name: 'isolated-chapa-return', enforce: 'pre',
       resolveId(source) {
@@ -25,7 +25,7 @@ before(async () => {
         if (path.endsWith('/src/integrations/supabase/client.ts')) return "export {supabase} from 'virtual:chapa-return-client';";
       },
       configureServer(instance) { instance.middlewares.use((req, res, next) => {
-        if (/^\/(verify|login)(\?|$)/.test(req.url || '')) {
+        if (/^\/(verify|login|wallet-fixture)(\?|$)/.test(req.url || '')) {
           res.setHeader('Content-Type', 'text/html');
           res.end('<!doctype html><html><body><div id="root"></div><script type="module" src="/src/tests/fixtures/chapa-return-ui.tsx"></script></body></html>');
         } else next();
@@ -39,7 +39,7 @@ before(async () => {
 });
 after(async () => { await browser?.close(); await server?.close(); });
 
-async function pageFor(scenario: string, pending = false, search = '') {
+async function pageFor(scenario: string, pending = false, search = '', route = 'verify') {
   const context = await browser.newContext();
   context.setDefaultTimeout(15000);
   await context.route('**/*', route => route.request().url().startsWith(base + '/') ? route.continue() : route.abort());
@@ -50,7 +50,7 @@ async function pageFor(scenario: string, pending = false, search = '') {
   }, { scenario, pending });
   const page = await context.newPage();
   page.on('pageerror', error => process.stderr.write(`Return fixture: ${error.message}\n`));
-  await page.goto(`${base}/verify${search}`);
+  await page.goto(`${base}/${route}${search}`, { timeout: 60000 });
   return page;
 }
 const calls = (page: Page) => page.evaluate(() => (window as any).chapaReturnFixture.calls);
@@ -123,4 +123,92 @@ test('login preserves the payment reference for verification after authenticatio
     assert.equal(new URL(page.url()).searchParams.get('returnTo'), '/verify?tx_ref=serkle-return-fixture');
     assert.equal((await calls(page)).length, 0);
   } finally { await page.context().close(); }
+});
+
+test('wallet history lists test and failed attempts, filters modes and paginates receipt timelines', async()=>{
+  const page=await pageFor('history',false,'','wallet-fixture');
+  try {
+    await expect(page.getByRole('button',{name:/history-payment-0(?:\D|$)/})).toBeVisible();
+    await expect(page.getByText('Failed at last check',{exact:true})).toBeVisible();
+    await page.getByRole('button',{name:'Load more payments',exact:true}).click();
+    await expect(page.getByRole('button',{name:/history-payment-25(?:\D|$)/})).toBeVisible();
+    await page.getByLabel('Payment mode').selectOption('test');
+    await expect(page.getByRole('button',{name:/history-payment-1(?:\D|$)/})).toHaveCount(0);
+    await page.getByRole('button',{name:/history-payment-0(?:\D|$)/}).click();
+    const dialog=page.getByRole('dialog');
+    await expect(dialog.getByText('Test successful',{exact:true})).toBeVisible();
+    await expect(dialog.getByText('No spendable coin movement has been recorded for this payment.')).toBeVisible();
+    await expect(dialog.getByText('fixture-provider-receipt',{exact:true})).toBeVisible();
+    await dialog.getByRole('button',{name:'Load earlier status updates'}).click();
+    await expect(dialog.getByRole('button',{name:'Load earlier status updates'})).toHaveCount(0);
+  } finally {await page.context().close();}
+});
+
+test('checking a saved receipt updates its status without starting another checkout', async()=>{
+  const page=await pageFor('history',false,'','wallet-fixture');
+  try {
+    await page.getByRole('button',{name:/history-payment-1(?:\D|$)/}).click();
+    const dialog=page.getByRole('dialog');await expect(dialog.getByText('Awaiting confirmation',{exact:true})).toBeVisible();
+    await dialog.getByRole('button',{name:'Check payment status'}).click();
+    await expect(dialog.getByText('Completed',{exact:true})).toBeVisible();
+    assert.deepEqual(await calls(page),[{txRef:'history-payment-1'}]);
+    assert.equal(await page.evaluate(()=>(window as any).chapaReturnFixture.payouts.length),0);
+  } finally {await page.context().close();}
+});
+
+test('coin activity can load beyond 50 records and opens exact ledger details', async()=>{
+  const page=await pageFor('history',false,'','wallet-fixture');
+  try {
+    await page.getByRole('tab',{name:'Coin activity',exact:true}).click();
+    await expect(page.getByText('Your balance matches the recorded wallet movements.')).toBeVisible();
+    for(let i=0;i<3;i++) await page.getByRole('button',{name:'Load more coin activity',exact:true}).click();
+    await expect(page.getByText('Recorded movement 61',{exact:true})).toBeVisible();
+    await expect(page.getByRole('button',{name:'Load more coin activity',exact:true})).toHaveCount(0);
+    await page.getByText('View movement details',{exact:true}).first().click();
+    await expect(page.getByText('ledger-000',{exact:true})).toBeVisible();
+  } finally {await page.context().close();}
+});
+
+test('account-mismatched history responses are rejected before receipts can be displayed', async()=>{
+  const page=await pageFor('history-wrong-account',false,'','wallet-fixture');
+  try {
+    await expect(page.getByRole('alert').filter({hasText:'Payment history could not be refreshed'})).toBeVisible();
+    await expect(page.getByRole('button',{name:/history-payment-/})).toHaveCount(0);
+  } finally {await page.context().close();}
+});
+
+test('withdrawal confirmation states test mode clearly and a mode change cannot submit a live payout', async()=>{
+  const page=await pageFor('mode-change',false,'','wallet-fixture');
+  try {
+    await page.getByRole('tab',{name:'Withdraw',exact:true}).click();
+    await expect(page.getByText('Test mode: withdrawals are recorded for testing.',{exact:false})).toBeVisible();
+    await page.getByPlaceholder('Min. 10 ETB').fill('500');
+    await page.getByPlaceholder('Full name as registered at bank').fill('Fixture Buyer');
+    await page.getByPlaceholder('Account number').fill('1234567890');
+    await page.getByRole('button',{name:/Select bank/}).click();
+    await page.getByText('Fixture Bank',{exact:true}).click();
+    await page.getByRole('button',{name:'Request Withdrawal',exact:true}).click();
+    await expect(page.getByRole('alertdialog')).toContainText('Confirm Test Withdrawal');
+    await page.getByRole('button',{name:'Confirm Withdrawal',exact:true}).click();
+    await expect(page.getByText('Payment mode changed. Refresh the wallet and review the withdrawal before confirming.',{exact:true})).toBeVisible();
+    assert.equal(await page.evaluate(()=>(window as any).chapaReturnFixture.payouts.length),0);
+  } finally {await page.context().close();}
+});
+
+test('an uncertain checkout shows its saved-receipt guidance and subsequent clicks reuse the same request ID',async()=>{
+  const page=await pageFor('topup-unconfirmed',false,'','wallet-fixture');
+  try {
+    await page.getByRole('tab',{name:'Top Up',exact:true}).click();
+    await page.getByPlaceholder('Enter ETB amount (min. 10)').fill('50');
+    await page.getByRole('button',{name:'Continue to Review',exact:true}).click();
+    const pay=page.getByRole('button',{name:'Pay 50 ETB with Chapa',exact:true});
+    for(let attempt=0;attempt<2;attempt++) {
+      await pay.click();
+      await expect(page.getByRole('alert').filter({hasText:'Your payment reference is recorded; check its status before trying another payment.'})).toBeVisible();
+    }
+    const attempts=await page.evaluate(()=>(window as any).chapaReturnFixture.checkouts);
+    assert.equal(attempts.length,2);assert.equal(attempts[0].requestId,attempts[1].requestId);
+    assert.equal(await page.evaluate(()=>localStorage.getItem('chapa:pending:00000000-0000-0000-0000-000000000001')),'saved-checkout-fixture');
+    assert.ok(page.url().includes('/wallet-fixture'),'an unconfirmed checkout must not navigate to an invented URL');
+  } finally {await page.context().close();}
 });
