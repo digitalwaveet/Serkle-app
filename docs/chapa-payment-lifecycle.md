@@ -15,7 +15,7 @@ account-scoped initialization request ID survives uncertain network responses.
 The same ID cannot be reused for another amount or environment. Checkout return
 URLs must match `PAYMENT_RETURN_ORIGINS` and the existing `/verify` route.
 The wallet initiation hook sends the shared `CHAPA_RETURN_URL`, fixed to
-`https://serkle-app.vercel.app/verify`. It does not derive the callback from the
+`https://serkle-app-five.vercel.app/verify`. It does not derive the callback from the
 browser's current host, so local and alternate deployments use the same
 approved callback.
 
@@ -90,12 +90,12 @@ and the matching SQL files. Create each function using its exact filename stem.
 their own authentication for POST. Browser OPTIONS is answered before loading
 payment secrets, and configuration errors include the complete CORS headers.
 The allowed checkout origin for the current Vercel deployment is
-`https://serkle-app.vercel.app`.
+`https://serkle-app-five.vercel.app`.
 
 If checkout returns `Invalid payment return URL`, check the browser request's
 `returnUrl` against the Supabase Edge Function secret `PAYMENT_RETURN_ORIGINS`.
-For this app the request is `https://serkle-app.vercel.app/verify` and the secret
-must contain `https://serkle-app.vercel.app` (no path or trailing slash). Update
+For this app the request is `https://serkle-app-five.vercel.app/verify` and the secret
+must contain `https://serkle-app-five.vercel.app` (no path or trailing slash). Update
 this server secret in Supabase; a frontend Git push cannot change it. Keep the
 allowlist restricted to approved app origins. Wallet errors read the function's
 JSON error response instead of replacing it with the SDK's generic HTTP error.

@@ -15,7 +15,7 @@ for(const name of migrations) await copyFile(resolve('supabase/migrations',name)
 await writeFile(resolve(output,'DEPLOY.md'),`# Manual Supabase deployment
 
 Project: zewcewkqruxlniavsrgj
-App origin: https://serkle-app.vercel.app
+App origin: https://serkle-app-five.vercel.app
 
 1. In Supabase Dashboard, open Edge Functions and create a function named exactly
    chapa-reconcile. Use the editor, replace index.ts with the entire contents of
@@ -30,7 +30,7 @@ App origin: https://serkle-app.vercel.app
 4. Edge secrets (Dashboard > Edge Functions > Secrets):
    CHAPA_SECRET_KEY = your existing Chapa server key (keep it private)
    CHAPA_MODE = live for a live key, test for a test key
-   PAYMENT_RETURN_ORIGINS = https://serkle-app.vercel.app
+   PAYMENT_RETURN_ORIGINS = https://serkle-app-five.vercel.app
    CHAPA_WEBHOOK_SECRET = the secret registered for the Chapa webhook
    CHAPA_RECONCILE_SECRET = a separate random secret for the scheduled job
 5. Review database migration history before applying SQL. This folder includes

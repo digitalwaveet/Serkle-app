@@ -1,5 +1,5 @@
 // Use the approved app callback even when checkout starts on another host.
-export const CHAPA_RETURN_URL = 'https://serkle-app.vercel.app/verify';
+export const CHAPA_RETURN_URL = 'https://serkle-app-five.vercel.app/verify';
 
 export interface VerifiedTopUp {
   status: string;

@@ -31,7 +31,7 @@ const store:ChapaStore={
   reconcileGrants:async user=>{await service();await q('SELECT reconcile_circle_receipts($1)',[user]);},
 };
 function handlers(mode:'live'|'test'='live') {
-  return createChapaHandlers({store,mode,origins:['https://serkle-app.vercel.app'],webhookSecret:secret,reconcileSecret:scheduler,
+  return createChapaHandlers({store,mode,origins:['https://serkle-app-five.vercel.app'],webhookSecret:secret,reconcileSecret:scheduler,
     authenticate:async request=>{
       const user=request.headers.get('authorization')?.replace('Bearer ','');
       if(![buyer,seller,other].includes(user || '')) throw new PaymentError('Authentication required',401);
@@ -88,7 +88,7 @@ beforeEach(async()=>{
 test('initialization persists owner, exact amount and stable reference before the provider redirect; retries reuse it',async()=>{
   const first=await initialize(),again=await initialize(10,buyer,first.requestId);
   assert.equal(first.response.status,200);assert.equal(again.result.txRef,first.result.txRef);assert.equal(initializeCalls,1);
-  assert.equal(initializedReturnUrl,'https://serkle-app.vercel.app/verify');
+  assert.equal(initializedReturnUrl,'https://serkle-app-five.vercel.app/verify');
   const intent=await store.get(first.result.txRef);
   assert.equal(intent?.user_id,buyer);assert.equal(intent?.amount,10);assert.equal(intent?.status,'pending');
   assert.equal(await balance(),0);assert.equal(await access(),false);

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { chapaCorsHeaders, createChapaHttpHandler, type ChapaRoute } from '../../supabase/functions/_shared/chapaHttp.ts';
 
-const origin='https://serkle-app.vercel.app';
+const origin='https://serkle-app-five.vercel.app';
 const routes:ChapaRoute[]=['initialize','verify','webhook','reconcile'];
 for(const route of routes) {
   test(`${route}: production preflight succeeds with no secrets, JWT, database or provider`,async()=>{
