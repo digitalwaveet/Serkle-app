@@ -1,6 +1,13 @@
 // Use the approved app callback even when checkout starts on another host.
 export const CHAPA_RETURN_URL = 'https://serkle-app-five.vercel.app/verify';
 
+export interface ChapaRecoveryCandidate {
+  txRef: string;
+  amount: number;
+  status: string;
+  createdAt: string | null;
+}
+
 export interface VerifiedTopUp {
   status: string;
   success?: boolean;
@@ -9,10 +16,12 @@ export interface VerifiedTopUp {
   userId?: string;
   amount?: number;
   message?: string;
+  candidates?: ChapaRecoveryCandidate[];
 }
 export function topUpState(result: VerifiedTopUp | null | undefined) {
   if(result?.verified===true && result.success===true && result.status==='success') return 'success';
-  if(['failed','refunded','reversed','test_verified'].includes(result?.status || '')) return 'failed';
+  if(result?.status==='test_verified') return 'test';
+  if(['failed','refunded','reversed'].includes(result?.status || '')) return 'failed';
   return 'pending'; // Includes forged/unverified success messages.
 }
 export const pendingChapaKey=(userId:string)=>`chapa:pending:${userId}`;

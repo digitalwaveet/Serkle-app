@@ -17,6 +17,11 @@ await writeFile(resolve(output,'DEPLOY.md'),`# Manual Supabase deployment
 Project: zewcewkqruxlniavsrgj
 App origin: https://serkle-app-five.vercel.app
 
+Return-page update: redeploy chapa-initialize and chapa-verify using the matching
+files in this folder. New checkouts include tx_ref in the return URL, and legacy
+returns can recover their own recent receipts. No new SQL migration is needed
+for this update if the existing payment migrations below are already applied.
+
 1. In Supabase Dashboard, open Edge Functions and create a function named exactly
    chapa-reconcile. Use the editor, replace index.ts with the entire contents of
    chapa-reconcile.ts from this folder, and deploy it.

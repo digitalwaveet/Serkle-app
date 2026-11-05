@@ -25,6 +25,7 @@ const store:ChapaStore={
   setCheckout:async(ref,url)=>{await service();await q('UPDATE chapa_payment_intents SET checkout_url=$2 WHERE tx_ref=$1',[ref,url]);},
   apply:async evidence=>{await service();return(await q('SELECT apply_chapa_verification($1,$2,$3,$4,$5,$6,$7) result',Object.values(evidence)))[0].result;},
   due:async user=>{await service();return q("SELECT * FROM chapa_payment_intents WHERE ($1::uuid IS NULL OR user_id=$1) AND reversed_at IS NULL ORDER BY created_at LIMIT 25",[user || null]);},
+  recent:async(user,since)=>{await service();return q('SELECT * FROM chapa_payment_intents WHERE user_id=$1 AND created_at>=$2 ORDER BY created_at DESC LIMIT 10',[user,since]);},
   error:async(ref,message)=>{await service();await q('UPDATE chapa_payment_intents SET last_error=$2 WHERE tx_ref=$1',[ref,message]);},
   delivery:async(hash,ref,mode)=>{await service();await q('INSERT INTO chapa_webhook_deliveries(body_hash,tx_ref,mode) VALUES($1,$2,$3) ON CONFLICT DO NOTHING',[hash,ref,mode]);return!!(await q('SELECT processed_at FROM chapa_webhook_deliveries WHERE body_hash=$1',[hash]))[0].processed_at;},
   finishDelivery:async hash=>{await service();await q('UPDATE chapa_webhook_deliveries SET processed_at=now() WHERE body_hash=$1',[hash]);},
@@ -88,7 +89,9 @@ beforeEach(async()=>{
 test('initialization persists owner, exact amount and stable reference before the provider redirect; retries reuse it',async()=>{
   const first=await initialize(),again=await initialize(10,buyer,first.requestId);
   assert.equal(first.response.status,200);assert.equal(again.result.txRef,first.result.txRef);assert.equal(initializeCalls,1);
-  assert.equal(initializedReturnUrl,'https://serkle-app-five.vercel.app/verify');
+  const returnUrl=new URL(String(initializedReturnUrl));
+  assert.equal(returnUrl.origin,'https://serkle-app-five.vercel.app');assert.equal(returnUrl.pathname,'/verify');
+  assert.equal(returnUrl.searchParams.get('tx_ref'),first.result.txRef);
   const intent=await store.get(first.result.txRef);
   assert.equal(intent?.user_id,buyer);assert.equal(intent?.amount,10);assert.equal(intent?.status,'pending');
   assert.equal(await balance(),0);assert.equal(await access(),false);
@@ -241,8 +244,48 @@ test('refunded receipt truth overrides a stale unlock row even before repair',as
 test('test payments cannot become real spendable coins or premium access',async()=>{
   const {result}=await initialize(10,buyer,randomUUID(),'test');setState(result.txRef,'success');
   const response=await handlers('test').verify(request({txRef:result.txRef}));
-  assert.equal((await response.json()).status,'test_verified');assert.equal(await balance(),0);assert.equal(await access(),false);
+  const verified=await response.json();
+  assert.equal(verified.status,'test_verified');assert.equal(topUpState(verified),'test');
+  writeChapaStorage(pendingChapaKey(buyer),result.txRef);recordTopUpResult(buyer,verified);
+  assert.equal(readChapaStorage(pendingChapaKey(buyer)),null);
+  const recovered=await handlers('test').verify(request({}));
+  assert.equal((await recovered.json()).status,'test_verified');assert.equal(await balance(),0);assert.equal(await access(),false);
   assert.equal((await handlers().webhook(event(result.txRef,'success',undefined,{mode:'test'}))).status,409);
+});
+
+test('checkout redirects carry only the persisted reference, regardless of client query parameters',async()=>{
+  const response=await handlers().initialize(request({amount:10,requestId:randomUUID(),returnUrl:`${CHAPA_RETURN_URL}?tx_ref=forged&status=success#anything`}));
+  const result=await response.json();assert.equal(response.status,200);
+  const redirect=new URL(String(initializedReturnUrl));
+  assert.equal(redirect.origin,'https://serkle-app-five.vercel.app');assert.equal(redirect.pathname,'/verify');
+  assert.deepEqual([...redirect.searchParams],[['tx_ref',result.txRef]]);assert.equal(redirect.hash,'');
+});
+
+test('a return without browser storage recovers the only recent owned receipt, including an already fulfilled payment',async()=>{
+  const {result}=await initialize();setState(result.txRef,'success');
+  await handlers().webhook(event(result.txRef));assert.equal(await balance(),10);
+  const response=await handlers().verify(request({})),verified=await response.json();
+  assert.equal(response.status,200);assert.equal(verified.txRef,result.txRef);assert.equal(topUpState(verified),'success');
+  assert.equal(await balance(),10,'recovery must not issue another credit');
+  const outsider=await handlers().verify(request({user_id:buyer},other));
+  const unknown=await outsider.json();assert.equal(unknown.status,'unknown');assert.equal(unknown.userId,other);assert.deepEqual(unknown.candidates,[]);
+});
+
+test('ambiguous returns require an explicit receipt selection and never pick another payment to credit',async()=>{
+  const first=await initialize(10),second=await initialize(20);setState(first.result.txRef,'success');setState(second.result.txRef,'success');
+  const response=await handlers().verify(request({})),selection=await response.json();
+  assert.equal(selection.status,'selection_required');assert.equal(selection.userId,buyer);assert.equal(verifyCalls,0);assert.equal(await balance(),0);
+  assert.deepEqual(new Set(selection.candidates.map((candidate:any)=>candidate.txRef)),new Set([first.result.txRef,second.result.txRef]));
+  const chosen=await handlers().verify(request({txRef:second.result.txRef}));assert.equal((await chosen.json()).status,'success');
+  assert.equal(await balance(),20);assert.equal((await store.get(first.result.txRef))?.credited_at,null);
+});
+
+test('missing or expired recovery candidates remain unknown without treating an old receipt as the current payment',async()=>{
+  let response=await handlers().verify(request({}));assert.equal((await response.json()).status,'unknown');
+  const {result}=await initialize();setState(result.txRef,'success');
+  await service();await q("UPDATE chapa_payment_intents SET created_at=now()-interval '2 days' WHERE tx_ref=$1",[result.txRef]);
+  response=await handlers().verify(request({}));assert.equal((await response.json()).status,'unknown');assert.equal(verifyCalls,0);assert.equal(await balance(),0);
+  response=await handlers().verify(request({txRef:result.txRef}));assert.equal((await response.json()).status,'success');assert.equal(await balance(),10);
 });
 
 test('a failure during fulfillment rolls back the entire credit and can be reconciled safely later',async()=>{

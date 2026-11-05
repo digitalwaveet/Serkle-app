@@ -21,6 +21,8 @@ function runtime() {
       if(userId) query=query.eq('user_id',userId);
       return checked(query);
     },
+    recent:async(userId,since)=>checked(client.from('chapa_payment_intents').select('*').eq('user_id',userId).eq('mode',mode)
+      .gte('created_at',since).order('created_at',{ascending:false}).limit(10)),
     error:async(txRef,message)=>{await checked(client.from('chapa_payment_intents').update({last_error:message.slice(0,250),next_check_at:new Date(Date.now()+60000).toISOString()}).eq('tx_ref',txRef));},
     delivery:async(hash,txRef,mode)=>{
       await checked(client.from('chapa_webhook_deliveries').upsert({body_hash:hash,tx_ref:txRef,mode},{onConflict:'body_hash',ignoreDuplicates:true}));

@@ -5,6 +5,7 @@ export interface ChapaIntent {
   id: string; user_id: string; tx_ref: string; amount: number; currency: string;
   mode: 'live' | 'test'; status: ChapaStatus; checkout_url?: string | null;
   credited_at?: string | null; reversed_at?: string | null; provider_reference?: string | null;
+  created_at?: string;
 }
 export class PaymentError extends Error {
   status: number;
@@ -67,6 +68,7 @@ export interface ChapaStore {
   setCheckout(txRef: string, url: string): Promise<void>;
   apply(evidence: ReturnType<typeof normalizeVerification>): Promise<ChapaIntent>;
   due(userId?: string): Promise<ChapaIntent[]>;
+  recent(userId: string, since: string): Promise<ChapaIntent[]>;
   error(txRef: string, message: string): Promise<void>;
   delivery(hash: string, txRef: string, mode: string): Promise<boolean>;
   finishDelivery(hash: string): Promise<void>;
@@ -114,9 +116,11 @@ export function createChapaHandlers(deps: ChapaDependencies) {
       const intent=await deps.store.begin(user.id,body.requestId,amount,deps.mode);
       if(intent.status!=='pending') return json(paymentResult(intent));
       if(intent.checkout_url) return json({success:true,userId:intent.user_id,txRef:intent.tx_ref,checkoutUrl:intent.checkout_url});
+      const paymentReturnUrl=new URL(returnUrl);
+      paymentReturnUrl.searchParams.set('tx_ref',intent.tx_ref);
       const phone=typeof body.phoneNumber==='string' ? body.phoneNumber.replace(/^\+?251/,'0') : user.phone?.replace(/^\+?251/,'0');
       const url=checkoutUrl(await deps.initialize({amount:String(intent.amount),currency:intent.currency,email,
-        tx_ref:intent.tx_ref,return_url:returnUrl,first_name:body.firstName || 'Serkle',last_name:body.lastName || 'User',
+        tx_ref:intent.tx_ref,return_url:paymentReturnUrl.href,first_name:body.firstName || 'Serkle',last_name:body.lastName || 'User',
         ...(phone && /^0[79]\d{8}$/.test(phone) ? {phone_number:phone} : {}),
         customization:{title:'Serkle Wallet',description:`Top up ${intent.amount} ETB`}}));
       await deps.store.setCheckout(intent.tx_ref,url);
@@ -124,8 +128,18 @@ export function createChapaHandlers(deps: ChapaDependencies) {
     }),
     verify:safe(async req=>{
       const user=await deps.authenticate(req),body=await req.json();
-      if(typeof body.txRef!=='string') throw new PaymentError('Payment reference required');
-      const intent=await deps.store.get(body.txRef);
+      let txRef=body.txRef;
+      if(txRef===undefined || txRef===null) {
+        const recent=(await deps.store.recent(user.id,new Date(Date.now()-86400000).toISOString()))
+          .filter(intent=>intent.user_id===user.id && intent.mode===deps.mode);
+        if(recent.length!==1) return json({success:false,verified:false,userId:user.id,
+          status:recent.length ? 'selection_required' : 'unknown',
+          message:recent.length ? 'Choose the payment you want to check.' : 'No recent payment could be identified. Check your wallet history or contact support with your Chapa receipt.',
+          candidates:recent.map(intent=>({txRef:intent.tx_ref,amount:intent.amount,status:intent.status,createdAt:intent.created_at || null}))});
+        txRef=recent[0].tx_ref;
+      }
+      if(typeof txRef!=='string' || !txRef.trim()) throw new PaymentError('Payment reference required');
+      const intent=await deps.store.get(txRef);
       if(!intent || intent.user_id!==user.id) throw new PaymentError('Payment not found for this account',404);
       const result=await reconcile(intent);
       await deps.store.reconcileGrants(user.id);

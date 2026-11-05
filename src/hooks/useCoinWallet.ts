@@ -149,13 +149,15 @@ export function useCoinWallet(userId?: string) {
 
   // ─── TOP UP: Verify after returning from Chapa ───────────────────────────
   const verifyTopUp = useMutation({
-    mutationFn: async ({ txRef }: { txRef: string }) => {
-      const result=await callEdgeFunction('chapa-verify', { txRef });
+    mutationFn: async ({ txRef }: { txRef?: string }) => {
+      if (!userId) throw new Error('Please sign in');
+      const result=await callEdgeFunction('chapa-verify', txRef ? { txRef } : {});
       if(result.userId!==userId || activeAccount.current!==userId) throw new Error('Your account changed. Check this payment from the correct account.');
       return result;
     },
     onSuccess: (data) => {
       if(data.userId!==activeAccount.current) return;
+      if(data.status==='selection_required' || data.status==='unknown') return;
       if(userId) recordTopUpResult(userId,data);
       const state=topUpState(data);
       if (state === 'success') {
@@ -164,6 +166,8 @@ export function useCoinWallet(userId?: string) {
           title: '🎉 Top-up successful!',
           description: `${data.amount} coins have been added to your wallet.`,
         });
+      } else if (state === 'test') {
+        toast({ title: 'Test payment successful', description: data.message || 'Chapa confirmed the test payment. No spendable coins were added.' });
       } else if (state === 'pending') {
         toast({ title: 'Payment pending', description: 'Verification is pending. Check again before making another payment.' });
       } else {

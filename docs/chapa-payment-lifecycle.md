@@ -18,6 +18,10 @@ The wallet initiation hook sends the shared `CHAPA_RETURN_URL`, fixed to
 `https://serkle-app-five.vercel.app/verify`. It does not derive the callback from the
 browser's current host, so local and alternate deployments use the same
 approved callback.
+After creating the server intent, `chapa-initialize` adds its opaque reference
+as `?tx_ref=...` to this callback. Client query parameters cannot select or
+replace that reference. The return screen preserves the reference in its URL
+even when a completed check clears the account's pending browser storage.
 
 `chapa-verify` verifies the caller's JWT and receipt ownership, queries Chapa v1
 with the server secret and checks reference, amount, currency, environment and a
@@ -34,6 +38,9 @@ requeries Chapa before applying any value. Payload hashes deduplicate deliveries
 row locks, unique provider references and terminal reversal state prevent double
 credits across webhooks, manual verification, jobs and retries. Test payments are
 recorded but never create real spendable coins or premium entitlements.
+The UI shows `test_verified` as **Test payment successful**, with an explicit
+no-spendable-coins explanation. It does not display a failure or live-credit
+message for a successful test transaction.
 
 Pending/failed payments grant no coins. A verified live success credits once.
 Full top-up refunds/reversals remove that funding once; stale successes cannot
@@ -64,6 +71,15 @@ Late responses from a previous account cannot update the current account's
 payment state. Browser storage is an optional retry aid, with an in-memory
 fallback; it is never the source of an entitlement.
 
+For legacy bare `/verify` returns or missing browser storage, authenticated
+`chapa-verify` can recover receipts from the current account and payment mode
+created within the last 24 hours. One candidate is reverified with Chapa;
+multiple candidates require an explicit selection. No candidates produce a
+neutral verification-needed state, not a declined-payment claim. Explicit
+references remain verifiable outside that recovery window, subject to ownership.
+Already completed receipts remain recoverable after a webhook or background
+reconciliation clears the pending browser reference.
+
 The scheduled job reconciles due payments even when every client is closed.
 Pending/provider-error intents retry after one minute; completed receipts are
 rechecked daily for missed reversals. Webhooks and explicit verification run
@@ -86,6 +102,9 @@ To deploy using the Supabase Dashboard editor, run
 `npm run build:chapa-deployment`. It produces single-file functions with no local
 shared-module imports in `deployment/chapa-payment-fix`, plus deployment notes
 and the matching SQL files. Create each function using its exact filename stem.
+The return-reference and receipt-recovery update requires redeploying
+`chapa-initialize` and `chapa-verify` using their regenerated files. It needs no
+additional SQL migration beyond the existing payment schema below.
 `chapa-reconcile` and `chapa-webhook` disable gateway JWT verification and enforce
 their own authentication for POST. Browser OPTIONS is answered before loading
 payment secrets, and configuration errors include the complete CORS headers.
@@ -143,3 +162,8 @@ coverage for included content, excluded events/services and independent purchase
 The purchase endpoint also repairs the caller's paid grants transactionally
 before evaluating another debit, preventing duplicate charges when a grant row
 is missing during recovery.
+
+`npm run test:payment-return-ui` runs the real return screen and wallet hook in
+isolated Chrome with mocked endpoints and external requests blocked. It covers
+successful test payments, cleared pending storage, reloads, legacy bare returns,
+receipt selection, unknown/pending states, unverified success and login redirects.

@@ -18,7 +18,8 @@
     "test:circle-leave-ui": "node --experimental-strip-types --test src/tests/circle-leave.ui.test.ts",
     "test:payments": "node --experimental-strip-types --test src/tests/chapa-lifecycle.integration.test.ts src/tests/edge-function-error.test.ts",
     "build:chapa-deployment": "node scripts/build-chapa-deployment.mjs",
-    "test:payment-cors": "node --experimental-strip-types --test src/tests/chapa-cors.test.ts"
+    "test:payment-cors": "node --experimental-strip-types --test src/tests/chapa-cors.test.ts",
+    "test:payment-return-ui": "node --experimental-strip-types --test src/tests/chapa-return.ui.test.ts"
   },
   "dependencies": {
     "@capacitor/android": "^7.4.2",
