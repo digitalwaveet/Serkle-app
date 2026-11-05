@@ -86,7 +86,6 @@ export const WalletTopUpTab: React.FC<WalletTopUpTabProps> = ({
       firstName,
       lastName,
       phoneNumber: (user as any)?.phone || undefined,
-      returnUrl: window.location.origin + '/verify'
     }, {
       onSuccess: (data: any) => {
         if (!data?.checkoutUrl) {

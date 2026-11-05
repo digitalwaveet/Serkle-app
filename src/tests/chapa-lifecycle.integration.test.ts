@@ -4,7 +4,7 @@ import { randomUUID,createHmac } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { after,before,beforeEach,test } from 'node:test';
 import { createChapaHandlers,normalizeVerification,verifyWebhookSignature,PaymentError,type ChapaStore,type ChapaIntent } from '../../supabase/functions/_shared/chapa.ts';
-import { topUpState,pendingChapaKey,chapaRequestKey,recordTopUpResult,writeChapaStorage,readChapaStorage } from '../lib/chapaPayments.ts';
+import { CHAPA_RETURN_URL,topUpState,pendingChapaKey,chapaRequestKey,recordTopUpResult,writeChapaStorage,readChapaStorage } from '../lib/chapaPayments.ts';
 import { authReturnPath,circleLoginPath } from '../lib/authReturnPath.ts';
 
 const db=new PGlite();
@@ -18,7 +18,7 @@ async function login(user:string|null=buyer) {
 }
 async function service() {await db.exec('RESET ROLE; SET ROLE service_role');}
 const data=new Map<string,any>();
-let verifyCalls=0,initializeCalls=0,unavailable=false;
+let verifyCalls=0,initializeCalls=0,unavailable=false,initializedReturnUrl:unknown;
 const store:ChapaStore={
   begin:async(user,request,amount,mode)=>{await service();return(await q('SELECT begin_chapa_payment($1,$2,$3,$4) result',[user,request,amount,mode]))[0].result;},
   get:async ref=>{await service();return(await q('SELECT * FROM chapa_payment_intents WHERE tx_ref=$1',[ref]))[0] || null;},
@@ -31,7 +31,7 @@ const store:ChapaStore={
   reconcileGrants:async user=>{await service();await q('SELECT reconcile_circle_receipts($1)',[user]);},
 };
 function handlers(mode:'live'|'test'='live') {
-  return createChapaHandlers({store,mode,origins:['https://serkle.test'],webhookSecret:secret,reconcileSecret:scheduler,
+  return createChapaHandlers({store,mode,origins:['https://serkle-app.vercel.app'],webhookSecret:secret,reconcileSecret:scheduler,
     authenticate:async request=>{
       const user=request.headers.get('authorization')?.replace('Bearer ','');
       if(![buyer,seller,other].includes(user || '')) throw new PaymentError('Authentication required',401);
@@ -39,6 +39,7 @@ function handlers(mode:'live'|'test'='live') {
     },
     initialize:async payload=>{
       initializeCalls++;
+      initializedReturnUrl=payload.return_url;
       data.set(payload.tx_ref as string,{status:'success',data:{tx_ref:payload.tx_ref,amount:payload.amount,currency:'ETB',mode,status:'pending',reference:`provider-${payload.tx_ref}`,updated_at:new Date().toISOString()}});
       return `https://checkout.chapa.co/checkout/${payload.tx_ref}`;
     },
@@ -47,7 +48,7 @@ function handlers(mode:'live'|'test'='live') {
 }
 const request=(body:unknown,user:string|null=buyer,extra:Record<string,string>={})=>new Request('https://edge.test',{method:'POST',headers:{'content-type':'application/json',...(user ? {authorization:`Bearer ${user}`} : {}),...extra},body:JSON.stringify(body)});
 async function initialize(amount=10,user=buyer,requestId=randomUUID(),mode:'live'|'test'='live') {
-  const response=await handlers(mode).initialize(request({amount,requestId,returnUrl:'https://serkle.test/verify'},user));
+  const response=await handlers(mode).initialize(request({amount,requestId,returnUrl:CHAPA_RETURN_URL},user));
   return {response,result:await response.json(),requestId};
 }
 function setState(ref:string,status:string,patch:Record<string,unknown>={}) {
@@ -80,13 +81,14 @@ beforeEach(async()=>{
   await q('INSERT INTO circle_videos(id,circle_id,user_id,is_premium,price) VALUES($1,$2,$3,true,7)',[video,circle,seller]);
   await q('INSERT INTO circle_resources(id,circle_id,uploader_id,is_premium) VALUES($1,$2,$3,true)',[resource,circle,seller]);
   await q('INSERT INTO coin_wallets(user_id,balance) VALUES($1,0),($2,0),($3,0)',[buyer,seller,other]);
-  data.clear();verifyCalls=0;initializeCalls=0;unavailable=false;
+  data.clear();verifyCalls=0;initializeCalls=0;unavailable=false;initializedReturnUrl=undefined;
   await login();
 });
 
 test('initialization persists owner, exact amount and stable reference before the provider redirect; retries reuse it',async()=>{
   const first=await initialize(),again=await initialize(10,buyer,first.requestId);
   assert.equal(first.response.status,200);assert.equal(again.result.txRef,first.result.txRef);assert.equal(initializeCalls,1);
+  assert.equal(initializedReturnUrl,'https://serkle-app.vercel.app/verify');
   const intent=await store.get(first.result.txRef);
   assert.equal(intent?.user_id,buyer);assert.equal(intent?.amount,10);assert.equal(intent?.status,'pending');
   assert.equal(await balance(),0);assert.equal(await access(),false);
@@ -318,7 +320,7 @@ test('a refund discovered before first fulfillment blocks all later success retr
 
 test('invalid amounts and unapproved return origins cannot initiate a checkout',async()=>{
   for(const amount of [0,-10,10.5,'10abc',1000001]) {
-    const response=await handlers().initialize(request({amount,requestId:randomUUID(),returnUrl:'https://serkle.test/verify'}));
+    const response=await handlers().initialize(request({amount,requestId:randomUUID(),returnUrl:CHAPA_RETURN_URL}));
     assert.equal(response.status,400);
   }
   const response=await handlers().initialize(request({amount:10,requestId:randomUUID(),returnUrl:'https://attacker.test/verify'}));

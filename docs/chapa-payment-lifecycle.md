@@ -14,6 +14,10 @@ amount, currency and live/test environment before returning checkout. The
 account-scoped initialization request ID survives uncertain network responses.
 The same ID cannot be reused for another amount or environment. Checkout return
 URLs must match `PAYMENT_RETURN_ORIGINS` and the existing `/verify` route.
+The wallet initiation hook sends the shared `CHAPA_RETURN_URL`, fixed to
+`https://serkle-app.vercel.app/verify`. It does not derive the callback from the
+browser's current host, so local and alternate deployments use the same
+approved callback.
 
 `chapa-verify` verifies the caller's JWT and receipt ownership, queries Chapa v1
 with the server secret and checks reference, amount, currency, environment and a

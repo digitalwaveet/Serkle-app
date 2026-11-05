@@ -3,7 +3,7 @@ import { useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { CIRCLE_ACCESS_QUERY_KEYS } from '@/lib/circlePayments';
-import { chapaRequestKey, pendingChapaKey, recordTopUpResult, topUpState, readChapaStorage, writeChapaStorage } from '@/lib/chapaPayments';
+import { CHAPA_RETURN_URL, chapaRequestKey, pendingChapaKey, recordTopUpResult, topUpState, readChapaStorage, writeChapaStorage } from '@/lib/chapaPayments';
 import { edgeFunctionErrorMessage } from '@/lib/edgeFunctionError';
 
 export interface CoinWallet {
@@ -111,21 +111,19 @@ export function useCoinWallet(userId?: string) {
       email, 
       firstName, 
       lastName,
-      phoneNumber,
-      returnUrl
+      phoneNumber
     }: { 
       amount: number; 
       email?: string; 
       firstName?: string; 
       lastName?: string; 
       phoneNumber?: string;
-      returnUrl?: string;
     }) => {
       if (!userId) throw new Error('Please sign in');
       const key=chapaRequestKey(userId,amount);
       let requestId=readChapaStorage(key);
       if(!requestId) {requestId=crypto.randomUUID();writeChapaStorage(key,requestId);}
-      const result=await callEdgeFunction('chapa-initialize', { amount, email, firstName, lastName, phoneNumber, returnUrl, requestId });
+      const result=await callEdgeFunction('chapa-initialize', { amount, email, firstName, lastName, phoneNumber, returnUrl: CHAPA_RETURN_URL, requestId });
       if(result.userId!==userId || activeAccount.current!==userId) throw new Error('Your account changed. Review this payment from the correct account.');
       if(result.txRef) writeChapaStorage(pendingChapaKey(userId),result.txRef);
       if(!result.checkoutUrl) {
