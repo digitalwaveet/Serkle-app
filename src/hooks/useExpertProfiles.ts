@@ -190,7 +190,7 @@ export const useIsExpert = (userId?: string) => {
         .maybeSingle();
 
       if (error) {
-        return false;
+        throw error;
       }
 
       return data?.is_verified || false;

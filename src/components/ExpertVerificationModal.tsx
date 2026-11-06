@@ -1,6 +1,7 @@
 import { SerkleLoader } from '@/components/ui/SerkleLoader';
 ﻿import React, { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DialogContent as AskDialogContent, DialogHeader as AskDialogHeader } from "@/components/ask/AskDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -13,6 +14,7 @@ interface ExpertVerificationModalProps {
   open: boolean;
   onClose: () => void;
   userId: string;
+  appearance?: "ask";
 }
 
 const CATEGORIES = [
@@ -20,7 +22,9 @@ const CATEGORIES = [
   "Financial Professional", "Business Professional", "Career Professional", "Other"
 ];
 
-const ExpertVerificationModal: React.FC<ExpertVerificationModalProps> = ({ open, onClose, userId }) => {
+const ExpertVerificationModal: React.FC<ExpertVerificationModalProps> = ({ open, onClose, userId, appearance }) => {
+  const VerificationContent = appearance === "ask" ? AskDialogContent : DialogContent;
+  const VerificationHeader = appearance === "ask" ? AskDialogHeader : DialogHeader;
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -204,13 +208,13 @@ const ExpertVerificationModal: React.FC<ExpertVerificationModalProps> = ({ open,
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
+      <VerificationContent aria-describedby={undefined} className={`sm:max-w-xl max-h-[90vh] overflow-y-auto ${appearance === "ask" ? "ask-verification" : ""}`}>
+        <VerificationHeader>
           <DialogTitle className="flex items-center gap-2">
             <Award className="h-5 w-5 text-primary" />
             Expert Verification
           </DialogTitle>
-        </DialogHeader>
+        </VerificationHeader>
 
         {loading ? (
           <div className="flex justify-center py-12"><SerkleLoader size="md" className="text-muted-foreground" /></div>
@@ -275,48 +279,48 @@ const ExpertVerificationModal: React.FC<ExpertVerificationModalProps> = ({ open,
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1">
                     <label className="text-xs font-medium">Full Legal Name *</label>
-                    <Input value={legalName} onChange={e => setLegalName(e.target.value)} placeholder="Jane Doe" />
+                    <Input aria-label="Full legal name" value={legalName} onChange={e => setLegalName(e.target.value)} placeholder="Jane Doe" />
                   </div>
                   <div className="space-y-1">
                     <label className="text-xs font-medium">Public Display Name</label>
-                    <Input value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder="Dr. Jane" />
+                    <Input aria-label="Public display name" value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder="Dr. Jane" />
                   </div>
                   <div className="space-y-1">
                     <label className="text-xs font-medium">Contact Email *</label>
-                    <Input value={email} onChange={e => setEmail(e.target.value)} placeholder="email@example.com" type="email" />
+                    <Input aria-label="Contact email" value={email} onChange={e => setEmail(e.target.value)} placeholder="email@example.com" type="email" />
                   </div>
                   <div className="space-y-1">
                     <label className="text-xs font-medium">Professional Title *</label>
-                    <Input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Clinical Psychologist" />
+                    <Input aria-label="Professional title" value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Clinical Psychologist" />
                   </div>
                   <div className="space-y-1">
                     <label className="text-xs font-medium">Specialty *</label>
-                    <Input value={specialty} onChange={e => setSpecialty(e.target.value)} placeholder="e.g. Child Therapy" />
+                    <Input aria-label="Specialty" value={specialty} onChange={e => setSpecialty(e.target.value)} placeholder="e.g. Child Therapy" />
                   </div>
                   <div className="space-y-1">
                     <label className="text-xs font-medium">Years of Experience</label>
-                    <Input value={experience} onChange={e => setExperience(e.target.value)} type="number" placeholder="10" />
+                    <Input aria-label="Years of experience" value={experience} onChange={e => setExperience(e.target.value)} type="number" placeholder="10" />
                   </div>
                   <div className="space-y-1">
                     <label className="text-xs font-medium">Qualification/Degree</label>
-                    <Input value={qualification} onChange={e => setQualification(e.target.value)} placeholder="e.g. Psy.D." />
+                    <Input aria-label="Qualification or degree" value={qualification} onChange={e => setQualification(e.target.value)} placeholder="e.g. Psy.D." />
                   </div>
                   <div className="space-y-1">
                     <label className="text-xs font-medium">Institution/University</label>
-                    <Input value={institution} onChange={e => setInstitution(e.target.value)} placeholder="e.g. Stanford University" />
+                    <Input aria-label="Institution" value={institution} onChange={e => setInstitution(e.target.value)} placeholder="e.g. Stanford University" />
                   </div>
                   <div className="space-y-1">
                     <label className="text-xs font-medium">License / Cert. Number</label>
-                    <Input value={license} onChange={e => setLicense(e.target.value)} placeholder="License #" />
+                    <Input aria-label="License number" value={license} onChange={e => setLicense(e.target.value)} placeholder="License #" />
                   </div>
                   <div className="space-y-1">
                     <label className="text-xs font-medium">Country of Practice</label>
-                    <Input value={country} onChange={e => setCountry(e.target.value)} placeholder="e.g. USA" />
+                    <Input aria-label="Country" value={country} onChange={e => setCountry(e.target.value)} placeholder="e.g. USA" />
                   </div>
                 </div>
                 <div className="space-y-1">
                   <label className="text-xs font-medium">Professional Bio</label>
-                  <Textarea value={bio} onChange={e => setBio(e.target.value)} placeholder="Brief summary of your professional background..." rows={3} />
+                  <Textarea aria-label="Professional background" value={bio} onChange={e => setBio(e.target.value)} placeholder="Brief summary of your professional background..." rows={3} />
                 </div>
               </div>
             )}
@@ -389,7 +393,7 @@ const ExpertVerificationModal: React.FC<ExpertVerificationModalProps> = ({ open,
             </div>
           </div>
         )}
-      </DialogContent>
+      </VerificationContent>
     </Dialog>
   );
 };

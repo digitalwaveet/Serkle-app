@@ -14,6 +14,8 @@ interface MentionFriend {
 }
 
 interface MentionTextareaProps {
+  id?: string;
+  disabled?: boolean;
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
@@ -26,6 +28,8 @@ interface MentionTextareaProps {
 }
 
 const MentionTextarea: React.FC<MentionTextareaProps> = ({
+  id,
+  disabled,
   value,
   onChange,
   placeholder,
@@ -145,6 +149,8 @@ const MentionTextarea: React.FC<MentionTextareaProps> = ({
   return (
     <div className="relative w-full">
       <textarea
+        id={id}
+        disabled={disabled}
         ref={textareaRefUsed as React.RefObject<HTMLTextAreaElement>}
         value={value}
         onChange={handleChange}

@@ -201,9 +201,9 @@ export const useCreateQuestion = () => {
 
       return data;
     },
-    onSuccess: () => {
+    onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['questions'] });
-      toast.success('Question posted successfully!');
+      toast.success(variables.isThread ? 'Story posted successfully!' : 'Question posted successfully!');
     },
     onError: (error) => {
       console.error('Error creating question:', error);
