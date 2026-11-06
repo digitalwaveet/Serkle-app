@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { walletDate, walletPage, walletPaymentStatus, type WalletPayment } from '../lib/walletHistory.ts';
+import { walletDate, walletPage, walletPaymentStatus, walletPaymentTone, type WalletPayment } from '../lib/walletHistory.ts';
 import { chapaRequestKey, parseWalletAmount, recordTopUpResult, withdrawalRequestKey, withdrawalReferenceKey, writeChapaStorage, readChapaStorage } from '../lib/chapaPayments.ts';
 
 const payment = (patch: Partial<WalletPayment> = {}) => ({ kind: 'topup', mode: 'live', status: 'pending', checkout_state: 'ready', credited_at: null, reversed_at: null, review_required: false, ...patch } as WalletPayment);
@@ -17,6 +17,14 @@ test('receipt labels distinguish test success, recorded credit, pending fulfillm
 test('wallet amount inputs reject fractions, exponent notation and out-of-range amounts without silently rounding', () => {
   for (const amount of ['10', '500', '1000000']) assert.equal(parseWalletAmount(amount), Number(amount));
   for (const amount of ['', '9', '10.5', '-10', '1e3', '1000001', '20bad']) assert.equal(parseWalletAmount(amount), 0);
+});
+test('receipt styling reserves success for settled live money and keeps test, pending and review states distinct',()=>{
+  assert.equal(walletPaymentTone(payment()),'pending');
+  assert.equal(walletPaymentTone(payment({provider_status:'succeeded'})),'pending');
+  assert.equal(walletPaymentTone(payment({mode:'test',status:'succeeded'})),'test');
+  assert.equal(walletPaymentTone(payment({status:'succeeded',credited_at:'2026-11-06T10:00:00Z'})),'success');
+  assert.equal(walletPaymentTone(payment({review_required:true})),'danger');
+  assert.equal(walletPaymentTone(payment({status:'reversed',reversed_at:'2026-11-06T10:00:00Z'})),'neutral');
 });
 test('history cursor uses the last visible row and does not consume the extra lookahead record', () => {
   const rows = Array.from({ length: 21 }, (_, index) => ({ id: String(index), created_at: '2026-11-05T10:00:00Z' }));

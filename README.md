@@ -49,6 +49,7 @@ Supabase migrations are in `supabase/migrations`, and Edge Functions are in
 - [Circle entitlements and payments](docs/circle-entitlements.md)
 - [Chapa verification, webhooks, and reconciliation](docs/chapa-payment-lifecycle.md)
 - [Wallet audit deployment and recovery operations](docs/wallet-audit-deployment.md)
+- [Wallet interface and receipt design](docs/wallet-interface.md)
 - [Circle membership and leaving](docs/circle-membership.md)
 
 Chapa requires server secrets, a registered signed webhook, and the reconciliation

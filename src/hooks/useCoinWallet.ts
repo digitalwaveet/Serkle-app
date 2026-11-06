@@ -66,7 +66,7 @@ export function useCoinWallet(userId?: string) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const { data: wallet, isLoading: isWalletLoading } = useQuery({
+  const { data: wallet, isLoading: isWalletLoading, isError: isWalletError } = useQuery({
     queryKey: ['coin-wallet', userId],
     queryFn: async () => {
       if (!userId) return null;
@@ -285,7 +285,7 @@ export function useCoinWallet(userId?: string) {
   });
 
   // ─── BANKS: Fetch available Chapa banks ──────────────────────────────────
-  const { data: chapaBankData, isLoading: isBanksLoading } = useQuery({
+  const { data: chapaBankData, isLoading: isBanksLoading, isError: isBanksError, refetch: retryBanks } = useQuery({
     queryKey: ['chapa-banks',userId],
     enabled: !!userId,
     queryFn: async (): Promise<{banks:ChapaBank[];mode:'test'|'live'}> => {
@@ -304,6 +304,7 @@ export function useCoinWallet(userId?: string) {
     totalSpent: wallet?.total_spent ?? 0,
     transactions: transactions ?? [],
     isWalletLoading,
+    isWalletError,
     isTransactionsLoading,
     initiateTopUp,
     verifyTopUp,
@@ -312,6 +313,8 @@ export function useCoinWallet(userId?: string) {
     chapaBanks: chapaBankData?.banks ?? [],
     chapaMode: chapaBankData?.mode,
     isBanksLoading,
+    isBanksError,
+    retryBanks,
     invalidate,
   };
 }

@@ -1,38 +1,14 @@
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
-import { readFile } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
+import { mkdir } from 'node:fs/promises';
+import { startWalletFixtureServer } from './fixtures/wallet-server.ts';
+
 import { chromium, expect, type Browser, type Page } from '@playwright/test';
-import { createServer, transformWithEsbuild, type ViteDevServer } from 'vite';
+import type { ViteDevServer } from 'vite';
 
 let server: ViteDevServer, browser: Browser, base: string;
-const fixtureSource = await readFile(new URL('./fixtures/chapa-return-client.ts', import.meta.url), 'utf8');
 before(async () => {
-  server = await createServer({ configFile: false, cacheDir: 'node_modules/.vite-chapa-return-ui',
-    resolve: { alias: { '@': fileURLToPath(new URL('../', import.meta.url)) } },
-    optimizeDeps: { entries: ['src/tests/fixtures/chapa-return-ui.tsx'], include: ['react', 'react-dom/client', 'react-router-dom', '@tanstack/react-query', '@radix-ui/react-tabs', '@radix-ui/react-popover', '@radix-ui/react-alert-dialog', '@radix-ui/react-dialog'] },
-    server: { host: '127.0.0.1', port: 8995, hmr: false, watch: null },
-    plugins: [{ name: 'isolated-chapa-return', enforce: 'pre',
-      resolveId(source) {
-        const path = source.replace(/\\/g, '/').replace(/\/+/g, '/');
-        if (source === 'virtual:chapa-return-client' || /(?:@|\/src)\/integrations\/supabase\/client(?:\.ts)?$/.test(path)) return '\0chapa-return-client';
-        if (/(?:@|\/src)\/contexts\/UserContext(?:\.tsx)?$/.test(path)) return '\0chapa-return-user';
-      },
-      async load(id) {
-        const path = id.replace(/\\/g, '/').replace(/\/+/g, '/');
-        if (id === '\0chapa-return-client') return (await transformWithEsbuild(fixtureSource, 'chapa-return-client.ts', { loader: 'ts', target: 'es2020' })).code;
-        if (id === '\0chapa-return-user' || path.endsWith('/src/contexts/UserContext.tsx')) return "import {fixture} from 'virtual:chapa-return-client'; export const useUser=()=>({user:fixture.user,isLoading:false});";
-        if (path.endsWith('/src/integrations/supabase/client.ts')) return "export {supabase} from 'virtual:chapa-return-client';";
-      },
-      configureServer(instance) { instance.middlewares.use((req, res, next) => {
-        if (/^\/(verify|login|wallet-fixture)(\?|$)/.test(req.url || '')) {
-          res.setHeader('Content-Type', 'text/html');
-          res.end('<!doctype html><html><body><div id="root"></div><script type="module" src="/src/tests/fixtures/chapa-return-ui.tsx"></script></body></html>');
-        } else next();
-      }); },
-    }],
-  });
-  await server.listen();
+  server = await startWalletFixtureServer();
   const address = server.httpServer!.address();
   base = `http://127.0.0.1:${typeof address === 'object' && address ? address.port : ''}`;
   browser = await chromium.launch({ channel: 'chrome', headless: true, args: ['--no-proxy-server'] });
@@ -135,10 +111,11 @@ test('wallet history lists test and failed attempts, filters modes and paginates
     await page.getByLabel('Payment mode').selectOption('test');
     await expect(page.getByRole('button',{name:/history-payment-1(?:\D|$)/})).toHaveCount(0);
     await page.getByRole('button',{name:/history-payment-0(?:\D|$)/}).click();
-    const dialog=page.getByRole('dialog');
+    const dialog=page.getByRole('dialog',{name:'Payment receipt',exact:true});
     await expect(dialog.getByText('Test successful',{exact:true})).toBeVisible();
     await expect(dialog.getByText('No spendable coin movement has been recorded for this payment.')).toBeVisible();
     await expect(dialog.getByText('fixture-provider-receipt',{exact:true})).toBeVisible();
+    await dialog.locator('summary').filter({hasText:'Status history'}).click();
     await dialog.getByRole('button',{name:'Load earlier status updates'}).click();
     await expect(dialog.getByRole('button',{name:'Load earlier status updates'})).toHaveCount(0);
   } finally {await page.context().close();}
@@ -148,7 +125,7 @@ test('checking a saved receipt updates its status without starting another check
   const page=await pageFor('history',false,'','wallet-fixture');
   try {
     await page.getByRole('button',{name:/history-payment-1(?:\D|$)/}).click();
-    const dialog=page.getByRole('dialog');await expect(dialog.getByText('Awaiting confirmation',{exact:true})).toBeVisible();
+    const dialog=page.getByRole('dialog',{name:'Payment receipt',exact:true});await expect(dialog.getByText('Awaiting confirmation',{exact:true})).toBeVisible();
     await dialog.getByRole('button',{name:'Check payment status'}).click();
     await expect(dialog.getByText('Completed',{exact:true})).toBeVisible();
     assert.deepEqual(await calls(page),[{txRef:'history-payment-1'}]);
@@ -210,5 +187,138 @@ test('an uncertain checkout shows its saved-receipt guidance and subsequent clic
     assert.equal(attempts.length,2);assert.equal(attempts[0].requestId,attempts[1].requestId);
     assert.equal(await page.evaluate(()=>localStorage.getItem('chapa:pending:00000000-0000-0000-0000-000000000001')),'saved-checkout-fixture');
     assert.ok(page.url().includes('/wallet-fixture'),'an unconfirmed checkout must not navigate to an invented URL');
+  } finally {await page.context().close();}
+});
+
+test('wallet and receipt remain usable at 320px with long references and balances in light and dark themes',async()=>{
+  const page=await pageFor('history-large',false,'','wallet-fixture');
+  try {
+    await page.setViewportSize({width:320,height:800});
+    for(const theme of ['light','dark']) {
+      await page.evaluate(theme=>{document.documentElement.dataset.theme=theme;},theme);
+      assert.equal(await page.locator('.wallet-screen').evaluate(element=>element.scrollWidth<=element.clientWidth),true);
+      for(const name of ['History','Top Up','Withdraw']) {
+        const bounds=await page.getByRole('tab',{name,exact:true}).boundingBox();assert.ok(bounds && bounds.height>=44 && bounds.width>=44);
+      }
+      await page.locator('.wallet-payment-row').first().click();
+      const receipt=page.getByRole('dialog',{name:'Payment receipt',exact:true});
+      await expect(receipt.getByText('serkle-00000000-0000-0000-0000-000000000001',{exact:true})).toBeVisible();
+      assert.equal(await receipt.evaluate(element=>element.scrollWidth<=element.clientWidth),true);
+      const contained=await receipt.evaluate(element=>{const bounds=element.getBoundingClientRect();return bounds.left>=0 && bounds.right<=innerWidth;});assert.equal(contained,true);
+      await receipt.getByRole('button',{name:'Close receipt'}).click();
+    }
+  } finally {await page.context().close();}
+});
+
+test('receipt traps keyboard focus above the wallet and Escape restores the exact opener',async()=>{
+  const page=await pageFor('history',false,'','wallet-fixture');
+  try {
+    const opener=page.getByRole('button',{name:/history-payment-0(?:\D|$)/});await opener.click();
+    const receipt=page.getByRole('dialog',{name:'Payment receipt',exact:true});
+    await expect(receipt.getByRole('button',{name:'Close receipt'})).toBeFocused();
+    assert.equal(await receipt.evaluate(element=>{const bounds=element.getBoundingClientRect();return element.contains(document.elementFromPoint(bounds.x+bounds.width/2,bounds.y+bounds.height/2));}),true);
+    for(let i=0;i<8;i++){await page.keyboard.press('Tab');assert.equal(await receipt.evaluate(element=>element.contains(document.activeElement)),true);}
+    await page.keyboard.press('Escape');await expect(receipt).toHaveCount(0);await expect(opener).toBeFocused();
+    await page.keyboard.press('Escape');await expect(page.getByRole('dialog',{name:'Wallet',exact:true})).toHaveCount(0);await expect(page.getByRole('button',{name:'Open wallet'})).toBeVisible();
+  } finally {await page.context().close();}
+});
+
+test('top-up and withdrawal inputs have labels, clear invalid-amount guidance and keyboard access',async()=>{
+  const page=await pageFor('history',false,'','wallet-fixture');
+  try {
+    await page.getByRole('tab',{name:'Top Up',exact:true}).click();
+    const amount=page.getByRole('textbox',{name:'Or enter a custom amount',exact:true});
+    await amount.fill('10.5');await expect(amount).toHaveAttribute('aria-invalid','true');
+    await expect(page.getByText('Enter a whole amount from 10 to 1,000,000 ETB.',{exact:true})).toBeVisible();
+    await expect(page.getByRole('button',{name:'Continue to Review',exact:true})).toBeDisabled();
+    await page.getByRole('button',{name:/^500\s*ETB$/}).click();await expect(page.getByRole('button',{name:/^500\s*ETB$/})).toHaveAttribute('aria-pressed','true');
+    await page.getByRole('tab',{name:'Withdraw',exact:true}).click();
+    for(const name of ['Amount (ETB)','Account holder name','Account / wallet number']) await expect(page.getByRole('textbox',{name,exact:true})).toBeVisible();
+    await page.getByRole('textbox',{name:'Account / wallet number',exact:true}).fill('abc');
+    await expect(page.getByText('Enter 6–30 digits, without spaces or symbols.',{exact:true})).toBeVisible();
+    await expect(page.getByRole('button',{name:'Request Withdrawal',exact:true})).toBeDisabled();
+  } finally {await page.context().close();}
+});
+
+test('receipt copy and printable document contain saved test data without initiating a payment',async()=>{
+  const page=await pageFor('history',false,'','wallet-fixture');
+  try {
+    await page.evaluate(()=>{
+      Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async(text:string)=>{(window as any).copiedReceipt=text;}}});
+      window.print=()=>{(window as any).printRequested=true;};
+    });
+    await page.getByRole('button',{name:/history-payment-0(?:\D|$)/}).click();
+    const receipt=page.getByRole('dialog',{name:'Payment receipt',exact:true});
+    await receipt.getByRole('button',{name:'Copy receipt details',exact:true}).click();await expect(receipt.getByRole('button',{name:'Copied',exact:true})).toBeVisible();
+    const text=await page.evaluate(()=>(window as any).copiedReceipt);assert.ok(text.includes('fixture-provider-receipt'));assert.ok(text.includes('TEST ONLY'));assert.ok(text.includes('Recorded coin movement: 0'));
+    await receipt.getByRole('button',{name:'Print / Save PDF',exact:true}).click();assert.equal(await page.evaluate(()=>(window as any).printRequested),true);
+    await page.emulateMedia({media:'print'});await expect(page.locator('.wallet-receipt-paper')).toBeVisible();await expect(page.locator('.wallet-receipt-controls')).toBeHidden();await expect(page.locator('.wallet-header')).toBeHidden();
+    await mkdir('test-results/wallet-redesign',{recursive:true});
+    const pdf=await page.pdf({path:'test-results/wallet-redesign/test-receipt.pdf',format:'A4',printBackground:true});assert.ok(pdf.byteLength>5000);
+    await page.screenshot({path:'test-results/wallet-redesign/receipt-print-preview.png'});
+    assert.deepEqual(await calls(page),[]);assert.equal(await page.evaluate(()=>(window as any).chapaReturnFixture.checkouts.length),0);
+  } finally {await page.context().close();}
+});
+
+test('wallet preserves the Serkle loading animation and respects reduced motion',async()=>{
+  const page=await pageFor('wallet-loading',false,'','wallet-fixture');
+  try {
+    const loader=page.getByRole('status',{name:'Loading balance',exact:true});await expect(loader).toBeVisible();
+    await expect(loader.locator('.serkle-loader__word')).toHaveText('SERKLE');
+    assert.equal(await loader.locator('.serkle-loader__letter').first().evaluate(element=>getComputedStyle(element).animationName),'serkle-letter-wave');
+    await page.emulateMedia({reducedMotion:'reduce'});
+    assert.equal(await loader.locator('.serkle-loader__letter').first().evaluate(element=>getComputedStyle(element).animationName),'none');
+  } finally {await page.context().close();}
+});
+
+test('unknown balance and empty history use explicit states instead of fabricated zero balances or receipts',async()=>{
+  const error=await pageFor('wallet-error',false,'','wallet-fixture');
+  try {await expect(error.getByText('Balance could not be refreshed',{exact:true})).toBeVisible();await expect(error.locator('.wallet-balance-card')).toContainText('Unavailable');await expect(error.getByRole('button',{name:'Retry balance',exact:true})).toBeVisible();}
+  finally {await error.context().close();}
+  const empty=await pageFor('history-empty',false,'','wallet-fixture');
+  try {await expect(empty.getByRole('heading',{name:'No payment receipts yet',exact:true})).toBeVisible();await empty.getByRole('tab',{name:'Coin activity',exact:true}).click();await expect(empty.getByRole('heading',{name:'No coin movements yet',exact:true})).toBeVisible();}
+  finally {await empty.context().close();}
+});
+
+test('an unavailable bank list has a visible retry and cannot submit a withdrawal',async()=>{
+  const page=await pageFor('banks-error',false,'','wallet-fixture');
+  try {
+    await page.getByRole('tab',{name:'Withdraw',exact:true}).click();await expect(page.getByText('Bank list could not be loaded',{exact:true})).toBeVisible();
+    await expect(page.getByRole('button',{name:'Request Withdrawal',exact:true})).toBeDisabled();await page.getByRole('button',{name:'Retry bank list',exact:true}).click();
+    await expect(page.getByRole('button',{name:'Select bank or mobile wallet',exact:true})).toBeEnabled();assert.equal(await page.evaluate(()=>(window as any).chapaReturnFixture.payouts.length),0);
+  } finally {await page.context().close();}
+});
+
+test('wallet labels, status text, form guidance and receipt details have readable text contrast in both themes',async()=>{
+  const page=await pageFor('history',false,'','wallet-fixture');
+  const assertContrast=async()=>{
+    const failures=await page.evaluate(()=>{
+      const rgb=(value:string)=>{const parts=value.match(/[\d.]+/g)?.map(Number) || [0,0,0];return [parts[0],parts[1],parts[2],parts[3] ?? 1];};
+      const luminance=(color:number[])=>color.slice(0,3).map(channel=>{const value=channel/255;return value<=.04045 ? value/12.92 : ((value+.055)/1.055)**2.4;}).reduce((sum,value,index)=>sum+value*[.2126,.7152,.0722][index],0);
+      const backgrounds=(element:Element|null):number[][]=>{
+        if(!element)return [[255,255,255,1]];
+        const style=getComputedStyle(element),solid=rgb(style.backgroundColor);
+        const gradient=style.backgroundImage.match(/rgba?\([^)]+\)/g);
+        if(gradient)return gradient.map(rgb);
+        if(solid[3]===1)return [solid];
+        return backgrounds(element.parentElement).map(parent=>solid.slice(0,3).map((channel,index)=>channel*solid[3]+parent[index]*(1-solid[3])).concat(1));
+      };
+      const selectors='[role="tab"],.wallet-section-heading p,.wallet-filter-bar p,.wallet-row-date,.wallet-row-reference,.wallet-mode,.wallet-status,.wallet-balance-label h2,.wallet-balance-equivalent,.wallet-balance-stats dt,.wallet-field label,.wallet-field-help,.wallet-button--primary:not(:disabled),.wallet-receipt-details dt,.wallet-receipt-details dd,.wallet-receipt-footer';
+      return Array.from(document.querySelectorAll(selectors)).filter(element=>element.getBoundingClientRect().height && !element.closest('[aria-hidden="true"]')).flatMap(element=>{
+        const fg=luminance(rgb(getComputedStyle(element).color));
+        const ratio=Math.min(...backgrounds(element).map(background=>{const bg=luminance(background);return (Math.max(fg,bg)+.05)/(Math.min(fg,bg)+.05);}));
+        return ratio<4.5 ? [{text:element.textContent?.slice(0,65),ratio}] : [];
+      });
+    });
+    assert.deepEqual(failures,[]);
+  };
+  try {
+    for(const theme of ['light','dark']) {
+      await page.evaluate(theme=>{document.documentElement.dataset.theme=theme;},theme);await assertContrast();
+      await page.getByRole('button',{name:/history-payment-0(?:\D|$)/}).click();await assertContrast();
+      await page.getByRole('button',{name:'Close receipt',exact:true}).click();
+      await page.getByRole('tab',{name:'Top Up',exact:true}).click();await page.getByRole('textbox',{name:'Or enter a custom amount',exact:true}).fill('50');await assertContrast();
+      await page.getByRole('tab',{name:'History',exact:true}).click();
+    }
   } finally {await page.context().close();}
 });

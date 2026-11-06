@@ -9,6 +9,7 @@ export const fixture = {
   checkouts: [] as Array<Record<string, unknown>>,
   rpcs: [] as Array<{ name: string; args: any }>,
   modeChanged: false,
+  bankAttempts:0,
 };
 (window as any).chapaReturnFixture = fixture;
 
@@ -24,6 +25,11 @@ const historyPayments:any[] = Array.from({length:26},(_,index)=>({
 }));
 const historyLedger:any[] = Array.from({length:61},(_,index)=>({id:`ledger-${String(index).padStart(3,'0')}`,user_id:userId,amount:1,type:'topup',reference_id:null,description:`Recorded movement ${index+1}`,balance_after:61-index,created_at:`2026-11-04T10:${String(59-Math.floor(index/2)).padStart(2,'0')}:00Z`}));
 if(scenario.startsWith('history')) fixture.balance=61;
+if(scenario==='history-large') {
+  fixture.balance=2147483647;
+  historyPayments[0].amount=1000000;
+  historyPayments[0].tx_ref='serkle-00000000-0000-0000-0000-000000000001';
+}
 const historyEvents = (payment:any) => Array.from({length:26},(_,index)=>({id:`event-${String(26-index).padStart(3,'0')}`,payment_id:payment.id,
   event_type:index===0 ? 'verified' : 'check_started',source:'user',status:payment.status,previous_status:'pending',message:null,details:{},created_at:'2026-11-05T11:00:00Z'}));
 const slicePage=(rows:any[],args:any) => { const start=args._before_id ? rows.findIndex(row=>row.id===args._before_id)+1 : 0;return rows.slice(start,start+Number(args._limit || 20)+1); };
@@ -45,7 +51,11 @@ export const supabase = {
       if(scenario==='mode-change') fixture.modeChanged=true;
       return {data:{success:true,userId,mode:fixture.modeChanged ? 'live' : 'test'},error:null};
     }
-    if (name === 'chapa-transfer' && !options.body) return { data: { success: true,userId,mode:fixture.modeChanged ? 'live' : 'test', banks: [{id:855,name:'Fixture Bank',acct_length:10}] }, error: null };
+    if (name === 'chapa-transfer' && !options.body) {
+      fixture.bankAttempts++;
+      if(scenario==='banks-error' && fixture.bankAttempts===1) return {data:null,error:new Error('Fixture bank list is offline')};
+      return { data: { success: true,userId,mode:fixture.modeChanged ? 'live' : 'test', banks: [{id:855,name:'Fixture Bank',acct_length:10}] }, error: null };
+    }
     if(name==='chapa-transfer') {
       fixture.payouts.push(options.body || {});
       return {data:{success:false,status:'pending',kind:'withdrawal',mode:'test',userId,requestId:options.body?.requestId,txRef:'withdrawal-fixture',message:'Test withdrawal recorded. No spendable coins were removed.'},error:null};
@@ -80,8 +90,8 @@ export const supabase = {
   rpc: async(name:string,args:any) => {
     fixture.rpcs.push({name,args});
     const owner=scenario==='history-wrong-account' ? '00000000-0000-0000-0000-000000000002' : userId;
-    if(name==='get_wallet_payment_history') return {data:{userId:owner,items:slicePage(historyPayments.filter(payment=>args._mode==='all' || payment.mode===args._mode),args),automaticChecks:{live:new Date().toISOString(),test:new Date().toISOString()}},error:null};
-    if(name==='get_wallet_activity') return {data:{userId:owner,items:slicePage(historyLedger,args),integrity:{status:'balanced',recordedBalance:fixture.balance,expectedBalance:fixture.balance,baselineAt:null}},error:null};
+    if(name==='get_wallet_payment_history') return {data:{userId:owner,items:scenario==='history-empty' ? [] : slicePage(historyPayments.filter(payment=>args._mode==='all' || payment.mode===args._mode),args),automaticChecks:{live:new Date().toISOString(),test:new Date().toISOString()}},error:null};
+    if(name==='get_wallet_activity') return {data:{userId:owner,items:scenario==='history-empty' ? [] : slicePage(historyLedger,args),integrity:{status:'balanced',recordedBalance:fixture.balance,expectedBalance:fixture.balance,baselineAt:null}},error:null};
     if(name==='get_wallet_payment_receipt') {
       const payment=historyPayments.find(payment=>payment.id===args._payment_id);
       return {data:{userId:owner,payment,ledger:historyLedger.filter(entry=>entry.reference_id===payment.id),events:slicePage(historyEvents(payment),args)},error:null};
@@ -93,7 +103,11 @@ export const supabase = {
       ? { user_id: userId, balance: fixture.balance, total_earned: fixture.balance, total_spent: 0 } : [];
     const query = {
       select: () => query, eq: () => query, order: () => query, limit: () => query,
-      maybeSingle: async () => ({ data: data(), error: null }),
+      maybeSingle: async () => {
+        if(table==='coin_wallets' && scenario==='wallet-loading') return new Promise(()=>{});
+        if(table==='coin_wallets' && scenario==='wallet-error') return {data:null,error:new Error('Fixture wallet is offline')};
+        return {data:data(),error:null};
+      },
       then: (resolve: any, reject: any) => Promise.resolve({ data: data(), error: null }).then(resolve, reject),
     };
     return query;

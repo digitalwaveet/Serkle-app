@@ -42,6 +42,18 @@ export function walletDate(value: string | null | undefined) {
 export function walletMoney(amount: number, currency = 'ETB') {
   return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(amount);
 }
+export function walletPaymentTone(payment: WalletPayment): 'success' | 'danger' | 'test' | 'pending' | 'neutral' {
+  const label=walletPaymentStatus(payment);
+  if(['Needs review','Failed at last check','Withdrawal failed at last check','Payout not submitted'].includes(label)) return 'danger';
+  if(['Completed','Withdrawal completed'].includes(label)) return 'success';
+  if(['Test successful','Test withdrawal successful'].includes(label)) return 'test';
+  if(['Refunded','Reversed','Reserved coins returned'].includes(label)) return 'neutral';
+  return 'pending';
+}
+export function walletShortDate(value: string) {
+  const timestamp=Date.parse(value);
+  return Number.isFinite(timestamp) ? new Intl.DateTimeFormat(undefined,{dateStyle:'medium',timeStyle:'short'}).format(timestamp) : 'Date unavailable';
+}
 export const walletEventLabels: Record<string, string> = {
   created: 'Payment reference recorded', history_imported: 'Existing receipt imported',
   checkout_processing: 'Checkout requested', checkout_ready: 'Checkout ready', checkout_error: 'Checkout not confirmed',

@@ -1,244 +1,59 @@
-import { SerkleLoader } from '@/components/ui/SerkleLoader';
-import React, { useState } from 'react';
+import { useId, useState } from 'react';
+import * as AlertDialog from '@radix-ui/react-alert-dialog';
+import { ArrowUpRight, Building2, ChevronDown, FlaskConical, Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
-import { Building2, ChevronDown, ArrowDownCircle } from 'lucide-react';
-import { ChapaBank } from '@/hooks/useCoinWallet';
-import { cn } from '@/lib/utils';
+import { SerkleLoader } from '@/components/ui/SerkleLoader';
+import type { ChapaBank } from '@/hooks/useCoinWallet';
 import { parseWalletAmount } from '@/lib/chapaPayments';
 
-interface WalletWithdrawTabProps {
-  balance: number;
-  chapaBanks: ChapaBank[];
-  isBanksLoading: boolean;
-  requestWithdrawal: any;
-  mode?: 'test' | 'live';
-}
-
-export const WalletWithdrawTab: React.FC<WalletWithdrawTabProps> = ({
-  balance,
-  chapaBanks,
-  isBanksLoading,
-  requestWithdrawal,
-  mode,
-}) => {
-  const [withdrawAmount, setWithdrawAmount] = useState('');
-  const [accountName, setAccountName] = useState('');
-  const [accountNumber, setAccountNumber] = useState('');
-  const [selectedBank, setSelectedBank] = useState<ChapaBank | null>(null);
-  const [bankSearch, setBankSearch] = useState('');
-  const [showBankList, setShowBankList] = useState(false);
-  const [showWithdrawConfirm, setShowWithdrawConfirm] = useState(false);
-
-  const filteredBanks = chapaBanks.filter((b) =>
-    b.name.toLowerCase().includes(bankSearch.toLowerCase())
-  );
-
-  const withdrawAmount_num = parseWalletAmount(withdrawAmount);
-  const withdrawValid =
-    withdrawAmount_num >= 10 &&
-    !!mode && (mode === 'test' || withdrawAmount_num <= balance) &&
-    accountName.trim().length > 0 &&
-    accountNumber.trim().length > 0 &&
-    !!selectedBank;
-
-  const handleWithdraw = () => {
-    const amount = parseWalletAmount(withdrawAmount);
-    if (!mode || !amount || amount < 10 || (mode !== 'test' && amount > balance)) return;
-    if (!accountName.trim() || !accountNumber.trim() || !selectedBank) return;
-
-    requestWithdrawal.mutate({
-      amount,
-      accountName: accountName.trim(),
-      accountNumber: accountNumber.trim(),
-      bankCode: selectedBank.id,
-      expectedMode: mode,
-    }, { onSuccess: (data: any) => {
-      if (data.status === 'failed') return;
-      setWithdrawAmount('');
-      setAccountName('');
-      setAccountNumber('');
-      setSelectedBank(null);
-      setBankSearch('');
-    } });
+interface Props {balance:number;chapaBanks:ChapaBank[];isBanksLoading:boolean;requestWithdrawal:any;mode?:'test'|'live';isBanksError?:boolean;retryBanks?:()=>unknown}
+export function WalletWithdrawTab({balance,chapaBanks,isBanksLoading,requestWithdrawal,mode,isBanksError,retryBanks}:Props) {
+  const id=useId();
+  const [amountInput,setAmountInput]=useState('');
+  const [accountName,setAccountName]=useState('');
+  const [accountNumber,setAccountNumber]=useState('');
+  const [bank,setBank]=useState<ChapaBank|null>(null);
+  const [search,setSearch]=useState('');
+  const [bankOpen,setBankOpen]=useState(false);
+  const [confirmOpen,setConfirmOpen]=useState(false);
+  const amount=parseWalletAmount(amountInput);
+  const amountError=amountInput && (!amount || (mode==='live' && amount>balance)) ? (mode==='live' && amount>balance ? 'This amount is more than your available balance.' : 'Enter a whole amount from 10 to 1,000,000 ETB.') : '';
+  const accountError=accountNumber && !/^\d{6,30}$/.test(accountNumber) ? 'Enter 6–30 digits, without spaces or symbols.' : '';
+  const valid=!!amount && !!mode && !amountError && !!accountName.trim() && !!bank && /^\d{6,30}$/.test(accountNumber) && !isBanksError;
+  const submit=()=>{
+    if(!valid || requestWithdrawal.isPending)return;
+    requestWithdrawal.mutate({amount,accountName:accountName.trim(),accountNumber:accountNumber.trim(),bankCode:bank!.id,expectedMode:mode},{onSuccess:(data:any)=>{
+      if(data.status==='failed')return;
+      setAmountInput('');setAccountName('');setAccountNumber('');setBank(null);setSearch('');
+    }});
   };
-
-  return (
-    <div className="space-y-4">
-      {mode === 'test' && <p className="rounded-lg border p-3 text-sm">Test mode: withdrawals are recorded for testing. No spendable coins or real funds will be removed.</p>}
-      {/* Amount input */}
-      <div className="space-y-1.5">
-        <div className="flex justify-between">
-          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Amount (ETB)</p>
-          <span className="text-xs text-muted-foreground">Max: {mode === 'test' ? '1,000,000' : balance.toLocaleString()} ETB</span>
-        </div>
-        <Input
-          type="number"
-          placeholder="Min. 10 ETB"
-          value={withdrawAmount}
-          onChange={(e) => setWithdrawAmount(e.target.value)}
-          min="10"
-          max={mode === 'test' ? 1000000 : balance}
-          className="rounded-xl bg-card/40 backdrop-blur-sm border-border/30"
-        />
-      </div>
-
-      {/* Account name */}
-      <div className="space-y-1.5">
-        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Account holder name</p>
-        <Input
-          placeholder="Full name as registered at bank"
-          value={accountName}
-          onChange={(e) => setAccountName(e.target.value)}
-          className="rounded-xl bg-card/40 backdrop-blur-sm border-border/30"
-        />
-      </div>
-
-      {/* Bank picker */}
-      <div className="space-y-1.5">
-        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Bank / Mobile Wallet</p>
-        <Popover open={showBankList} onOpenChange={setShowBankList}>
-          <PopoverTrigger asChild>
-            <button
-              type="button"
-              className="w-full flex items-center justify-between rounded-xl bg-card/40 backdrop-blur-sm border border-border/30 px-3 py-2.5 text-sm text-left"
-            >
-              <span className={selectedBank ? 'text-foreground flex items-center gap-2' : 'text-muted-foreground'}>
-                <Building2 className="w-3.5 h-3.5 shrink-0" />
-                {selectedBank ? selectedBank.name : (isBanksLoading ? 'Loading banks…' : 'Select bank / wallet')}
-              </span>
-              <ChevronDown className={cn('w-4 h-4 text-muted-foreground transition-transform', showBankList && 'rotate-180')} />
-            </button>
-          </PopoverTrigger>
-          <PopoverContent
-            className="w-[var(--radix-popover-trigger-width)] z-[250] p-0 rounded-xl bg-card border border-border/40 shadow-xl overflow-hidden"
-            align="start"
-            sideOffset={4}
-          >
-            <div className="p-2 border-b border-border/30">
-              <Input
-                placeholder="Search bank…"
-                value={bankSearch}
-                onChange={(e) => setBankSearch(e.target.value)}
-                className="rounded-lg bg-card/70 border-border/20 text-sm h-8"
-                autoFocus
-              />
-            </div>
-            <div className="max-h-52 overflow-y-auto">
-              {filteredBanks.length === 0 ? (
-                <p className="text-xs text-muted-foreground text-center py-4">No banks found</p>
-              ) : (
-                filteredBanks.map((bank) => (
-                  <button
-                    key={bank.id}
-                    onClick={() => {
-                      setSelectedBank(bank);
-                      setShowBankList(false);
-                      setBankSearch('');
-                    }}
-                    className="w-full text-left px-4 py-2.5 text-sm hover:bg-primary/10 transition-colors flex items-center gap-2"
-                  >
-                    <Building2 className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                    {bank.name}
-                  </button>
-                ))
-              )}
-            </div>
-          </PopoverContent>
-        </Popover>
-      </div>
-
-      {/* Account number */}
-      <div className="space-y-1.5">
-        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-          Account / Wallet number
-          {selectedBank && <span className="ml-1 normal-case text-muted-foreground/60">({selectedBank.acct_length} digits)</span>}
-        </p>
-        <Input
-          placeholder={selectedBank ? `${selectedBank.acct_length}-digit account number` : 'Account number'}
-          value={accountNumber}
-          onChange={(e) => setAccountNumber(e.target.value)}
-          maxLength={selectedBank?.acct_length ?? 20}
-          type="tel"
-          inputMode="numeric"
-          pattern="[0-9]*"
-          className="rounded-xl bg-card/40 backdrop-blur-sm border-border/30"
-        />
-      </div>
-
-      {/* Summary */}
-      {withdrawAmount_num >= 10 && selectedBank && (
-        <div className="rounded-xl bg-card/40 backdrop-blur-sm border border-border/30 p-3.5 space-y-1.5">
-          <div className="flex justify-between text-sm">
-            <span className="text-muted-foreground">You withdraw</span>
-            <span className="font-semibold text-foreground">{withdrawAmount_num} ETB</span>
-          </div>
-          <div className="flex justify-between text-xs text-muted-foreground">
-            <span>To</span>
-            <span>{selectedBank.name}</span>
-          </div>
-          <div className="flex justify-between text-xs text-muted-foreground">
-            <span>New balance</span>
-            <span>{mode === 'test' ? 'Unchanged in test mode' : `${(balance - withdrawAmount_num).toLocaleString()} coins`}</span>
-          </div>
-        </div>
-      )}
-
-      <Button
-        onClick={() => setShowWithdrawConfirm(true)}
-        disabled={!withdrawValid || requestWithdrawal.isPending}
-        variant="outline"
-        className="w-full rounded-xl gap-2 border-border/40 backdrop-blur-sm touch-target-large"
-        size="lg"
-      >
-        {requestWithdrawal.isPending ? (
-          <><SerkleLoader size="xs" className="text-current" /> Processing…</>
-        ) : (
-          <><ArrowDownCircle className="w-4 h-4" /> Request Withdrawal</>
-        )}
-      </Button>
-
-      <AlertDialog open={showWithdrawConfirm} onOpenChange={setShowWithdrawConfirm}>
-        <AlertDialogContent className="z-[250]">
-          <AlertDialogHeader>
-            <AlertDialogTitle>{mode === 'test' ? 'Confirm Test Withdrawal' : 'Confirm Withdrawal'}</AlertDialogTitle>
-            <AlertDialogDescription>
-              Withdraw <strong>{withdrawAmount_num} ETB</strong> to{' '}
-              <strong>{selectedBank?.name}</strong> account <strong>{accountNumber}</strong> ({accountName})?
-              <br /><br />
-              {mode === 'test' ? 'This is a test. No spendable coins or real funds will be removed.' : 'Coins will be reserved while Chapa processes this withdrawal. They are returned only after a confirmed failure. Review the bank details carefully.'}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                setShowWithdrawConfirm(false);
-                handleWithdraw();
-              }}
-            >
-              Confirm Withdrawal
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {requestWithdrawal.isError && <p role="alert" className="rounded-lg border border-destructive/40 p-3 text-sm">{requestWithdrawal.error?.message || 'The request could not be confirmed. Check History before trying another withdrawal.'}</p>}
-      {requestWithdrawal.isSuccess && requestWithdrawal.data?.message && <p role="status" className="rounded-lg border p-3 text-sm">{requestWithdrawal.data.message} Open History to view its receipt.</p>}
-      <p className="text-[10px] text-muted-foreground text-center">
-        Follow the withdrawal receipt in History for its verified status. Checking a receipt never sends another payout.
-      </p>
+  return <div className="wallet-surface space-y-6">
+    {mode==='test' && <div className="wallet-notice"><FlaskConical aria-hidden="true"/><p>Test mode: withdrawals are recorded for testing. No spendable coins or real funds will be removed.</p></div>}
+    {isBanksError && <div role="alert" className="wallet-notice wallet-notice--danger"><Info aria-hidden="true"/><div><strong>Bank list could not be loaded</strong><p>Refresh it before requesting a withdrawal.</p><Button variant="ghost" className="wallet-button wallet-button--quiet mt-2" onClick={()=>void retryBanks?.()}>Retry bank list</Button></div></div>}
+    {!mode && !isBanksLoading && !isBanksError && <p role="status" className="wallet-notice">Withdrawal configuration is unavailable. Refresh your wallet before continuing.</p>}
+    <div className="wallet-field"><label htmlFor={`${id}-amount`}>Amount (ETB)</label><div className="wallet-amount-input"><Input id={`${id}-amount`} type="text" inputMode="numeric" pattern="[0-9]*" autoComplete="off" placeholder="Min. 10 ETB" value={amountInput} onChange={event=>setAmountInput(event.target.value)} aria-invalid={!!amountError} aria-describedby={`${id}-amount-help`}/><span aria-hidden="true">ETB</span></div><p id={`${id}-amount-help`} className={amountError ? 'wallet-field-error' : 'wallet-field-help'}>{amountError || `Minimum 10 ETB · Maximum ${mode==='test' ? '1,000,000' : balance.toLocaleString()} ETB`}</p></div>
+    <div className="wallet-field"><label htmlFor={`${id}-name`}>Account holder name</label><Input id={`${id}-name`} autoComplete="name" placeholder="Full name as registered at bank" value={accountName} onChange={event=>setAccountName(event.target.value)} maxLength={100}/></div>
+    <div className="wallet-field"><label htmlFor={`${id}-bank`}>Bank / mobile wallet</label>
+      <Popover open={bankOpen} onOpenChange={setBankOpen}><PopoverTrigger asChild><button id={`${id}-bank`} type="button" className="wallet-bank-trigger" aria-label={bank ? `Selected bank: ${bank.name}` : 'Select bank or mobile wallet'} disabled={isBanksLoading || !!isBanksError}><span><Building2 aria-hidden="true"/>{bank ? bank.name : isBanksLoading ? 'Loading banks…' : 'Select bank / wallet'}</span><ChevronDown aria-hidden="true"/></button></PopoverTrigger>
+        <PopoverContent className="wallet-ui wallet-bank-menu" align="start" sideOffset={8}>
+          <div className="wallet-field"><label className="sr-only" htmlFor={`${id}-search`}>Search banks</label><Input id={`${id}-search`} placeholder="Search bank…" value={search} onChange={event=>setSearch(event.target.value)} autoComplete="off"/></div>
+          <div className="wallet-bank-options mt-2" aria-label="Available banks">{chapaBanks.filter(item=>item.name.toLowerCase().includes(search.toLowerCase())).map(item=><button key={item.id} type="button" onClick={()=>{setBank(item);setBankOpen(false);setSearch('');}}><Building2 aria-hidden="true"/>{item.name}</button>)}{!chapaBanks.some(item=>item.name.toLowerCase().includes(search.toLowerCase())) && <p role="status" className="p-4 text-sm text-muted-foreground">No banks found</p>}</div>
+        </PopoverContent>
+      </Popover>
     </div>
-  );
-};
+    <div className="wallet-field"><label htmlFor={`${id}-account`}>Account / wallet number</label><Input id={`${id}-account`} type="text" inputMode="numeric" pattern="[0-9]*" autoComplete="off" placeholder={bank ? `${bank.acct_length}-digit account number` : 'Account number'} value={accountNumber} onChange={event=>setAccountNumber(event.target.value)} maxLength={bank?.acct_length || 30} aria-invalid={!!accountError} aria-describedby={`${id}-account-help`}/><p id={`${id}-account-help`} className={accountError ? 'wallet-field-error' : 'wallet-field-help'}>{accountError || 'Double-check this number. Your receipt will show only its last four digits.'}</p></div>
+    {!!amount && bank && !amountError && <div className="wallet-summary"><dl><div><dt>Withdrawal amount</dt><dd>{amount.toLocaleString()} ETB</dd></div><div><dt>To</dt><dd>{bank.name}</dd></div><div><dt>Balance after reservation</dt><dd>{mode==='test' ? 'Unchanged in test mode' : `${(balance-amount).toLocaleString()} coins`}</dd></div></dl></div>}
+    <Button className="wallet-button wallet-button--primary w-full" disabled={!valid || requestWithdrawal.isPending} onClick={()=>setConfirmOpen(true)}>{requestWithdrawal.isPending ? <><SerkleLoader size="xs" className="text-current" label="Recording withdrawal"/>Processing…</> : <>Request Withdrawal<ArrowUpRight aria-hidden="true"/></>}</Button>
+    <p className="wallet-field-help">Your withdrawal is recorded in History. Checking its status never sends another payout.</p>
+    {requestWithdrawal.isError && <p role="alert" className="wallet-notice wallet-notice--danger"><Info aria-hidden="true"/><span>{requestWithdrawal.error?.message || 'The request could not be confirmed. Check History before trying another withdrawal.'}</span></p>}
+    {requestWithdrawal.isSuccess && requestWithdrawal.data?.message && <p role="status" className="wallet-notice">{requestWithdrawal.data.message} Open History to view its receipt.</p>}
+    <AlertDialog.Root open={confirmOpen} onOpenChange={setConfirmOpen}><AlertDialog.Portal><AlertDialog.Overlay className="wallet-dialog-overlay wallet-confirm-overlay"/><AlertDialog.Content className="wallet-ui wallet-confirm">
+      <AlertDialog.Title>{mode==='test' ? 'Confirm Test Withdrawal' : 'Confirm Withdrawal'}</AlertDialog.Title>
+      <div className="wallet-summary"><dl><div><dt>Amount</dt><dd>{amount.toLocaleString()} ETB</dd></div><div><dt>Bank</dt><dd>{bank?.name}</dd></div><div><dt>Account</dt><dd>{accountNumber}</dd></div><div><dt>Account holder</dt><dd>{accountName}</dd></div></dl></div>
+      <AlertDialog.Description>{mode==='test' ? 'This is a test. No spendable coins or real funds will be removed.' : 'Coins will be reserved while Chapa processes this withdrawal. They are returned only after a confirmed failure. Review the bank details carefully.'}</AlertDialog.Description>
+      <div className="wallet-confirm-buttons"><AlertDialog.Cancel asChild><Button variant="outline" className="wallet-button wallet-button--secondary">Cancel</Button></AlertDialog.Cancel><AlertDialog.Action asChild><Button className="wallet-button wallet-button--primary" onClick={()=>{setConfirmOpen(false);submit();}}>Confirm Withdrawal</Button></AlertDialog.Action></div>
+    </AlertDialog.Content></AlertDialog.Portal></AlertDialog.Root>
+  </div>;
+}
