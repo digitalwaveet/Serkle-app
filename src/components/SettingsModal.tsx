@@ -1,944 +1,1236 @@
-import { SerkleLoader } from '@/components/ui/SerkleLoader';
-import React, { useState, useEffect, useCallback } from 'react';
-import { ArrowLeft, Lock, Eye, MessageCircle, LogOut, Shield, Mail, Phone, KeyRound, BadgeCheck, ChevronRight, HardDrive, Trash2, Moon, Video, Download, Smartphone, Bell, RefreshCw, Send } from 'lucide-react';
-import { useDarkMode } from '@/hooks/useDarkMode';
-import { useAutoplaySettings } from '@/hooks/useAutoplaySettings';
-import { usePushNotifications } from '@/hooks/usePushNotifications';
-import { Button } from '@/components/ui/button';
-import { Switch } from '@/components/ui/switch';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Separator } from '@/components/ui/separator';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { useUser } from '@/contexts/UserContext';
-import { supabase } from '@/integrations/supabase/client';
-import { toast } from '@/hooks/use-toast';
-import { useNavigate } from 'react-router-dom';
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
+import * as Dialog from "@radix-ui/react-dialog";
+import * as AlertDialog from "@radix-ui/react-alert-dialog";
+import * as Radio from "@radix-ui/react-radio-group";
+import {
+  ArrowLeft,
+  BadgeCheck,
+  Bell,
+  Check,
+  Download,
+  Eye,
+  HardDrive,
+  Info,
+  KeyRound,
+  Lock,
+  LogOut,
+  Mail,
+  MessageCircle,
+  Monitor,
+  Moon,
+  Phone,
+  RefreshCw,
+  Send,
+  Settings,
+  Shield,
+  Smartphone,
+  Sun,
+  Trash2,
+  Video,
+  X,
+} from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { useTheme } from "@/contexts/ThemeContext";
+import { useUser } from "@/contexts/UserContext";
+import { useAutoplaySettings } from "@/hooks/useAutoplaySettings";
+import { usePushNotifications } from "@/hooks/usePushNotifications";
+import { SerkleLoader } from "@/components/ui/SerkleLoader";
+import { Input } from "@/components/ui/input";
+import { supabase } from "@/integrations/supabase/client";
+import { clearIDBCache } from "@/utils/queryPersister";
+import {
+  SettingsGroup,
+  SettingsRow,
+  SettingsToggle,
+} from "./settings/SettingsParts";
+import "./settings/settings.css";
 
-interface SettingsModalProps {
+interface Props {
   isOpen: boolean;
   onClose: () => void;
+  returnFocusRef?: RefObject<HTMLElement>;
 }
+type Section = "general" | "privacy" | "notifications" | "account" | "storage";
+type PasswordStep =
+  "idle" | "sending" | "code-sent" | "verifying" | "new-password" | "saving";
+interface InstallPrompt extends Event {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: string }>;
+}
+const sections = {
+  general: {
+    label: "General",
+    title: "Make Serkle yours",
+    description: "Choose how Serkle looks and plays on this device.",
+    Icon: Settings,
+  },
+  privacy: {
+    label: "Privacy",
+    title: "Your privacy, your choice",
+    description: "Control your visibility and who can reach you.",
+    Icon: Shield,
+  },
+  notifications: {
+    label: "Notifications",
+    title: "Stay in the loop",
+    description: "Manage notifications and delivery on this device.",
+    Icon: Bell,
+  },
+  account: {
+    label: "Account & security",
+    title: "Account & security",
+    description: "Your sign-in details, verification and password.",
+    Icon: KeyRound,
+  },
+  storage: {
+    label: "Storage",
+    title: "Space for what matters",
+    description: "Review browser storage and manage cached app data.",
+    Icon: HardDrive,
+  },
+};
+const message = (error: unknown, fallback: string) =>
+  error && typeof error === "object" && "message" in error
+    ? String(error.message)
+    : fallback;
+const maskEmail = (email: string) => {
+  const [local, domain] = email.split("@");
+  return local && domain
+    ? `${local.slice(0, 1)}${"•".repeat(Math.min(Math.max(local.length - 2, 1), 6))}${local.length > 1 ? local.slice(-1) : ""}@${domain}`
+    : "Not set";
+};
+const maskPhone = (phone: string) =>
+  phone
+    ? `${"•".repeat(Math.max(0, phone.length - 4))}${phone.slice(-4)}`
+    : "Not set";
+const bytes = (value: number) => {
+  if (!Number.isFinite(value) || value < 0) return "Unavailable";
+  if (!value) return "0 B";
+  const i = Math.min(3, Math.floor(Math.log(value) / Math.log(1024)));
+  return `${Number((value / 1024 ** i).toFixed(1))} ${["B", "KB", "MB", "GB"][i]}`;
+};
 
-type SettingsView = 'main' | 'account' | 'notifications';
-type PasswordStep = 'idle' | 'sending' | 'code-sent' | 'verifying' | 'new-password' | 'saving';
-
-const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
+export default function SettingsModal({
+  isOpen,
+  onClose,
+  returnFocusRef,
+}: Props) {
   const { user, updateProfile } = useUser();
+  const { theme, setTheme } = useTheme();
   const navigate = useNavigate();
-  const [saving, setSaving] = useState<string | null>(null);
-  const [view, setView] = useState<SettingsView>('main');
-  const { isDark, toggle: toggleDark } = useDarkMode();
+  const ids = useId();
   const { autoplayEnabled, toggleAutoplay } = useAutoplaySettings();
-  const { isSupported, permission, requestPermission, unregisterServiceWorker, sendTestNotification } = usePushNotifications();
-  const [isPushLoading, setIsPushLoading] = useState(false);
-
-  const handleEnablePush = async () => {
-    setIsPushLoading(true);
-    await requestPermission();
-    setIsPushLoading(false);
+  const push = usePushNotifications();
+  const [section, setSection] = useState<Section>("general");
+  const [saving, setSaving] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{
+    text: string;
+    error?: boolean;
+  } | null>(null);
+  const [pushBusy, setPushBusy] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [account, setAccount] = useState<{
+    status: "loading" | "ready" | "error";
+    email: string;
+    phone: string;
+    verified: boolean;
+  }>({ status: "loading", email: "", phone: "", verified: false });
+  const [storage, setStorage] = useState<{
+    status: "loading" | "ready" | "error";
+    used: number;
+    quota: number;
+  }>({ status: "loading", used: 0, quota: 0 });
+  const [clearing, setClearing] = useState(false);
+  const [confirm, setConfirm] = useState<"cache" | "push" | null>(null);
+  const [installPrompt, setInstallPrompt] = useState<InstallPrompt | null>(
+    null,
+  );
+  const [installed, setInstalled] = useState(false);
+  const [isIOS, setIOS] = useState(false);
+  const [passwordOpen, setPasswordOpen] = useState(false);
+  const [passwordStep, setPasswordStep] = useState<PasswordStep>("idle");
+  const [otp, setOtp] = useState("");
+  const [password, setPassword] = useState("");
+  const [repeat, setRepeat] = useState("");
+  const [passwordError, setPasswordError] = useState("");
+  const [verifyingEmail, setVerifyingEmail] = useState(false);
+  const accountOwner = useRef(user?.id);
+  accountOwner.current = user?.id;
+  const passwordOpener = useRef<HTMLElement | null>(null);
+  const confirmOpener = useRef<HTMLElement | null>(null);
+  const openConfirmation = (kind: "cache" | "push") => {
+    confirmOpener.current = document.activeElement as HTMLElement;
+    setConfirm(kind);
   };
-
-  const handleForceEnablePush = async () => {
-    setIsPushLoading(true);
-    await unregisterServiceWorker();
-    // Use URL parameters to signal the app to return here and resubscribe after reload
-    const url = new URL(window.location.href);
-    url.searchParams.set('view', 'notifications');
-    url.searchParams.set('action', 'resubscribe');
-    window.location.href = url.toString();
-  };
-
-  // Logic to handle auto-opening and auto-resubscribing from URL params
-  useEffect(() => {
-    if (!isOpen) return;
-    
-    const params = new URLSearchParams(window.location.search);
-    const targetView = params.get('view') as SettingsView;
-    const action = params.get('action');
-    
-    if (targetView === 'notifications') {
-      setView('notifications');
-      
-      if (action === 'resubscribe') {
-        // Delay slightly to ensure service worker is initialized
-        setTimeout(() => {
-          handleEnablePush();
-          // Clean up URL parameter so it doesn't re-trigger on subsequent opens
-          const newUrl = new URL(window.location.href);
-          newUrl.searchParams.delete('action');
-          window.history.replaceState({}, document.title, newUrl.toString());
-        }, 1000);
-      }
-    }
-  }, [isOpen]);
-
-  // PWA install state
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
-  const [isAppInstalled, setIsAppInstalled] = useState(false);
-  const [isIOS, setIsIOS] = useState(false);
-
-  useEffect(() => {
-    const installed = window.matchMedia('(display-mode: standalone)').matches;
-    setIsAppInstalled(installed);
-    const iosDevice = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
-    setIsIOS(iosDevice);
-
-    const handler = (e: Event) => {
-      e.preventDefault();
-      setDeferredPrompt(e);
-    };
-    const installedHandler = () => {
-      setIsAppInstalled(true);
-      setDeferredPrompt(null);
-    };
-    window.addEventListener('beforeinstallprompt', handler);
-    window.addEventListener('appinstalled', installedHandler);
-    return () => {
-      window.removeEventListener('beforeinstallprompt', handler);
-      window.removeEventListener('appinstalled', installedHandler);
-    };
-  }, []);
-
-  const handleInstallApp = async () => {
-    if (!deferredPrompt) return;
+  const loadAccount = useCallback(async () => {
+    if (!user?.id) return;
+    const owner = user.id;
+    setAccount({ status: "loading", email: "", phone: "", verified: false });
     try {
-      await deferredPrompt.prompt();
-      const result = await deferredPrompt.userChoice;
-      if (result.outcome === 'accepted') {
-        toast({ title: 'App installed!', description: 'Serkle has been added to your home screen.' });
-      }
-      setDeferredPrompt(null);
-    } catch (err) {
-      console.error('Install error:', err);
-    }
-  };
-
-  // Account info state
-  const [authEmail, setAuthEmail] = useState('');
-  const [authPhone, setAuthPhone] = useState('');
-  const [emailVerified, setEmailVerified] = useState(false);
-
-  // Change password state
-  const [showPasswordModal, setShowPasswordModal] = useState(false);
-  const [passwordStep, setPasswordStep] = useState<PasswordStep>('idle');
-  const [otpCode, setOtpCode] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [passwordError, setPasswordError] = useState('');
-
-  // Verify email state
-  const [sendingVerification, setSendingVerification] = useState(false);
-
-  // Storage usage state
-  const [storageUsage, setStorageUsage] = useState<{ used: number; quota: number } | null>(null);
-  const [clearingCache, setClearingCache] = useState(false);
-
-  const loadStorageUsage = useCallback(async () => {
-    try {
-      if ('storage' in navigator && 'estimate' in navigator.storage) {
-        const estimate = await navigator.storage.estimate();
-        setStorageUsage({
-          used: estimate.usage || 0,
-          quota: estimate.quota || 0,
+      const { data, error } = await supabase.auth.getUser();
+      if (error || !data.user || data.user.id !== owner)
+        throw error || new Error("Account changed");
+      if (accountOwner.current === owner)
+        setAccount({
+          status: "ready",
+          email: data.user.email || "",
+          phone: data.user.phone || "",
+          verified: !!data.user.email_confirmed_at,
         });
-      }
-    } catch (e) {
-      console.error('Failed to estimate storage:', e);
+    } catch {
+      if (accountOwner.current === owner)
+        setAccount({ status: "error", email: "", phone: "", verified: false });
+    }
+  }, [user?.id]);
+  const loadStorage = useCallback(async () => {
+    setStorage({ status: "loading", used: 0, quota: 0 });
+    try {
+      if (!navigator.storage?.estimate) throw new Error("Unavailable");
+      const result = await navigator.storage.estimate();
+      if (result.usage === undefined) throw new Error("Unavailable");
+      setStorage({
+        status: "ready",
+        used: result.usage,
+        quota: result.quota || 0,
+      });
+    } catch {
+      setStorage({ status: "error", used: 0, quota: 0 });
     }
   }, []);
-
-  const handleClearCache = async () => {
-    setClearingCache(true);
-    try {
-      // Clear IndexedDB caches
-      const dbs = await indexedDB.databases?.();
-      if (dbs) {
-        for (const db of dbs) {
-          if (db.name) indexedDB.deleteDatabase(db.name);
-        }
-      }
-      // Clear Cache Storage
-      if ('caches' in window) {
-        const keys = await caches.keys();
-        await Promise.all(keys.map(k => caches.delete(k)));
-      }
-      toast({ title: 'Cache cleared', description: 'App cache has been cleared successfully.' });
-      await loadStorageUsage();
-    } catch (e) {
-      toast({ title: 'Error', description: 'Failed to clear cache.', variant: 'destructive' });
-    } finally {
-      setClearingCache(false);
-    }
-  };
-
-
   useEffect(() => {
     if (isOpen) {
-      loadAccountInfo();
-      loadStorageUsage();
+      void loadAccount();
+      void loadStorage();
     }
-  }, [isOpen, loadStorageUsage]);
-
-  const loadAccountInfo = async () => {
-    const { data: { user: authUser } } = await supabase.auth.getUser();
-    if (authUser) {
-      setAuthEmail(authUser.email || '');
-      setAuthPhone(authUser.phone || '');
-      setEmailVerified(!!authUser.email_confirmed_at);
-    }
-  };
-
-  const formatBytes = (bytes: number): string => {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-  };
-
-  if (!isOpen || !user) return null;
-
-  const handleToggle = async (field: string, value: boolean | string) => {
-    setSaving(field);
+  }, [isOpen, loadAccount, loadStorage]);
+  useEffect(() => {
+    setNotice(null);
+  }, [section, user?.id]);
+  useEffect(() => {
+    setPasswordOpen(false);
+    setPasswordStep("idle");
+    setOtp("");
+    setPassword("");
+    setRepeat("");
+    setPasswordError("");
+  }, [user?.id, isOpen]);
+  const enablePush = useCallback(async () => {
+    setPushBusy(true);
+    setNotice(null);
     try {
-      const dbField = field === 'isPrivate' ? 'is_private'
-        : field === 'hideFollowers' ? 'hide_followers'
-          : field === 'hideOnlineStatus' ? 'hide_online_status'
-            : 'allow_messages_from';
-
-      const { error } = await supabase
-        .from('profiles')
-        .update({ [dbField]: value })
-        .eq('id', user.id);
-
-      if (error) throw error;
+      const ok = await push.requestPermission();
+      setNotice(
+        ok
+          ? {
+              text: "Browser permission granted. Send a test to check delivery.",
+            }
+          : {
+              text: "Notifications could not be enabled. Check browser permissions and try again.",
+              error: true,
+            },
+      );
+    } catch (error) {
+      setNotice({
+        text: message(error, "Notification setup failed. Please try again."),
+        error: true,
+      });
+    } finally {
+      setPushBusy(false);
+    }
+  }, [push.requestPermission]);
+  useEffect(() => {
+    if (!isOpen) return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("view") !== "notifications") return;
+    setSection("notifications");
+    const resume = url.searchParams.get("action") === "resubscribe";
+    url.searchParams.delete("view");
+    url.searchParams.delete("action");
+    window.history.replaceState(window.history.state, "", url.toString());
+    const timer = resume
+      ? setTimeout(() => {
+          void enablePush();
+        }, 1000)
+      : undefined;
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+  }, [isOpen]);
+  useEffect(() => {
+    setInstalled(window.matchMedia("(display-mode: standalone)").matches);
+    setIOS(/iPad|iPhone|iPod/.test(navigator.userAgent));
+    const available = (event: Event) => {
+      event.preventDefault();
+      setInstallPrompt(event as InstallPrompt);
+    };
+    const done = () => {
+      setInstalled(true);
+      setInstallPrompt(null);
+    };
+    window.addEventListener("beforeinstallprompt", available);
+    window.addEventListener("appinstalled", done);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", available);
+      window.removeEventListener("appinstalled", done);
+    };
+  }, []);
+  const save = async (
+    field:
+      "isPrivate" | "hideFollowers" | "hideOnlineStatus" | "allowMessagesFrom",
+    value: boolean | string,
+  ) => {
+    if (saving) return;
+    setSaving(field);
+    setNotice(null);
+    try {
       await updateProfile({ [field]: value } as any);
-    } catch (err) {
-      console.error('Failed to update setting:', err);
-      toast({
-        title: "Update failed",
-        description: "Could not save your setting. Please try again.",
-        variant: "destructive",
+      setNotice({ text: "Settings saved." });
+    } catch (error) {
+      setNotice({
+        text: message(error, "Could not save your setting. Please try again."),
+        error: true,
       });
     } finally {
       setSaving(null);
     }
   };
-
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    navigate('/login', { replace: true });
-  };
-
-  // Send password reset OTP to email
-  const handleSendPasswordResetCode = async () => {
-    if (!authEmail) {
-      setPasswordError('No email associated with this account');
-      return;
-    }
-    setPasswordStep('sending');
-    setPasswordError('');
-
+  const clearCache = async () => {
+    setClearing(true);
+    setNotice(null);
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(authEmail, {
-        redirectTo: `${window.location.origin}/reset-password`,
-      });
-
-      if (error) throw error;
-
-      setPasswordStep('code-sent');
-      toast({
-        title: "Code sent!",
-        description: `A password reset link has been sent to ${authEmail}`,
-      });
-    } catch (err: any) {
-      setPasswordError(err.message || 'Failed to send reset code');
-      setPasswordStep('idle');
-    }
-  };
-
-  // Verify OTP code
-  const handleVerifyOtp = async () => {
-    if (!otpCode.trim() || otpCode.length < 6) {
-      setPasswordError('Please enter the 6-digit code');
-      return;
-    }
-    setPasswordStep('verifying');
-    setPasswordError('');
-
-    try {
-      const { error } = await supabase.auth.verifyOtp({
-        email: authEmail,
-        token: otpCode.trim(),
-        type: 'recovery',
-      });
-
-      if (error) throw error;
-
-      setPasswordStep('new-password');
-      toast({ title: "Code verified!", description: "Now set your new password." });
-    } catch (err: any) {
-      setPasswordError(err.message || 'Invalid or expired code');
-      setPasswordStep('code-sent');
-    }
-  };
-
-  // Save new password
-  const handleSaveNewPassword = async () => {
-    if (newPassword.length < 6) {
-      setPasswordError('Password must be at least 6 characters');
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      setPasswordError('Passwords do not match');
-      return;
-    }
-    setPasswordStep('saving');
-    setPasswordError('');
-
-    try {
-      const { error } = await supabase.auth.updateUser({ password: newPassword });
-      if (error) throw error;
-
-      toast({ title: "Password updated!", description: "Your password has been changed successfully." });
-      resetPasswordModal();
-    } catch (err: any) {
-      setPasswordError(err.message || 'Failed to update password');
-      setPasswordStep('new-password');
-    }
-  };
-
-  const resetPasswordModal = () => {
-    setShowPasswordModal(false);
-    setPasswordStep('idle');
-    setOtpCode('');
-    setNewPassword('');
-    setConfirmPassword('');
-    setPasswordError('');
-  };
-
-  // Send email verification (for accounts that already have email)
-  const handleResendVerification = async () => {
-    setSendingVerification(true);
-    try {
-      const { error } = await supabase.auth.resend({
-        type: 'signup',
-        email: authEmail,
-      });
-      if (error) throw error;
-      toast({ title: "Verification sent!", description: `Check ${authEmail} for a verification link.` });
-    } catch (err: any) {
-      toast({
-        title: "Failed",
-        description: err.message || "Could not send verification email.",
-        variant: "destructive",
+      await clearIDBCache(true);
+      if ("caches" in window) {
+        const names = await caches.keys();
+        await Promise.all(names.map((name) => caches.delete(name)));
+      }
+      setNotice({ text: "App cache cleared." });
+      await loadStorage();
+    } catch {
+      setNotice({
+        text: "Cache could not be fully cleared. Please try again.",
+        error: true,
       });
     } finally {
-      setSendingVerification(false);
+      setClearing(false);
     }
   };
-
-
-  const SettingRow = ({
-    icon: Icon,
-    label,
-    description,
-    children
-  }: {
-    icon: React.ElementType;
-    label: string;
-    description: string;
-    children: React.ReactNode;
-  }) => (
-    <div className="flex items-center justify-between py-4">
-      <div className="flex items-start gap-3 flex-1 min-w-0">
-        <Icon className="h-5 w-5 text-muted-foreground mt-0.5 flex-shrink-0" />
-        <div className="flex-1 min-w-0">
-          <p className="font-medium text-foreground">{label}</p>
-          <p className="text-sm text-muted-foreground">{description}</p>
-        </div>
-      </div>
-      <div className="ml-4 flex-shrink-0">{children}</div>
-    </div>
-  );
-
-  const maskEmail = (email: string) => {
-    if (!email) return 'Not set';
-    const [local, domain] = email.split('@');
-    if (local.length <= 2) return email;
-    return `${local[0]}${'•'.repeat(Math.min(local.length - 2, 6))}${local[local.length - 1]}@${domain}`;
+  const reconnect = async () => {
+    setPushBusy(true);
+    try {
+      await push.unregisterServiceWorker();
+      const url = new URL(window.location.href);
+      url.searchParams.set("view", "notifications");
+      url.searchParams.set("action", "resubscribe");
+      window.location.href = url.toString();
+    } catch (error) {
+      setNotice({
+        text: message(error, "Device could not be reconnected."),
+        error: true,
+      });
+      setPushBusy(false);
+    }
   };
-
-  const maskPhone = (phone: string) => {
-    if (!phone) return 'Not set';
-    if (phone.length <= 4) return phone;
-    return `${'•'.repeat(phone.length - 4)}${phone.slice(-4)}`;
+  const resetPasswordDialog = () => {
+    setPasswordOpen(false);
+    setPasswordStep("idle");
+    setOtp("");
+    setPassword("");
+    setRepeat("");
+    setPasswordError("");
   };
-
+  const sendRecovery = async () => {
+    if (!account.email || passwordStep === "sending") return;
+    setPasswordStep("sending");
+    setPasswordError("");
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(
+        account.email,
+        { redirectTo: `${window.location.origin}/reset-password` },
+      );
+      if (error) throw error;
+      setPasswordStep("code-sent");
+    } catch (error) {
+      setPasswordError(message(error, "Recovery email could not be sent."));
+      setPasswordStep("idle");
+    }
+  };
+  const verifyCode = async () => {
+    if (!/^\d{6}$/.test(otp)) {
+      setPasswordError("Enter the 6-digit recovery code.");
+      return;
+    }
+    if (passwordStep === "verifying") return;
+    setPasswordStep("verifying");
+    setPasswordError("");
+    try {
+      const { error } = await supabase.auth.verifyOtp({
+        email: account.email,
+        token: otp,
+        type: "recovery",
+      });
+      if (error) throw error;
+      setPasswordStep("new-password");
+    } catch (error) {
+      setPasswordError(message(error, "Invalid or expired code."));
+      setPasswordStep("code-sent");
+    }
+  };
+  const updatePassword = async () => {
+    if (passwordStep === "saving") return;
+    if (password.length < 6) {
+      setPasswordError("Use at least 6 characters.");
+      return;
+    }
+    if (password !== repeat) {
+      setPasswordError("Passwords do not match.");
+      return;
+    }
+    setPasswordStep("saving");
+    setPasswordError("");
+    try {
+      const { error } = await supabase.auth.updateUser({ password });
+      if (error) throw error;
+      resetPasswordDialog();
+      setNotice({ text: "Password updated." });
+    } catch (error) {
+      setPasswordError(message(error, "Password could not be updated."));
+      setPasswordStep("new-password");
+    }
+  };
+  const resend = async () => {
+    setVerifyingEmail(true);
+    try {
+      const { error } = await supabase.auth.resend({
+        type: "signup",
+        email: account.email,
+      });
+      if (error) throw error;
+      setNotice({ text: "Verification email requested. Check your inbox." });
+    } catch (error) {
+      setNotice({
+        text: message(error, "Verification email could not be sent."),
+        error: true,
+      });
+    } finally {
+      setVerifyingEmail(false);
+    }
+  };
+  const logout = async () => {
+    setLoggingOut(true);
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+      navigate("/login", { replace: true });
+    } catch (error) {
+      setNotice({
+        text: message(error, "Could not log out. Please try again."),
+        error: true,
+      });
+      setLoggingOut(false);
+    }
+  };
+  if (!user) return null;
+  const selected = sections[section];
+  const percentage =
+    storage.quota > 0
+      ? Math.min(100, Math.max(0, (storage.used / storage.quota) * 100))
+      : null;
   return (
-    <>
-      <div className="fixed inset-0 bottom-16 z-[60] bg-black/20 backdrop-blur-sm animate-fade-in">
-        <div className="h-full w-full bg-background overflow-y-auto scroll-optimized scrollbar-thin overscroll-behavior-contain animate-scale-in">
-          {/* Header */}
-          <div className="sticky top-0 z-20 bg-background/80 backdrop-blur-lg border-b border-border/50 px-4 py-3">
-            <div className="flex items-center justify-between">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => {
-                  if (view === 'account' || view === 'notifications') setView('main');
-                  else onClose();
-                }}
-                className="hover:bg-muted/50"
+    <Dialog.Root
+      open={isOpen}
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <Dialog.Portal>
+        <Dialog.Content
+          className="settings-ui settings-screen"
+          aria-describedby={`${ids}-description`}
+          onCloseAutoFocus={(event) => {
+            if (returnFocusRef?.current) {
+              event.preventDefault();
+              returnFocusRef.current.focus();
+            }
+          }}
+        >
+          <header className="settings-header">
+            <div className="settings-header-inner">
+              <button
+                className="settings-icon-button"
+                aria-label={
+                  section === "general"
+                    ? "Back, close settings"
+                    : "Back to general settings"
+                }
+                onClick={() =>
+                  section === "general" ? onClose() : setSection("general")
+                }
               >
-                <ArrowLeft className="h-5 w-5" />
-              </Button>
-              <h1 className="text-xl font-bold text-foreground">
-                {view === 'main' ? 'Settings' : view === 'account' ? 'Account & Security' : 'Notification Settings'}
-              </h1>
-              <div className="w-10" />
+                <ArrowLeft aria-hidden="true" />
+              </button>
+              <div className="settings-header-brand">
+                <img src="/lovable-uploads/SerkleMainLogo.svg" alt="" />
+                <div>
+                  <Dialog.Title asChild>
+                    <h1>Settings</h1>
+                  </Dialog.Title>
+                  <Dialog.Description id={`${ids}-description`} asChild>
+                    <p>Your Serkle, your way</p>
+                  </Dialog.Description>
+                </div>
+              </div>
+              <Dialog.Close
+                className="settings-icon-button"
+                aria-label="Close settings"
+              >
+                <X aria-hidden="true" />
+              </Dialog.Close>
+            </div>
+          </header>
+          <div className="settings-scroll">
+            <div className="settings-layout">
+              <aside className="settings-sidebar">
+                <div className="settings-account">
+                  <span className="settings-account-avatar">
+                    {user.initials}
+                  </span>
+                  <div>
+                    <strong>{user.name}</strong>
+                    <p>@{user.username}</p>
+                  </div>
+                </div>
+                <nav className="settings-nav" aria-label="Settings categories">
+                  {(Object.keys(sections) as Section[]).map((key) => {
+                    const item = sections[key];
+                    return (
+                      <button
+                        key={key}
+                        aria-current={section === key ? "page" : undefined}
+                        onClick={() => setSection(key)}
+                      >
+                        <item.Icon aria-hidden="true" />
+                        {item.label}
+                      </button>
+                    );
+                  })}
+                </nav>
+                <p className="settings-sidebar-note">
+                  Make yourself at home.
+                  <br />
+                  Manage your experience, privacy and account.
+                </p>
+              </aside>
+              <section
+                className="settings-main"
+                aria-labelledby={`${ids}-section`}
+              >
+                <div className="settings-heading">
+                  <h2 id={`${ids}-section`}>{selected.title}</h2>
+                  <p>{selected.description}</p>
+                </div>
+                {notice && (
+                  <div
+                    role={notice.error ? "alert" : "status"}
+                    className={`settings-note ${notice.error ? "settings-note--danger" : "settings-note--saved"}`}
+                  >
+                    <Info aria-hidden="true" />
+                    <span>{notice.text}</span>
+                  </div>
+                )}
+                <div className="settings-panel" key={section}>
+                  {section === "general" && (
+                    <>
+                      <SettingsGroup title="Appearance">
+                        <div className="settings-card--padded">
+                          <p
+                            className="mb-4 text-sm"
+                            style={{ color: "hsl(var(--settings-muted))" }}
+                          >
+                            Choose a theme, or follow your device.
+                          </p>
+                          <Radio.Root
+                            value={theme}
+                            onValueChange={(value) =>
+                              setTheme(value as "light" | "dark" | "system")
+                            }
+                            className="settings-theme-group"
+                            aria-label="Appearance"
+                          >
+                            {(
+                              [
+                                { value: "light", label: "Light", Icon: Sun },
+                                { value: "dark", label: "Dark", Icon: Moon },
+                                {
+                                  value: "system",
+                                  label: "System",
+                                  Icon: Monitor,
+                                },
+                              ] as const
+                            ).map(({ value, label, Icon }) => (
+                              <Radio.Item
+                                className="settings-theme"
+                                key={value}
+                                value={value}
+                              >
+                                <Icon aria-hidden="true" />
+                                <span>{label}</span>
+                                <Radio.Indicator className="settings-theme-check">
+                                  <Check aria-hidden="true" />
+                                </Radio.Indicator>
+                              </Radio.Item>
+                            ))}
+                          </Radio.Root>
+                        </div>
+                      </SettingsGroup>
+                      <SettingsGroup title="Media">
+                        <SettingsToggle
+                          icon={Video}
+                          label="Autoplay videos"
+                          description="Automatically play videos in feeds and Relax."
+                          checked={autoplayEnabled}
+                          onChange={toggleAutoplay}
+                        />
+                      </SettingsGroup>
+                      <SettingsGroup title="Serkle on your device">
+                        <SettingsRow
+                          icon={Smartphone}
+                          label="Install the Serkle app"
+                          description={
+                            installed
+                              ? "Installed on this device."
+                              : isIOS
+                                ? "In Safari, tap Share, then Add to Home Screen."
+                                : "Keep Serkle close with a home screen shortcut."
+                          }
+                        />
+                        {!installed && (
+                          <div className="px-6 pb-6">
+                            {!isIOS && (
+                              <button
+                                className="settings-button settings-button--secondary w-full"
+                                disabled={!installPrompt}
+                                onClick={async () => {
+                                  if (!installPrompt) return;
+                                  try {
+                                    await installPrompt.prompt();
+                                    const choice =
+                                      await installPrompt.userChoice;
+                                    setNotice({
+                                      text:
+                                        choice.outcome === "accepted"
+                                          ? "Installation requested. Follow your browser’s instructions."
+                                          : "Installation was not completed.",
+                                    });
+                                    setInstallPrompt(null);
+                                  } catch {
+                                    setNotice({
+                                      text: "Installation could not be started.",
+                                      error: true,
+                                    });
+                                  }
+                                }}
+                              >
+                                <Download aria-hidden="true" />
+                                {installPrompt
+                                  ? "Install now"
+                                  : "Install from your browser menu"}
+                              </button>
+                            )}
+                            <p
+                              className="mt-3 text-xs"
+                              style={{ color: "hsl(var(--settings-muted))" }}
+                            >
+                              {isIOS
+                                ? "Choose Add to Home Screen from Safari’s Share menu."
+                                : "If an install prompt is unavailable, check your browser’s install or home screen menu."}
+                            </p>
+                          </div>
+                        )}
+                      </SettingsGroup>
+                    </>
+                  )}
+                  {section === "privacy" && (
+                    <>
+                      <SettingsGroup title="Account visibility">
+                        <SettingsToggle
+                          icon={Lock}
+                          label="Private account"
+                          description="Only followers can see your posts and videos."
+                          checked={user.isPrivate}
+                          onChange={(value) => void save("isPrivate", value)}
+                          disabled={!!saving}
+                          busy={saving === "isPrivate"}
+                        />
+                        <SettingsToggle
+                          icon={Eye}
+                          label="Hide follower counts"
+                          description="Hide your follower and following counts from others."
+                          checked={user.hideFollowers}
+                          onChange={(value) =>
+                            void save("hideFollowers", value)
+                          }
+                          disabled={!!saving}
+                          busy={saving === "hideFollowers"}
+                        />
+                        <SettingsToggle
+                          icon={Shield}
+                          label="Hide online status"
+                          description="Keep your online status private."
+                          checked={user.hideOnlineStatus}
+                          onChange={(value) =>
+                            void save("hideOnlineStatus", value)
+                          }
+                          disabled={!!saving}
+                          busy={saving === "hideOnlineStatus"}
+                        />
+                      </SettingsGroup>
+                      <SettingsGroup title="Messages">
+                        <SettingsRow
+                          icon={MessageCircle}
+                          label="Allow messages from"
+                          description="Choose who can send you messages."
+                          stack
+                        >
+                          <div className="settings-field">
+                            <select
+                              aria-label="Allow messages from"
+                              value={user.allowMessagesFrom}
+                              onChange={(event) =>
+                                void save(
+                                  "allowMessagesFrom",
+                                  event.target.value,
+                                )
+                              }
+                              disabled={!!saving}
+                            >
+                              <option value="everyone">Everyone</option>
+                              <option value="followers">Followers</option>
+                              <option value="nobody">Nobody</option>
+                            </select>
+                            {saving === "allowMessagesFrom" && (
+                              <SerkleLoader
+                                size="xs"
+                                label="Saving message preference"
+                              />
+                            )}
+                          </div>
+                        </SettingsRow>
+                      </SettingsGroup>
+                    </>
+                  )}
+                  {section === "notifications" && (
+                    <>
+                      <SettingsGroup title="Push notifications">
+                        <div className="settings-status-card">
+                          <span className="settings-status-icon">
+                            <Bell aria-hidden="true" />
+                          </span>
+                          <h3>
+                            {!push.isSupported
+                              ? "Not supported here"
+                              : push.permission === "denied"
+                                ? "Notifications are blocked"
+                                : push.permission === "granted"
+                                  ? "Notifications are allowed"
+                                  : "Keep up with your circle"}
+                          </h3>
+                          <p>
+                            {!push.isSupported
+                              ? "This browser or device does not support push notifications."
+                              : push.permission === "denied"
+                                ? "Open your browser’s site settings to allow notifications for Serkle."
+                                : push.permission === "granted"
+                                  ? "Browser permission is granted. You can test delivery to this device."
+                                  : "Get messages and alerts without keeping Serkle open."}
+                          </p>
+                          {push.isSupported && (
+                            <button
+                              className="settings-button settings-button--primary w-full"
+                              disabled={
+                                pushBusy || push.permission === "denied"
+                              }
+                              onClick={() => {
+                                if (push.permission === "granted") {
+                                  setPushBusy(true);
+                                  void push
+                                    .sendTestNotification()
+                                    .finally(() => setPushBusy(false));
+                                } else void enablePush();
+                              }}
+                            >
+                              {pushBusy ? (
+                                <SerkleLoader
+                                  size="xs"
+                                  className="text-current"
+                                  label="Updating notifications"
+                                />
+                              ) : push.permission === "granted" ? (
+                                <Send aria-hidden="true" />
+                              ) : (
+                                <Bell aria-hidden="true" />
+                              )}
+                              {push.permission === "granted"
+                                ? "Send test notification"
+                                : "Enable notifications"}
+                            </button>
+                          )}
+                        </div>
+                      </SettingsGroup>
+                      <SettingsGroup title="Connection & permissions">
+                        <SettingsRow
+                          icon={Shield}
+                          label="Browser permission"
+                          description={
+                            !push.isSupported
+                              ? "Unavailable"
+                              : push.permission === "granted"
+                                ? "Allowed"
+                                : push.permission === "denied"
+                                  ? "Blocked"
+                                  : "Not requested"
+                          }
+                        />
+                        <div className="settings-card--padded border-t border-border">
+                          <h3 className="font-semibold mb-2">
+                            Not receiving alerts?
+                          </h3>
+                          <p
+                            className="text-sm mb-4"
+                            style={{ color: "hsl(var(--settings-muted))" }}
+                          >
+                            Reconnect this device to reset its notification
+                            registration. Serkle will reload.
+                          </p>
+                          <button
+                            className="settings-button settings-button--secondary"
+                            disabled={
+                              pushBusy ||
+                              !push.isSupported ||
+                              push.permission === "denied"
+                            }
+                            onClick={() => openConfirmation("push")}
+                          >
+                            <RefreshCw aria-hidden="true" />
+                            Force re-enable
+                          </button>
+                        </div>
+                      </SettingsGroup>
+                    </>
+                  )}
+                  {section === "account" && (
+                    <>
+                      <SettingsGroup title="Sign-in details">
+                        {account.status === "loading" ? (
+                          <div className="settings-card--padded">
+                            <SerkleLoader
+                              label="Loading account details"
+                              showText
+                            />
+                          </div>
+                        ) : account.status === "error" ? (
+                          <div className="settings-card--padded">
+                            <p role="alert" className="mb-3">
+                              Account details could not be loaded.
+                            </p>
+                            <button
+                              className="settings-button settings-button--secondary"
+                              onClick={() => void loadAccount()}
+                            >
+                              Retry account details
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            <SettingsRow
+                              icon={Mail}
+                              label="Email address"
+                              description={maskEmail(account.email)}
+                              stack={!account.verified}
+                            >
+                              {!account.email ? (
+                                <button
+                                  className="settings-button settings-button--secondary"
+                                  onClick={() => {
+                                    onClose();
+                                    navigate("/email-address");
+                                  }}
+                                >
+                                  Enter email
+                                </button>
+                              ) : account.verified ? (
+                                <span className="settings-badge">
+                                  <BadgeCheck aria-hidden="true" />
+                                  Verified
+                                </span>
+                              ) : (
+                                <button
+                                  className="settings-button settings-button--secondary"
+                                  disabled={verifyingEmail}
+                                  onClick={() => void resend()}
+                                >
+                                  {verifyingEmail ? (
+                                    <SerkleLoader
+                                      size="xs"
+                                      label="Sending verification"
+                                    />
+                                  ) : (
+                                    "Verify email"
+                                  )}
+                                </button>
+                              )}
+                            </SettingsRow>
+                            <SettingsRow
+                              icon={Phone}
+                              label="Phone number"
+                              description={maskPhone(account.phone)}
+                            />
+                          </>
+                        )}
+                      </SettingsGroup>
+                      <SettingsGroup title="Password">
+                        <div className="settings-card--padded">
+                          <h3 className="font-semibold">Change password</h3>
+                          <p
+                            className="mt-2 mb-5 text-sm"
+                            style={{ color: "hsl(var(--settings-muted))" }}
+                          >
+                            We’ll send recovery instructions to your account
+                            email.
+                          </p>
+                          <button
+                            className="settings-button settings-button--primary"
+                            disabled={
+                              account.status !== "ready" || !account.email
+                            }
+                            onClick={() => {
+                              passwordOpener.current =
+                                document.activeElement as HTMLElement;
+                              setPasswordOpen(true);
+                            }}
+                          >
+                            <KeyRound aria-hidden="true" />
+                            Change password
+                          </button>
+                        </div>
+                      </SettingsGroup>
+                    </>
+                  )}
+                  {section === "storage" && (
+                    <SettingsGroup title="Browser storage">
+                      <div className="settings-card--padded">
+                        {storage.status === "loading" ? (
+                          <SerkleLoader label="Calculating storage" showText />
+                        ) : storage.status === "error" ? (
+                          <>
+                            <p role="status" className="mb-4">
+                              Storage usage is unavailable in this browser.
+                            </p>
+                            <button
+                              className="settings-button settings-button--secondary"
+                              onClick={() => void loadStorage()}
+                            >
+                              Retry storage estimate
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <div className="settings-data">
+                              <strong>{bytes(storage.used)}</strong>
+                              <span>
+                                {storage.quota > 0
+                                  ? `of ${bytes(storage.quota)} browser allowance`
+                                  : "Storage limit not reported"}
+                              </span>
+                            </div>
+                            {percentage !== null && (
+                              <div
+                                className="settings-progress"
+                                role="progressbar"
+                                aria-label="Device storage usage"
+                                aria-valuemin={0}
+                                aria-valuemax={100}
+                                aria-valuenow={Math.round(percentage)}
+                              >
+                                <span style={{ width: `${percentage}%` }} />
+                              </div>
+                            )}
+                          </>
+                        )}
+                        <p className="settings-storage-help">
+                          This is an estimate of Serkle’s storage on this
+                          browser. Clearing app cache does not delete your
+                          account settings or offline messages.
+                        </p>
+                        <button
+                          className="settings-button settings-button--secondary w-full"
+                          disabled={clearing}
+                          onClick={() => openConfirmation("cache")}
+                        >
+                          {clearing ? (
+                            <SerkleLoader
+                              size="xs"
+                              label="Clearing app cache"
+                            />
+                          ) : (
+                            <Trash2 aria-hidden="true" />
+                          )}
+                          Clear cache
+                        </button>
+                      </div>
+                    </SettingsGroup>
+                  )}
+                </div>
+                <footer className="settings-footer">
+                  <button
+                    className="settings-button settings-button--danger"
+                    onClick={() => void logout()}
+                    disabled={loggingOut}
+                  >
+                    {loggingOut ? (
+                      <SerkleLoader size="xs" label="Logging out" />
+                    ) : (
+                      <LogOut aria-hidden="true" />
+                    )}
+                    Log out
+                  </button>
+                </footer>
+              </section>
             </div>
           </div>
-
-          <div className="px-4 py-6 max-w-lg mx-auto space-y-6">
-            {view === 'main' && (
-              <>
-                {/* Appearance */}
-                <div>
-                  <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-2">Appearance</h2>
-                  <div className="bg-card rounded-xl border border-border/50 px-4">
-                    <SettingRow
-                      icon={Moon}
-                      label="Dark Mode"
-                      description="Switch between dark and light interface"
-                    >
-                      <Switch
-                        checked={isDark}
-                        onCheckedChange={toggleDark}
-                        id="dark-mode-toggle"
-                      />
-                    </SettingRow>
-                  </div>
-                </div>
-
-                {/* Media — Autoplay */}
-                <div>
-                  <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-2">Media</h2>
-                  <div className="bg-card rounded-xl border border-border/50 px-4">
-                    <SettingRow
-                      icon={Video}
-                      label="Autoplay Videos"
-                      description="Automatically play videos in feeds and Relax"
-                    >
-                      <Switch
-                        checked={autoplayEnabled}
-                        onCheckedChange={toggleAutoplay}
-                      />
-                    </SettingRow>
-                  </div>
-                </div>
-
-                {/* Notification Settings Entry */}
-                <div>
-                  <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-2">Notifications</h2>
-                  <div className="bg-card rounded-xl border border-border/50">
-                    <button
-                      onClick={() => setView('notifications')}
-                      className="flex items-center justify-between w-full px-4 py-4 hover:bg-muted/50 transition-colors rounded-xl"
-                    >
-                      <div className="flex items-center gap-3">
-                        <Bell className="h-5 w-5 text-primary" />
-                        <div className="text-left">
-                          <p className="font-medium text-foreground">Push Notifications</p>
-                          <p className="text-sm text-muted-foreground">
-                            {permission === 'granted' ? 'Enabled' : 'Setup notifications'}
-                          </p>
-                        </div>
-                      </div>
-                      <ChevronRight className="h-5 w-5 text-muted-foreground" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Install App */}
-                {!isAppInstalled && (
-                  <div>
-                    <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-2">Install App</h2>
-                    <div className="bg-card rounded-xl border border-border/50 px-4 py-4 space-y-3">
-                      <div className="flex items-center gap-3">
-                        <div className="p-2 rounded-lg bg-primary/10">
-                          <Smartphone className="h-5 w-5 text-primary" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-medium text-foreground text-sm">Serkle App</p>
-                          <p className="text-xs text-muted-foreground">
-                            {isIOS
-                              ? 'Tap Share → "Add to Home Screen" to install'
-                              : 'Install for quick access & offline support'}
-                          </p>
-                        </div>
-                      </div>
-                      {!isIOS && (
-                        <Button
-                          variant="default"
-                          size="sm"
-                          className="w-full"
-                          onClick={handleInstallApp}
-                          disabled={!deferredPrompt}
-                        >
-                          <Download className="h-4 w-4 mr-2" />
-                          {deferredPrompt ? 'Install Now' : 'Install via Browser Menu'}
-                        </Button>
-                      )}
-                      {isIOS && (
-                        <div className="flex items-center gap-2 p-2 rounded-lg bg-muted text-xs text-muted-foreground">
-                          <Download className="h-4 w-4 flex-shrink-0" />
-                          <span>Tap the Share button in Safari, then select "Add to Home Screen"</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Privacy & Account — navigates to sub-view */}
-                <div>
-                  <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-2">Privacy & Account</h2>
-                  <div className="bg-card rounded-xl border border-border/50">
-                    <button
-                      onClick={() => setView('account')}
-                      className="flex items-center justify-between w-full px-4 py-4 hover:bg-muted/50 transition-colors rounded-xl"
-                    >
-                      <div className="flex items-center gap-3">
-                        <Shield className="h-5 w-5 text-primary" />
-                        <div className="text-left">
-                          <p className="font-medium text-foreground">Account & Security</p>
-                          <p className="text-sm text-muted-foreground">Email, phone, password, verification</p>
-                        </div>
-                      </div>
-                      <ChevronRight className="h-5 w-5 text-muted-foreground" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Account Privacy */}
-                <div>
-                  <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-2">Account Privacy</h2>
-                  <div className="bg-card rounded-xl border border-border/50 px-4">
-                    <SettingRow
-                      icon={Lock}
-                      label="Private Account"
-                      description="Only followers can see your posts and videos"
-                    >
-                      <Switch
-                        checked={user.isPrivate}
-                        onCheckedChange={(v) => handleToggle('isPrivate', v)}
-                        disabled={saving === 'isPrivate'}
-                      />
-                    </SettingRow>
-                  </div>
-                </div>
-
-                {/* Profile Visibility */}
-                <div>
-                  <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-2">Profile Visibility</h2>
-                  <div className="bg-card rounded-xl border border-border/50 px-4 divide-y divide-border/50">
-                    <SettingRow
-                      icon={Eye}
-                      label="Hide Followers Count"
-                      description="Others won't see your followers/following counts"
-                    >
-                      <Switch
-                        checked={user.hideFollowers}
-                        onCheckedChange={(v) => handleToggle('hideFollowers', v)}
-                        disabled={saving === 'hideFollowers'}
-                      />
-                    </SettingRow>
-                    <SettingRow
-                      icon={Shield}
-                      label="Hide Online Status"
-                      description="Others won't see when you're online"
-                    >
-                      <Switch
-                        checked={user.hideOnlineStatus}
-                        onCheckedChange={(v) => handleToggle('hideOnlineStatus', v)}
-                        disabled={saving === 'hideOnlineStatus'}
-                      />
-                    </SettingRow>
-                  </div>
-                </div>
-
-                {/* Messaging */}
-                <div>
-                  <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-2">Messaging</h2>
-                  <div className="bg-card rounded-xl border border-border/50 px-4">
-                    <SettingRow
-                      icon={MessageCircle}
-                      label="Allow Messages From"
-                      description="Control who can send you messages"
-                    >
-                      <Select
-                        value={user.allowMessagesFrom}
-                        onValueChange={(v) => handleToggle('allowMessagesFrom', v)}
-                        disabled={saving === 'allowMessagesFrom'}
-                      >
-                        <SelectTrigger className="w-[130px]">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="everyone">Everyone</SelectItem>
-                          <SelectItem value="followers">Followers</SelectItem>
-                          <SelectItem value="nobody">Nobody</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </SettingRow>
-                  </div>
-                </div>
-
-                {/* Storage Usage */}
-                <div>
-                  <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-2">Storage</h2>
-                  <div className="bg-card rounded-xl border border-border/50 px-4 py-4 space-y-3">
-                    <div className="flex items-center gap-3">
-                      <HardDrive className="h-5 w-5 text-muted-foreground flex-shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between mb-1">
-                          <p className="font-medium text-foreground text-sm">App Storage</p>
-                          <p className="text-xs text-muted-foreground">
-                            {storageUsage
-                              ? `${formatBytes(storageUsage.used)} / ${formatBytes(storageUsage.quota)}`
-                              : 'Calculating…'}
-                          </p>
-                        </div>
-                        <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
-                          <div
-                            className="h-full rounded-full bg-primary transition-all duration-500"
-                            style={{
-                              width: storageUsage
-                                ? `${Math.min((storageUsage.used / storageUsage.quota) * 100, 100)}%`
-                                : '0%',
-                            }}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="w-full"
-                      onClick={handleClearCache}
-                      disabled={clearingCache}
-                    >
-                      {clearingCache ? (
-                        <SerkleLoader size="xs" className="text-current mr-2" />
-                      ) : (
-                        <Trash2 className="h-4 w-4 mr-2" />
-                      )}
-                      Clear Cache
-                    </Button>
-                  </div>
-                </div>
-
-                <Separator />
-
-                {/* Logout */}
-                <Button
-                  variant="destructive"
-                  className="w-full h-12"
-                  onClick={handleLogout}
-                >
-                  <LogOut className="h-5 w-5 mr-2" />
-                  Log Out
-                </Button>
-              </>
-            )}
-
-            {view === 'notifications' && (
-              <div className="space-y-6">
-                <div className="bg-card rounded-xl border border-border/50 p-6 text-center space-y-4">
-                  <div className="mx-auto w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center">
-                    <Bell className={`h-8 w-8 ${permission === 'granted' ? 'text-primary' : 'text-muted-foreground'}`} />
-                  </div>
-                  <div className="space-y-1">
-                    <h3 className="text-lg font-semibold">Push Notifications</h3>
-                    <p className="text-sm text-muted-foreground">
-                      {!isSupported 
-                        ? 'Not supported on this browser/device' 
-                        : permission === 'granted' 
-                          ? 'You are all set to receive notifications' 
-                          : 'Stay updated with messages and alerts'}
-                    </p>
-                  </div>
-
-                  <div className="pt-2">
-                    {permission !== 'granted' && isSupported && (
-                      <Button 
-                        onClick={handleEnablePush} 
-                        disabled={isPushLoading || permission === 'denied'}
-                        className="w-full h-12 text-base"
-                      >
-                        {isPushLoading ? <SerkleLoader size="xs" className="text-current mr-2" /> : <Bell className="h-5 w-5 mr-2" />}
-                        Enable Notifications
-                      </Button>
-                    )}
-                    
-                    {permission === 'granted' && (
-                      <Button
-                        variant="secondary"
-                        onClick={sendTestNotification}
-                        disabled={isPushLoading}
-                        className="w-full h-12 text-base"
-                      >
-                        <Send className="h-5 w-5 mr-2" />
-                        Send Test Notification
-                      </Button>
-                    )}
-                  </div>
-                </div>
-
-                <div className="space-y-4">
-                  <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider px-1">Troubleshooting</h3>
-                  
-                  <div className="bg-card rounded-xl border border-border/50 divide-y divide-border/50">
-                    <div className="p-4 space-y-2">
-                      <div className="flex items-center gap-2">
-                        <RefreshCw className="h-4 w-4 text-primary" />
-                        <p className="font-medium">Force Enable</p>
-                      </div>
-                      <p className="text-sm text-muted-foreground">
-                        Enabled but not getting alerts? This will reset the connection and re-register your device.
-                      </p>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={handleForceEnablePush}
-                        disabled={isPushLoading}
-                        className="mt-2"
-                      >
-                        {isPushLoading ? <SerkleLoader size="xs" className="text-current mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
-                        Force Re-enable
-                      </Button>
-                    </div>
-
-                    <div className="p-4 space-y-2">
-                      <div className="flex items-center gap-2">
-                        <Shield className="h-4 w-4 text-primary" />
-                        <p className="font-medium">Browser Permissions</p>
-                      </div>
-                      <p className="text-sm text-muted-foreground">
-                        Current permission: <span className="font-mono font-bold capitalize">{permission}</span>
-                      </p>
-                      {permission === 'denied' && (
-                        <p className="text-xs text-destructive bg-destructive/10 p-2 rounded-lg">
-                          Notifications are blocked at the browser level. Please open your browser settings to allow Serkle to send notifications.
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {view === 'account' && (
-              <>
-                {/* Account Information */}
-                <div>
-                  <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-2">Account Information</h2>
-                  <div className="bg-card rounded-xl border border-border/50 px-4 divide-y divide-border/50">
-                    {/* Email */}
-                    <div className="flex items-center justify-between py-4">
-                      <div className="flex items-start gap-3 flex-1 min-w-0">
-                        <Mail className="h-5 w-5 text-muted-foreground mt-0.5 flex-shrink-0" />
-                        <div className="flex-1 min-w-0">
-                          <p className="font-medium text-foreground">Email</p>
-                          <p className="text-sm text-muted-foreground truncate">
-                            {authEmail ? maskEmail(authEmail) : 'Not set'}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="ml-4 flex-shrink-0">
-                        {!authEmail ? (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => navigate('/email-address')}
-                            className="text-xs"
-                          >
-                            <Mail className="h-3 w-3 mr-1" />
-                            Enter Email
-                          </Button>
-                        ) : emailVerified ? (
-                          <span className="flex items-center gap-1 text-xs font-medium text-primary">
-                            <BadgeCheck className="h-4 w-4" />
-                            Verified
-                          </span>
-                        ) : (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={handleResendVerification}
-                            disabled={sendingVerification}
-                            className="text-xs"
-                          >
-                            {sendingVerification ? (
-                              <SerkleLoader size="xs" className="text-current mr-1" />
-                            ) : null}
-                            Verify
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Phone */}
-                    <div className="flex items-center justify-between py-4">
-                      <div className="flex items-start gap-3 flex-1 min-w-0">
-                        <Phone className="h-5 w-5 text-muted-foreground mt-0.5 flex-shrink-0" />
-                        <div className="flex-1 min-w-0">
-                          <p className="font-medium text-foreground">Phone</p>
-                          <p className="text-sm text-muted-foreground">{maskPhone(authPhone)}</p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Security */}
-                <div>
-                  <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-2">Security</h2>
-                  <div className="bg-card rounded-xl border border-border/50">
-                    <button
-                      onClick={() => setShowPasswordModal(true)}
-                      className="flex items-center justify-between w-full px-4 py-4 hover:bg-muted/50 transition-colors rounded-xl"
-                    >
-                      <div className="flex items-center gap-3">
-                        <KeyRound className="h-5 w-5 text-muted-foreground" />
-                        <div className="text-left">
-                          <p className="font-medium text-foreground">Change Password</p>
-                          <p className="text-sm text-muted-foreground">We'll send a code to your email</p>
-                        </div>
-                      </div>
-                      <ChevronRight className="h-5 w-5 text-muted-foreground" />
-                    </button>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Change Password Modal */}
-      <Dialog open={showPasswordModal} onOpenChange={(v) => { if (!v) resetPasswordModal(); }}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <KeyRound className="h-5 w-5 text-primary" />
-              Change Password
-            </DialogTitle>
-            <DialogDescription>
-              {passwordStep === 'idle' || passwordStep === 'sending'
-                ? `We'll send a verification code to ${maskEmail(authEmail)}`
-                : passwordStep === 'code-sent' || passwordStep === 'verifying'
-                  ? 'Enter the 6-digit code from your email'
-                  : 'Set your new password'
-              }
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4 py-2">
-            {/* Step 1: Send code */}
-            {(passwordStep === 'idle' || passwordStep === 'sending') && (
-              <Button
-                onClick={handleSendPasswordResetCode}
-                disabled={passwordStep === 'sending'}
-                className="w-full"
+          <Dialog.Root
+            open={passwordOpen}
+            onOpenChange={(open) => {
+              if (!open) resetPasswordDialog();
+            }}
+          >
+            <Dialog.Portal>
+              <Dialog.Overlay className="settings-overlay" />
+              <Dialog.Content
+                className="settings-ui settings-dialog"
+                onCloseAutoFocus={(event) => {
+                  event.preventDefault();
+                  passwordOpener.current?.focus();
+                }}
               >
-                {passwordStep === 'sending' ? (
-                  <SerkleLoader size="xs" className="text-current mr-2" />
-                ) : (
-                  <Mail className="h-4 w-4 mr-2" />
-                )}
-                {passwordStep === 'sending' ? 'Sending...' : 'Send Verification Code'}
-              </Button>
-            )}
-
-            {/* Step 2: Enter OTP */}
-            {(passwordStep === 'code-sent' || passwordStep === 'verifying') && (
-              <div className="space-y-3">
-                <div className="space-y-2">
-                  <Label htmlFor="otp-code">Verification Code</Label>
-                  <Input
-                    id="otp-code"
-                    placeholder="Enter 6-digit code"
-                    value={otpCode}
-                    onChange={(e) => { setOtpCode(e.target.value); setPasswordError(''); }}
-                    maxLength={6}
-                    className={`text-center text-lg tracking-widest font-mono ${passwordError ? 'border-destructive' : ''}`}
-                    onKeyDown={(e) => { if (e.key === 'Enter') handleVerifyOtp(); }}
-                  />
+                <header className="settings-dialog-header">
+                  <Dialog.Title>Change password</Dialog.Title>
+                  <Dialog.Close
+                    className="settings-icon-button"
+                    aria-label="Close password dialog"
+                  >
+                    <X aria-hidden="true" />
+                  </Dialog.Close>
+                </header>
+                <div className="settings-dialog-body">
+                  <Dialog.Description>
+                    {passwordStep === "idle" || passwordStep === "sending"
+                      ? `Send recovery instructions to ${maskEmail(account.email)}.`
+                      : passwordStep === "code-sent" ||
+                          passwordStep === "verifying"
+                        ? "Use the recovery code from your email. If it contains a link, open that link to continue."
+                        : "Choose your new password."}
+                  </Dialog.Description>
+                  {(passwordStep === "idle" || passwordStep === "sending") && (
+                    <button
+                      className="settings-button settings-button--primary w-full"
+                      disabled={passwordStep === "sending"}
+                      onClick={() => void sendRecovery()}
+                    >
+                      {passwordStep === "sending" ? (
+                        <SerkleLoader
+                          size="xs"
+                          className="text-current"
+                          label="Sending recovery email"
+                        />
+                      ) : (
+                        <Mail aria-hidden="true" />
+                      )}
+                      Send recovery email
+                    </button>
+                  )}
+                  {(passwordStep === "code-sent" ||
+                    passwordStep === "verifying") && (
+                    <form
+                      className="space-y-4"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        void verifyCode();
+                      }}
+                    >
+                      <div className="settings-field">
+                        <label htmlFor={`${ids}-code`}>Recovery code</label>
+                        <Input
+                          id={`${ids}-code`}
+                          inputMode="numeric"
+                          autoComplete="one-time-code"
+                          maxLength={6}
+                          placeholder="Enter 6-digit code"
+                          value={otp}
+                          onChange={(event) => {
+                            setOtp(event.target.value);
+                            setPasswordError("");
+                          }}
+                          aria-invalid={!!passwordError}
+                          aria-describedby={
+                            passwordError ? `${ids}-password-error` : undefined
+                          }
+                        />
+                      </div>
+                      <button
+                        className="settings-button settings-button--primary w-full"
+                        disabled={
+                          passwordStep === "verifying" || otp.length !== 6
+                        }
+                      >
+                        {passwordStep === "verifying" ? (
+                          <SerkleLoader
+                            size="xs"
+                            className="text-current"
+                            label="Verifying recovery code"
+                          />
+                        ) : (
+                          "Verify code"
+                        )}
+                      </button>
+                      <button
+                        className="settings-button settings-button--quiet w-full"
+                        type="button"
+                        onClick={() => void sendRecovery()}
+                      >
+                        Resend recovery email
+                      </button>
+                    </form>
+                  )}
+                  {(passwordStep === "new-password" ||
+                    passwordStep === "saving") && (
+                    <form
+                      className="space-y-4"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        void updatePassword();
+                      }}
+                    >
+                      <div className="settings-field">
+                        <label htmlFor={`${ids}-password`}>New password</label>
+                        <Input
+                          id={`${ids}-password`}
+                          type="password"
+                          autoComplete="new-password"
+                          value={password}
+                          onChange={(event) => {
+                            setPassword(event.target.value);
+                            setPasswordError("");
+                          }}
+                          aria-invalid={!!passwordError}
+                          aria-describedby={
+                            passwordError ? `${ids}-password-error` : undefined
+                          }
+                        />
+                      </div>
+                      <div className="settings-field">
+                        <label htmlFor={`${ids}-repeat`}>
+                          Confirm password
+                        </label>
+                        <Input
+                          id={`${ids}-repeat`}
+                          type="password"
+                          autoComplete="new-password"
+                          value={repeat}
+                          onChange={(event) => {
+                            setRepeat(event.target.value);
+                            setPasswordError("");
+                          }}
+                          aria-invalid={!!passwordError}
+                        />
+                      </div>
+                      <button
+                        className="settings-button settings-button--primary w-full"
+                        disabled={passwordStep === "saving"}
+                      >
+                        {passwordStep === "saving" ? (
+                          <SerkleLoader
+                            size="xs"
+                            className="text-current"
+                            label="Saving password"
+                          />
+                        ) : (
+                          "Update password"
+                        )}
+                      </button>
+                    </form>
+                  )}
+                  {passwordError && (
+                    <p
+                      id={`${ids}-password-error`}
+                      role="alert"
+                      className="settings-note settings-note--danger mt-4"
+                    >
+                      {passwordError}
+                    </p>
+                  )}
                 </div>
-                <Button
-                  onClick={handleVerifyOtp}
-                  disabled={passwordStep === 'verifying' || otpCode.length < 6}
-                  className="w-full"
-                >
-                  {passwordStep === 'verifying' && <SerkleLoader size="xs" className="text-current mr-2" />}
-                  {passwordStep === 'verifying' ? 'Verifying...' : 'Verify Code'}
-                </Button>
-                <button
-                  onClick={handleSendPasswordResetCode}
-                  className="text-sm text-primary hover:underline w-full text-center"
-                >
-                  Resend code
-                </button>
-              </div>
-            )}
-
-            {/* Step 3: New password */}
-            {(passwordStep === 'new-password' || passwordStep === 'saving') && (
-              <div className="space-y-3">
-                <div className="space-y-2">
-                  <Label htmlFor="new-pw">New Password</Label>
-                  <Input
-                    id="new-pw"
-                    type="password"
-                    placeholder="Min. 6 characters"
-                    value={newPassword}
-                    onChange={(e) => { setNewPassword(e.target.value); setPasswordError(''); }}
-                  />
+              </Dialog.Content>
+            </Dialog.Portal>
+          </Dialog.Root>
+          <AlertDialog.Root
+            open={!!confirm}
+            onOpenChange={(open) => {
+              if (!open) setConfirm(null);
+            }}
+          >
+            <AlertDialog.Portal>
+              <AlertDialog.Overlay className="settings-overlay" />
+              <AlertDialog.Content
+                className="settings-ui settings-dialog"
+                onCloseAutoFocus={(event) => {
+                  event.preventDefault();
+                  confirmOpener.current?.focus();
+                }}
+              >
+                <header className="settings-dialog-header">
+                  <AlertDialog.Title>
+                    {confirm === "cache"
+                      ? "Clear app cache?"
+                      : "Reconnect notifications?"}
+                  </AlertDialog.Title>
+                </header>
+                <div className="settings-dialog-body">
+                  <AlertDialog.Description>
+                    {confirm === "cache"
+                      ? "Cached pages and media will be downloaded again. Your account settings and offline messages will not be deleted."
+                      : "This resets the notification connection and reloads Serkle. Browser permission is still required."}
+                  </AlertDialog.Description>
+                  <div className="settings-dialog-actions">
+                    <AlertDialog.Cancel className="settings-button settings-button--secondary">
+                      Cancel
+                    </AlertDialog.Cancel>
+                    <AlertDialog.Action
+                      className="settings-button settings-button--primary"
+                      onClick={() => {
+                        const action = confirm;
+                        setConfirm(null);
+                        if (action === "cache") void clearCache();
+                        else void reconnect();
+                      }}
+                    >
+                      {confirm === "cache"
+                        ? "Clear app cache"
+                        : "Reconnect device"}
+                    </AlertDialog.Action>
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="confirm-pw">Confirm Password</Label>
-                  <Input
-                    id="confirm-pw"
-                    type="password"
-                    placeholder="Re-enter new password"
-                    value={confirmPassword}
-                    onChange={(e) => { setConfirmPassword(e.target.value); setPasswordError(''); }}
-                    onKeyDown={(e) => { if (e.key === 'Enter') handleSaveNewPassword(); }}
-                  />
-                </div>
-                <Button
-                  onClick={handleSaveNewPassword}
-                  disabled={passwordStep === 'saving'}
-                  className="w-full"
-                >
-                  {passwordStep === 'saving' && <SerkleLoader size="xs" className="text-current mr-2" />}
-                  {passwordStep === 'saving' ? 'Saving...' : 'Update Password'}
-                </Button>
-              </div>
-            )}
-
-            {passwordError && (
-              <p className="text-sm text-destructive text-center">{passwordError}</p>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
-
-    </>
+              </AlertDialog.Content>
+            </AlertDialog.Portal>
+          </AlertDialog.Root>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
-};
-
-export default SettingsModal;
+}

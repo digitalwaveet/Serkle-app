@@ -15,11 +15,12 @@ const STORAGE_KEY = 'theme';
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [theme, setThemeState] = useState<Theme>(() => {
     const stored = localStorage.getItem(STORAGE_KEY);
-    return (stored as Theme) || 'light';
+    return stored === 'dark' || stored === 'system' ? stored : 'light';
   });
+  const [systemDark, setSystemDark] = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches);
 
   const resolvedTheme: 'light' | 'dark' = theme === 'system'
-    ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+    ? (systemDark ? 'dark' : 'light')
     : theme;
 
   useEffect(() => {
@@ -32,7 +33,8 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   useEffect(() => {
     if (theme !== 'system') return;
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
-    const handler = () => setThemeState('system'); // trigger re-render
+    const handler = () => setSystemDark(mq.matches);
+    handler();
     mq.addEventListener('change', handler);
     return () => mq.removeEventListener('change', handler);
   }, [theme]);

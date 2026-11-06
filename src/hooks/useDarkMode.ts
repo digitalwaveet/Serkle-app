@@ -26,6 +26,6 @@ export function useDarkMode() {
 /** Call this once at app startup (before React renders) to prevent flash of light mode */
 export function initTheme() {
     const stored = localStorage.getItem(STORAGE_KEY);
-    const theme = (stored === 'dark' || stored === 'light') ? stored : 'light';
+    const theme = stored === 'system' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : (stored === 'dark' ? 'dark' : 'light');
     applyTheme(theme as 'light' | 'dark');
 }

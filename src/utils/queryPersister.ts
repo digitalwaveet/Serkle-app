@@ -79,10 +79,11 @@ export const requestPersistentStorage = async () => {
 /**
  * Clear the IndexedDB cache (used by forceRefresh).
  */
-export const clearIDBCache = async () => {
+export const clearIDBCache = async (strict = false) => {
   try {
     await del(IDB_KEY);
-  } catch {
+  } catch (error) {
+    if (strict) throw error;
     // ignore
   }
 };

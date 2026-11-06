@@ -5,6 +5,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Session } from '@supabase/supabase-js';
 import { chatDb } from '@/lib/db';
 import { registerSyncListeners } from '@/lib/sync';
+import { isPrivacyUpdate, profileUpdatePayload } from '@/lib/profileUpdates';
 
 const CACHED_PROFILE_KEY = 'cached_user_profile';
 const CACHED_SESSION_KEY = 'cached_has_session';
@@ -358,23 +359,14 @@ export const UserProvider: React.FC<UserProviderProps> = ({ children }) => {
 
   const updateProfile = async (updates: Partial<UserProfile>) => {
     if (!user) return;
+    const privacyOnly = isPrivacyUpdate(updates);
     
     try {
-      setIsLoading(true);
+      if (!privacyOnly) setIsLoading(true);
       
       const { error } = await supabase
         .from('profiles')
-        .update({
-          ...(updates.name !== undefined && { name: updates.name }),
-          ...(updates.username !== undefined && { username: updates.username }),
-          ...(updates.email !== undefined && { email: updates.email }),
-          ...(updates.bio !== undefined && { bio: updates.bio }),
-          ...(updates.subtitle !== undefined && { subtitle: updates.subtitle }),
-          ...(updates.location !== undefined && { location: updates.location }),
-          ...(updates.website !== undefined && { website: Array.isArray(updates.website) ? updates.website[0] : updates.website }),
-          ...(updates.avatar !== undefined && { avatar_url: updates.avatar }),
-          ...(updates.coverImage !== undefined && { cover_image_url: updates.coverImage }),
-        })
+        .update(profileUpdatePayload(updates))
         .eq('id', user.id);
 
       if (error) throw error;
@@ -383,7 +375,7 @@ export const UserProvider: React.FC<UserProviderProps> = ({ children }) => {
       setUserAndCache(updatedUser);
       
       toast({
-        title: "Profile updated",
+        title: privacyOnly ? "Settings saved" : "Profile updated",
         description: "Your profile has been successfully updated.",
       });
     } catch (err) {
@@ -393,8 +385,9 @@ export const UserProvider: React.FC<UserProviderProps> = ({ children }) => {
         description: "Could not update your profile. Please try again.",
         variant: "destructive",
       });
+      if (privacyOnly) throw err;
     } finally {
-      setIsLoading(false);
+      if (!privacyOnly) setIsLoading(false);
     }
   };
 

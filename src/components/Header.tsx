@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { SerkleLoader } from '@/components/ui/SerkleLoader';
 import { Bell, Mail, Search } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -62,6 +62,7 @@ const Header: React.FC<HeaderProps> = ({ onNotifications, onMessages, onMenuOpen
   const navigate = useNavigate();
   const { pushModalState } = useNavigation();
   const [menuOpen, setMenuOpen] = useState(false);
+  const profileMenuTrigger = useRef<HTMLButtonElement>(null);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showSearchModal, setShowSearchModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
@@ -126,9 +127,7 @@ const Header: React.FC<HeaderProps> = ({ onNotifications, onMessages, onMenuOpen
       window.history.replaceState({}, document.title, newUrl);
     } else if (params.get('view') === 'notifications') {
       handleOpenSettings();
-      // Clean up URL without refreshing
-      const newUrl = window.location.pathname;
-      window.history.replaceState({}, document.title, newUrl);
+      // Settings consumes these parameters after opening, including resubscribe.
     }
   }, []);
   const { user, isLoading } = useUser();
@@ -215,6 +214,7 @@ const Header: React.FC<HeaderProps> = ({ onNotifications, onMessages, onMenuOpen
               onLogout={async () => { await supabase.auth.signOut(); navigate('/login', { replace: true }); }}
             >
               <button
+                ref={profileMenuTrigger}
                 type="button"
                 className="ml-1 inline-flex items-center gap-2 rounded-full px-2 py-1 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-secondary transition-colors"
                 aria-label="Open profile menu"
@@ -251,6 +251,7 @@ const Header: React.FC<HeaderProps> = ({ onNotifications, onMessages, onMenuOpen
       <SettingsModal
         isOpen={showSettingsModal}
         onClose={() => setShowSettingsModal(false)}
+        returnFocusRef={profileMenuTrigger}
       />
 
       <WalletModal

@@ -21,7 +21,9 @@
     "test:payment-cors": "node --experimental-strip-types --test src/tests/chapa-cors.test.ts",
     "test:payment-return-ui": "node --experimental-strip-types --test src/tests/chapa-return.ui.test.ts",
     "test:shop-checkout-ui": "node --experimental-strip-types --test src/tests/shop-checkout.ui.test.ts",
-    "test:profile-menu-ui": "node --experimental-strip-types --test src/tests/profile-menu.ui.test.ts"
+    "test:profile-menu-ui": "node --experimental-strip-types --test src/tests/profile-menu.ui.test.ts",
+    "test:settings-ui": "node --experimental-strip-types --test src/tests/settings.ui.test.ts",
+    "test:profile-updates": "node --experimental-strip-types --test src/tests/profile-updates.test.ts"
   },
   "dependencies": {
     "@capacitor/android": "^7.4.2",
