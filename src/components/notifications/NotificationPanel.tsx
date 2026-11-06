@@ -34,6 +34,10 @@ import {
 } from "@/lib/notificationPanelEntries";
 import { SerkleLoader } from "@/components/ui/SerkleLoader";
 import NotificationPanelItem from "./NotificationPanelItem";
+import NotificationFilters, {
+  NOTIFICATION_CATEGORIES as categories,
+  NOTIFICATION_TIME_GROUPS as groupKeys,
+} from "./NotificationFilters";
 import NotificationSettingsModal from "./NotificationSettingsModal";
 import "./notification-panel.css";
 
@@ -42,17 +46,6 @@ interface Props {
   onClose: () => void;
   anchorRef?: RefObject<HTMLButtonElement>;
 }
-const categories = [
-  ["all", "All"],
-  ["unread", "Unread"],
-  ["social", "Social"],
-  ["circles", "Circles"],
-  ["shop", "Shop"],
-  ["safety", "Safety"],
-  ["messages", "Messages"],
-] as const;
-const groupKeys: TimeGroup[] = ["Today", "Yesterday", "This Week", "Earlier"];
-
 export default function NotificationPanel({
   isOpen,
   onClose,
@@ -278,35 +271,14 @@ export default function NotificationPanel({
               </button>
             </div>
           </header>
-          <div
-            className="notification-filters"
-            role="group"
-            aria-label="Filter notifications"
-          >
-            {categories.map(([value, label]) => (
-              <button
-                className="notification-filter"
-                key={value}
-                aria-pressed={category === value}
-                aria-label={
-                  value === "unread" && unreadCount > 0
-                    ? `Unread, ${unreadCount} notifications`
-                    : label
-                }
-                onClick={() => {
-                  setCategory(value);
-                  setNotice(null);
-                }}
-              >
-                {label}
-                {value === "unread" && unreadCount > 0 && (
-                  <span className="notification-filter-count">
-                    {unreadCount}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
+          <NotificationFilters
+            value={category}
+            unreadCount={unreadCount}
+            onChange={(value) => {
+              setCategory(value);
+              setNotice(null);
+            }}
+          />
           <div className="notification-list" aria-busy={isLoading || busy}>
             {notice && (
               <div

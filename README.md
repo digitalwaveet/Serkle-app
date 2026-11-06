@@ -34,6 +34,7 @@ npm run test:settings-ui
 npm run test:profile-updates
 npm run test:notifications-ui
 npm run test:notification-entries
+npm run test:notifications-page-ui
 npm run test:circle-entitlements
 npm run test:circle-membership
 npm run test:circle-collections

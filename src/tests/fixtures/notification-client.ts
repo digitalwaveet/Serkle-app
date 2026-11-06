@@ -112,6 +112,17 @@ if (scenario === "mixed-batch") {
   initial.find((row) => row.id === "like-a")!.read_at = ago(0.1);
   initial.find((row) => row.id === "like-b")!.read_at = null;
 }
+if (scenario.startsWith("story") || scenario === "reshare-error")
+  initial.unshift(
+    notification(
+      "story",
+      "story_mention",
+      "Hana mentioned you in a story",
+      "Take a look at the moment they shared.",
+      0.05,
+      { story_id: "story-original", mentioner_id: "hana" },
+    ),
+  );
 const profiles = [
   {
     id: "hana",
@@ -181,6 +192,7 @@ export const fixture = {
     avatar: "",
     isOnline: false,
   },
+  subscriptions: [] as Array<{ options: any; handler: (payload: any) => void }>,
   get state() {
     return snapshot;
   },
@@ -205,7 +217,7 @@ const mutation = (
           if (fail) reject(new Error("Fixture " + name + " failed"));
           else resolve();
         },
-        scenario === "pending-delete" ? 800 : 80,
+        scenario.startsWith("pending-") ? 800 : 80,
       );
     });
   return {
@@ -239,6 +251,7 @@ const deleteNotification = mutation("delete", (ids) => ({
     (row) => !(Array.isArray(ids) ? ids : [ids]).includes(row.id),
   ),
 }));
+const clearAllNotifications = mutation("clear", () => ({ notifications: [] }));
 const updatePreferences = mutation(
   "preference",
   (value) => ({ preferences: { ...snapshot.preferences, ...value } }),
@@ -253,6 +266,7 @@ export function useNotifications() {
     markAsRead,
     markAllAsRead,
     deleteNotification,
+    clearAllNotifications,
     refetch: async () => {
       fixture.calls.push({ name: "refetch" });
       publish({ notifications: initial, error: null });
@@ -279,13 +293,51 @@ export const useUnreadCount = () => ({ totalUnreadCount: 0 });
 export const useConversations = () => ({});
 export const cacheManager = { forceRefresh() {} };
 export const supabase = {
-  auth: { signOut: async () => ({ error: null }) },
-  from: () => ({
+  auth: {
+    signOut: async () => ({ error: null }),
+    getUser: async () => ({ data: { user: fixture.user }, error: null }),
+  },
+  channel: () => {
+    const channel = {
+      on(_type: string, options: any, handler: (payload: any) => void) {
+        fixture.subscriptions.push({ options, handler });
+        return channel;
+      },
+      subscribe() {
+        return channel;
+      },
+    };
+    return channel;
+  },
+  removeChannel: () => {},
+  from: (table: string) => ({
     select: () => ({
       in: async () =>
         scenario === "profile-error"
           ? { data: null, error: new Error("Profiles unavailable") }
           : { data: profiles, error: null },
+      eq: () => ({
+        single: async () =>
+          scenario === "story-error"
+            ? { data: null, error: new Error("Story unavailable") }
+            : {
+                data: {
+                  media_url: "https://example.test/story.jpg",
+                  media_type: "image",
+                },
+                error: null,
+              },
+      }),
     }),
+    insert: async (value: any) => {
+      fixture.calls.push({ name: "reshare", value });
+      await new Promise((resolve) =>
+        setTimeout(resolve, scenario === "story-pending" ? 800 : 80),
+      );
+      return {
+        error:
+          scenario === "reshare-error" ? new Error("Reshare failed") : null,
+      };
+    },
   }),
 };

@@ -1,428 +1,506 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
-import { useNotifications } from '@/hooks/useNotifications';
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import {
-  filterByCategory,
-  batchNotifications,
-  groupByTime,
+  ArrowLeft,
+  Settings,
+  CheckCheck,
+  Trash2,
+  Inbox,
+  AlertCircle,
+  RefreshCw,
+  Check,
+} from "lucide-react";
+import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+import { useUser } from "@/contexts/UserContext";
+import { useNotifications } from "@/hooks/useNotifications";
+import {
   getNotificationNavTarget,
-  TimeGroup,
-} from '@/utils/notificationHelpers';
-import NotificationItem from '@/components/notifications/NotificationItem';
-import NotificationGroupItem from '@/components/notifications/NotificationGroupItem';
-import NotificationSettingsModal from '@/components/notifications/NotificationSettingsModal';
-import { SerkleLoader } from '@/components/ui/SerkleLoader';
-import { Button } from '@/components/ui/button';
+  type TimeGroup,
+} from "@/utils/notificationHelpers";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
-import FooterNav from '@/components/FooterNav';
-import GenericEmptyState from '@/components/ui/empty-state';
-import {
-  ArrowLeft, CheckCheck, Trash2, Settings,
-  Sparkles, Bell
-} from 'lucide-react';
-import { toast } from 'sonner';
+  notificationPanelEntries,
+  type NotificationPanelEntry,
+} from "@/lib/notificationPanelEntries";
+import NotificationFilters, {
+  NOTIFICATION_CATEGORIES,
+  NOTIFICATION_TIME_GROUPS,
+} from "@/components/notifications/NotificationFilters";
+import NotificationPanelItem from "@/components/notifications/NotificationPanelItem";
+import NotificationSettingsModal from "@/components/notifications/NotificationSettingsModal";
+import NotificationActionDialog from "@/components/notifications/NotificationActionDialog";
+import { SerkleLoader } from "@/components/ui/SerkleLoader";
+import FooterNav from "@/components/FooterNav";
+import "@/components/notifications/notification-panel.css";
+import "@/components/notifications/notification-page.css";
 
-const CATEGORIES = [
-  { id: 'all', label: 'All' },
-  { id: 'unread', label: 'Unread' },
-  { id: 'social', label: 'Social' },
-  { id: 'circles', label: 'Circles' },
-  { id: 'shop', label: 'Shop' },
-  { id: 'safety', label: 'Safety' },
-  { id: 'messages', label: 'Messages' },
-];
-
-const Notifications: React.FC = () => {
+type Notice = { text: string; error?: boolean };
+export default function Notifications() {
   const navigate = useNavigate();
-  const [activeCategory, setActiveCategory] = useState('all');
-  const [showSettingsModal, setShowSettingsModal] = useState(false);
-  const [confirmClearAll, setConfirmClearAll] = useState(false);
-  const [reshareDialog, setReshareDialog] = useState<{ storyId: string; mentionerName: string } | null>(null);
-  const [isResharing, setIsResharing] = useState(false);
-
+  const { user } = useUser();
+  const [category, setCategory] = useState("all");
+  const [showPreferences, setShowPreferences] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
+  const [clearError, setClearError] = useState("");
+  const [reshare, setReshare] = useState<{
+    storyId: string;
+    mentionerName: string;
+  } | null>(null);
+  const [resharing, setResharing] = useState(false);
+  const [reshareError, setReshareError] = useState("");
+  const [notice, setNotice] = useState<Notice | null>(null);
+  const [busy, setBusy] = useState(false);
+  const actionLock = useRef(false),
+    reshareLock = useRef(false);
+  const heading = useRef<HTMLHeadingElement>(null),
+    preferencesTrigger = useRef<HTMLButtonElement>(null),
+    clearTrigger = useRef<HTMLButtonElement>(null),
+    storyTrigger = useRef<HTMLElement | null>(null);
   const {
     notifications,
     isLoading,
+    isFetching,
+    error,
+    refetch,
     unreadCount,
     markAsRead,
     markAllAsRead,
     deleteNotification,
     clearAllNotifications,
   } = useNotifications();
-
-  // Referenced profiles for avatars
-  const profileIds = useMemo(() => {
-    const ids = new Set<string>();
-    notifications.forEach((n) => {
-      const uid = (n.data as any)?.userId || (n.data as any)?.senderId;
-      if (uid) ids.add(uid);
-    });
-    return Array.from(ids);
-  }, [notifications]);
-
-  const { data: profiles } = useQuery({
-    queryKey: ['notifications-page-profiles', profileIds.join(',')],
+  const profileIds = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          notifications.flatMap((notification) => {
+            const data = notification.data as any;
+            return [data?.userId, data?.senderId, data?.mentioner_id].filter(
+              Boolean,
+            );
+          }),
+        ),
+      ),
+    [notifications],
+  );
+  const { data: profiles = [] } = useQuery({
+    queryKey: ["notifications-page-profiles", profileIds.join(",")],
     queryFn: async () => {
-      if (profileIds.length === 0) return [];
-      const { data } = await supabase
-        .from('profiles')
-        .select('id, name, username, avatar_url, initials, avatar_color')
-        .in('id', profileIds);
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("id, name, username, avatar_url, initials, avatar_color")
+        .in("id", profileIds);
+      if (error) throw error;
       return data || [];
     },
     staleTime: 60000,
     enabled: profileIds.length > 0,
   });
-
-  const getProfile = (userId: string) => profiles?.find((p) => p.id === userId);
-
-  // Realtime notification for mentions
   useEffect(() => {
+    if (!user?.id) return;
     const channel = supabase
-      .channel('notifications-page-mentions')
+      .channel("notifications-page-mentions")
       .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'push_notifications' },
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "push_notifications",
+          filter: `user_id=eq.${user.id}`,
+        },
         (payload) => {
-          const n = payload.new as any;
-          if (n && (n.notification_type === 'mention' || n.notification_type === 'story_mention')) {
-            toast('📢 Someone mentioned you!', { duration: 4000 });
-          }
-        }
+          const notification = payload.new as any;
+          if (
+            notification?.user_id === user.id &&
+            ["mention", "story_mention"].includes(
+              notification.notification_type,
+            )
+          )
+            toast("Someone mentioned you!", { duration: 4000 });
+        },
       )
       .subscribe();
     return () => {
-      supabase.removeChannel(channel);
+      void supabase.removeChannel(channel);
     };
-  }, []);
-
-  // Filter and Batch notifications
-  const filteredNotifications = useMemo(() => {
-    const categoryFiltered = filterByCategory(notifications, activeCategory);
-    return batchNotifications(categoryFiltered, getProfile);
-  }, [notifications, activeCategory, profiles]);
-
-  // Group by Time
-  const timeGroups = useMemo(() => {
-    return groupByTime(filteredNotifications);
-  }, [filteredNotifications]);
-
-  const handleItemClick = (item: any) => {
-    const notification = item._isBatched ? item.latest : item;
-    const data = notification.data || {};
-
-    if (!notification.read_at) {
-      if (item._groupItemIds) {
-        item._groupItemIds.forEach((id: string) => markAsRead.mutate(id));
-      } else if (item.ids) {
-        item.ids.forEach((id: string) => markAsRead.mutate(id));
-      } else {
-        markAsRead.mutate(notification.id);
-      }
+  }, [user?.id]);
+  const entries = useMemo(
+    () => notificationPanelEntries(notifications, category, profiles),
+    [notifications, category, profiles],
+  );
+  const groups = useMemo(
+    () =>
+      Object.fromEntries(
+        NOTIFICATION_TIME_GROUPS.map((group) => [
+          group,
+          entries.filter((entry) => entry.group === group),
+        ]),
+      ) as Record<TimeGroup, NotificationPanelEntry[]>,
+    [entries],
+  );
+  const runAction = async (task: () => Promise<unknown>, success: string) => {
+    if (actionLock.current) return false;
+    actionLock.current = true;
+    setBusy(true);
+    setNotice(null);
+    try {
+      await task();
+      setNotice({ text: success });
+      return true;
+    } catch {
+      const text = "This change could not be saved. Please try again.";
+      setNotice({ text, error: true });
+      toast.error(text);
+      return false;
+    } finally {
+      actionLock.current = false;
+      setBusy(false);
     }
-
-    if (notification.notification_type === 'story_mention' && data.story_id) {
-      const mentionerProfile = data.mentioner_id ? getProfile(data.mentioner_id) : null;
-      setReshareDialog({
+  };
+  const markEntry = (entry: NotificationPanelEntry) =>
+    runAction(
+      () =>
+        Promise.all(entry.unreadIds.map((id) => markAsRead.mutateAsync(id))),
+      "Marked as read.",
+    );
+  const openEntry = (entry: NotificationPanelEntry) => {
+    const notification = entry.notification;
+    const data = notification.data || {};
+    if (entry.unreadIds.length) void markEntry(entry);
+    if (notification.notification_type === "story_mention" && data.story_id) {
+      storyTrigger.current = document.activeElement as HTMLElement;
+      setReshareError("");
+      setReshare({
         storyId: data.story_id,
-        mentionerName: mentionerProfile?.name || notification.title?.split(' mentioned')[0] || 'Someone',
+        mentionerName:
+          profiles.find((profile) => profile.id === data.mentioner_id)?.name ||
+          notification.title?.split(" mentioned")[0] ||
+          "Someone",
       });
       return;
     }
-
     const target = getNotificationNavTarget(notification);
-    if (target.state) {
-      navigate(target.path, { state: target.state });
-    } else {
-      navigate(target.path);
-    }
+    navigate(target.path, target.state ? { state: target.state } : undefined);
   };
-
-  const handleReshareConfirm = async () => {
-    if (!reshareDialog) return;
-    setIsResharing(true);
+  const clearAll = async () => {
+    if (actionLock.current) return;
+    setClearError("");
+    const ok = await runAction(
+      () => clearAllNotifications.mutateAsync(),
+      "All notifications cleared.",
+    );
+    if (ok) setConfirmClear(false);
+    else setClearError("Notifications could not be cleared. Please try again.");
+  };
+  const reshareStory = async () => {
+    if (!reshare || reshareLock.current) return;
+    reshareLock.current = true;
+    setResharing(true);
+    setReshareError("");
     try {
-      const { data: story } = await supabase
-        .from('stories')
-        .select('media_url, media_type')
-        .eq('id', reshareDialog.storyId)
+      const { data: story, error: storyError } = await supabase
+        .from("stories")
+        .select("media_url, media_type")
+        .eq("id", reshare.storyId)
         .single();
-      if (!story) throw new Error('Story not found');
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Not authenticated');
-
-      const { error } = await supabase.from('stories').insert({
-        user_id: user.id,
+      if (storyError || !story)
+        throw storyError || new Error("Story unavailable");
+      const {
+        data: { user: account },
+        error: accountError,
+      } = await supabase.auth.getUser();
+      if (accountError || !account)
+        throw accountError || new Error("Not authenticated");
+      const { error: insertError } = await supabase.from("stories").insert({
+        user_id: account.id,
         media_url: story.media_url,
         media_type: story.media_type,
         expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-        reshared_story_id: reshareDialog.storyId,
+        reshared_story_id: reshare.storyId,
       } as any);
-
-      if (error) throw error;
-      toast.success('Story reshared to your profile!');
+      if (insertError) throw insertError;
+      setReshare(null);
+      setNotice({ text: "Story reshared to your profile." });
+      toast.success("Story reshared to your profile!");
     } catch {
-      toast.error('Failed to reshare story');
+      setReshareError("This story could not be reshared. Please try again.");
     } finally {
-      setIsResharing(false);
-      setReshareDialog(null);
+      reshareLock.current = false;
+      setResharing(false);
     }
   };
-
-  const handleMarkAllRead = () => {
-    markAllAsRead.mutate(undefined, {
-      onSuccess: () => toast.success('All marked as read'),
-    });
-  };
-
-  const handleClearAll = () => {
-    clearAllNotifications.mutate(undefined, {
-      onSuccess: () => {
-        toast.success('All notifications cleared');
-        setConfirmClearAll(false);
-      },
-    });
-  };
-
-  if (isLoading && notifications.length === 0) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <SerkleLoader size="md" className="text-current" />
-      </div>
-    );
-  }
-
-  const groupKeys: TimeGroup[] = ['Today', 'Yesterday', 'This Week', 'Earlier'];
-  const hasAnyItems = filteredNotifications.length > 0;
-
+  const showKnownState =
+    !(isLoading && !notifications.length) && !(error && !notifications.length);
   return (
-    <div className="min-h-screen bg-background pb-24 text-foreground selection:bg-secondary/40 max-w-[480px] mx-auto border-l border-r border-border font-sans relative">
-      {/* Header */}
-      <div className="sticky top-0 bg-background/85 backdrop-blur-xl border-b border-border z-20">
-        <div className="flex items-center justify-between px-4 py-3">
-          <div className="flex items-center gap-2.5">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => navigate('/')}
-              className="h-8 w-8 rounded-full"
+    <>
+      <div className="notification-ui notification-page">
+        <header className="notification-page-header">
+          <div className="notification-page-bar">
+            <button
+              className="notification-icon-button"
+              aria-label="Back to home"
+              onClick={() => navigate("/")}
             >
-              <ArrowLeft className="size-5" />
-            </Button>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-lg font-bold tracking-tight text-foreground">Notifications</h1>
-                {unreadCount > 0 && (
-                  <span className="px-1.5 py-0.5 rounded-full bg-primary/15 text-primary text-[11px] font-bold">
-                    {unreadCount}
-                  </span>
-                )}
+              <ArrowLeft aria-hidden="true" />
+            </button>
+            <div className="notification-page-brand">
+              <img src="/lovable-uploads/SerkleMainLogo.svg" alt="" />
+              <div>
+                <h1 ref={heading} tabIndex={-1}>
+                  Notifications
+                </h1>
+                <p>Your Serkle updates</p>
               </div>
             </div>
-          </div>
-
-          <div className="flex items-center gap-1">
-            {unreadCount > 0 && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleMarkAllRead}
-                className="h-8 px-2.5 text-xs text-primary hover:text-primary hover:bg-primary/10 rounded-full"
-              >
-                <CheckCheck className="size-3.5 mr-1" />
-                Read all
-              </Button>
-            )}
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setShowSettingsModal(true)}
-              className="h-8 w-8 text-muted-foreground hover:text-foreground rounded-full"
-              title="Notification Settings"
+            <button
+              ref={preferencesTrigger}
+              className="notification-icon-button"
+              aria-label="Notification preferences"
+              onClick={() => setShowPreferences(true)}
             >
-              <Settings className="size-4" />
-            </Button>
-            {notifications.length > 0 && (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setConfirmClearAll(true)}
-                className="h-8 w-8 text-muted-foreground hover:text-destructive rounded-full"
-                title="Clear all"
-              >
-                <Trash2 className="size-4" />
-              </Button>
-            )}
+              <Settings aria-hidden="true" />
+            </button>
           </div>
-        </div>
-
-        {/* Filter Pills */}
-        <div className="flex items-center gap-1.5 px-4 pb-2.5 overflow-x-auto no-scrollbar">
-          {CATEGORIES.map((cat) => {
-            const isActive = activeCategory === cat.id;
-            return (
-              <button
-                key={cat.id}
-                onClick={() => setActiveCategory(cat.id)}
-                className={`
-                  whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-medium transition-all
-                  ${isActive
-                    ? 'bg-primary text-primary-foreground shadow-sm'
-                    : 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground'
-                  }
-                `}
-              >
-                {cat.label}
-                {cat.id === 'unread' && unreadCount > 0 && (
-                  <span className={`ml-1.5 text-[10px] ${isActive ? 'text-primary-foreground font-bold' : 'text-primary font-bold'}`}>
-                    {unreadCount}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Notification List */}
-      {!hasAnyItems ? (
-        <GenericEmptyState
-          title={
-            activeCategory === 'unread'
-              ? 'All caught up!'
-              : activeCategory === 'social'
-              ? 'No social updates'
-              : activeCategory === 'circles'
-              ? 'No circle activity'
-              : activeCategory === 'shop'
-              ? 'No shop notifications'
-              : activeCategory === 'safety'
-              ? 'No safety alerts'
-              : activeCategory === 'messages'
-              ? 'No chat alerts'
-              : 'No notifications yet'
-          }
-          description={
-            activeCategory === 'unread'
-              ? "You've read all your notifications. We'll alert you when there is new activity!"
-              : 'Interactions, mentions, updates, and orders will show up here.'
-          }
-          className="py-24"
-        />
-      ) : (
-        <div className="divide-y divide-border/30">
-          {groupKeys.map((group) => {
-            const items = timeGroups[group] || [];
-            if (items.length === 0) return null;
-
-            return (
-              <div key={group} className="pt-2">
-                <div className="px-4 py-1.5 text-[11px] font-bold uppercase tracking-wider text-muted-foreground/75 bg-muted/20">
-                  {group}
-                </div>
-                <div className="divide-y divide-border/30">
-                  {items.map((item: any) => {
-                    if (item._isBatched) {
-                      return (
-                        <NotificationGroupItem
-                          key={item.latest.id}
-                          batch={item}
-                          onClickItem={handleItemClick}
-                        />
-                      );
-                    }
-
-                    const profile = (item.data as any)?.userId
-                      ? getProfile((item.data as any).userId)
-                      : null;
-
-                    return (
-                      <NotificationItem
-                        key={item.id}
-                        notification={item}
-                        profile={profile}
-                        onClickItem={handleItemClick}
-                        onMarkRead={(id) => markAsRead.mutate(id)}
-                        onDelete={(id) => deleteNotification.mutate(id)}
-                        onNavigateProfile={(uid) => navigate(`/profile/${uid}`)}
+        </header>
+        <main className="notification-page-main">
+          <section
+            className="notification-page-intro"
+            aria-labelledby="notification-page-intro"
+          >
+            <h2 id="notification-page-intro">Stay in the loop</h2>
+            <p>Reactions, messages and community moments.</p>
+            <div className="notification-page-summary">
+              <div>
+                <span className="notification-unread">
+                  {!showKnownState ? (
+                    isLoading ? (
+                      "Checking for updates"
+                    ) : (
+                      "Updates unavailable"
+                    )
+                  ) : unreadCount > 0 ? (
+                    <>
+                      <span
+                        className="notification-unread-dot"
+                        aria-hidden="true"
                       />
-                    );
-                  })}
-                </div>
+                      {unreadCount} unread
+                    </>
+                  ) : (
+                    <>
+                      <Check className="size-4" aria-hidden="true" />
+                      You’re all caught up
+                    </>
+                  )}
+                </span>
+                {showKnownState && <p>Your latest activity</p>}
               </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Swipe hint */}
-      {hasAnyItems && (
-        <div className="px-4 py-3 text-center">
-          <p className="text-[10px] text-muted-foreground">
-            ← Swipe left to delete • Swipe right to mark as read →
-          </p>
-        </div>
-      )}
-
-      {/* Clear All Confirmation Dialog */}
-      <AlertDialog open={confirmClearAll} onOpenChange={setConfirmClearAll}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Clear all notifications?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will permanently remove all notifications from your list. This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleClearAll}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Clear All
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* Story Reshare Dialog */}
-      <AlertDialog open={!!reshareDialog} onOpenChange={(open) => !open && setReshareDialog(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Reshare to your story?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {reshareDialog?.mentionerName} mentioned you in their story. Would you like to reshare it to your own story?
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isResharing}>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleReshareConfirm} disabled={isResharing}>
-              {isResharing ? 'Resharing...' : 'Reshare'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* Settings Modal */}
-      <NotificationSettingsModal
-        open={showSettingsModal}
-        onOpenChange={setShowSettingsModal}
-      />
-
+              <button
+                className="notification-mark-all"
+                disabled={busy || !unreadCount || !showKnownState}
+                onClick={() =>
+                  void runAction(
+                    () => markAllAsRead.mutateAsync(),
+                    "All notifications marked as read.",
+                  )
+                }
+              >
+                <CheckCheck aria-hidden="true" />
+                {busy ? "Updating…" : "Mark all read"}
+              </button>
+            </div>
+          </section>
+          <div className="notification-page-filter-bar">
+            <NotificationFilters
+              value={category}
+              unreadCount={unreadCount}
+              onChange={(value) => {
+                setCategory(value);
+                setNotice(null);
+              }}
+            />
+          </div>
+          <section
+            aria-labelledby="notification-page-activity"
+            aria-busy={busy || isLoading}
+          >
+            <div className="notification-page-list-heading">
+              <h2 id="notification-page-activity">
+                {category === "all"
+                  ? "Recent activity"
+                  : `${NOTIFICATION_CATEGORIES.find(([key]) => key === category)?.[1]} updates`}
+              </h2>
+              {notifications.length > 0 && (
+                <button
+                  ref={clearTrigger}
+                  className="notification-page-clear"
+                  disabled={busy}
+                  onClick={() => {
+                    setClearError("");
+                    setConfirmClear(true);
+                  }}
+                >
+                  <Trash2 aria-hidden="true" />
+                  Clear all
+                </button>
+              )}
+            </div>
+            {notice && (
+              <p
+                className={`notification-notice${notice.error ? " notification-notice--error" : ""}`}
+                role={notice.error ? "alert" : "status"}
+              >
+                {notice.text}
+              </p>
+            )}
+            {error && notifications.length > 0 && (
+              <div
+                className="notification-notice notification-notice--error"
+                role="alert"
+              >
+                Your last loaded updates are shown. New activity could not be
+                refreshed.<button onClick={() => void refetch()}>Retry</button>
+              </div>
+            )}
+            {isLoading && !notifications.length ? (
+              <div className="notification-state">
+                <SerkleLoader
+                  size="sm"
+                  label="Loading notifications"
+                  showText
+                />
+              </div>
+            ) : error && !notifications.length ? (
+              <div className="notification-state">
+                <span className="notification-state-icon">
+                  <AlertCircle aria-hidden="true" />
+                </span>
+                <h3>Couldn’t load notifications</h3>
+                <p>Your updates are still there. Try loading them again.</p>
+                <button
+                  className="notification-button"
+                  onClick={() => void refetch()}
+                >
+                  <RefreshCw aria-hidden="true" />
+                  Try again
+                </button>
+              </div>
+            ) : !entries.length ? (
+              <div className="notification-state">
+                <span className="notification-state-icon">
+                  {category === "unread" ? (
+                    <CheckCheck aria-hidden="true" />
+                  ) : (
+                    <Inbox aria-hidden="true" />
+                  )}
+                </span>
+                <h3>
+                  {category === "unread"
+                    ? "You’re all caught up"
+                    : category === "all"
+                      ? "Your updates start here"
+                      : `No ${NOTIFICATION_CATEGORIES.find(([key]) => key === category)?.[1].toLowerCase()} updates yet`}
+                </h3>
+                <p>
+                  {category === "unread"
+                    ? "You’ve read all your latest updates."
+                    : category === "all"
+                      ? "Reactions, conversations and community moments will appear here."
+                      : "New activity in this category will appear here."}
+                </p>
+                {category !== "all" && (
+                  <button
+                    className="notification-button"
+                    onClick={() => setCategory("all")}
+                  >
+                    Show all notifications
+                  </button>
+                )}
+              </div>
+            ) : (
+              NOTIFICATION_TIME_GROUPS.map(
+                (group) =>
+                  groups[group].length > 0 && (
+                    <section
+                      className="notification-page-day"
+                      key={group}
+                      aria-label={group}
+                    >
+                      <h3 className="notification-time-heading">{group}</h3>
+                      <ul className="notification-items">
+                        {groups[group].map((entry) => (
+                          <NotificationPanelItem
+                            key={entry.id}
+                            entry={entry}
+                            busy={busy}
+                            onOpen={() => openEntry(entry)}
+                            onMarkRead={() => void markEntry(entry)}
+                            onDelete={() =>
+                              void runAction(
+                                () => deleteNotification.mutateAsync(entry.ids),
+                                "Notification removed.",
+                              )
+                            }
+                            onProfile={(id) => navigate(`/profile/${id}`)}
+                          />
+                        ))}
+                      </ul>
+                    </section>
+                  ),
+              )
+            )}
+            {isFetching && !isLoading && (
+              <div className="notification-notice">
+                <SerkleLoader
+                  size="xs"
+                  label="Refreshing notifications"
+                  showText
+                />
+              </div>
+            )}
+          </section>
+          {notifications.length >= 50 && (
+            <p className="notification-page-end">
+              Showing your latest 50 notifications.
+            </p>
+          )}
+        </main>
+        <NotificationActionDialog
+          open={confirmClear}
+          onOpenChange={setConfirmClear}
+          title="Clear all notifications?"
+          description="This permanently removes notifications from every category. It cannot be undone."
+          confirmLabel="Clear all notifications"
+          destructive
+          pending={busy}
+          error={clearError}
+          onConfirm={() => void clearAll()}
+          returnFocusRef={clearTrigger}
+          fallbackFocusRef={heading}
+        />
+        <NotificationActionDialog
+          open={!!reshare}
+          onOpenChange={(open) => {
+            if (!open) setReshare(null);
+          }}
+          title="Reshare to your story?"
+          description={`${reshare?.mentionerName || "Someone"} mentioned you in their story. Share it to your own story for 24 hours.`}
+          confirmLabel="Reshare story"
+          pending={resharing}
+          error={reshareError}
+          onConfirm={() => void reshareStory()}
+          returnFocusRef={storyTrigger}
+          fallbackFocusRef={heading}
+        />
+        {showPreferences && (
+          <NotificationSettingsModal
+            open={showPreferences}
+            onOpenChange={setShowPreferences}
+            returnFocusRef={preferencesTrigger}
+          />
+        )}
+      </div>
       <FooterNav active="home" onSelect={() => {}} onOpenCreate={() => {}} />
-    </div>
+    </>
   );
-};
-
-export default Notifications;
+}

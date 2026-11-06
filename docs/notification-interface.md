@@ -1,10 +1,25 @@
-# Notification panel and preferences
+# Notification panel, full page and preferences
 
 The Header bell opens an anchored Radix dialog with Serkle’s existing brown,
 gold, typography and letter-wave loader. The navbar layout is unchanged. The
 panel fits the viewport, scrolls its activity list independently, and keeps the
 View all notifications action visible. All, Unread, Social, Circles, Shop,
 Safety and Messages filters retain their existing meanings and destinations.
+
+The full `/notifications` page uses the same filter component, batch adapter and
+activity cards. It retains the 480px app layout and existing bottom navigation,
+with a branded header, unread summary, sticky filters and daily activity groups.
+It renders every loaded entry, rather than the dropdown’s 15-entry group preview.
+The existing 50-notification query limit is unchanged.
+
+Clear all requires explicit confirmation describing its scope across every
+category. The dialog remains open on failure, and success is shown after the
+existing API mutation succeeds. Story mentions retain the existing reshare
+confirmation, authenticated story insert and 24-hour lifetime. Repeated submits
+are blocked while pending, and failed lookup/insertion keeps a retryable error
+visible. These tests use sample story metadata, never a real story insert.
+The page's mention subscription is filtered to the current account and checks
+the notification owner before showing a mention toast.
 
 The panel has explicit unread labels, neutral relative timestamps with a full
 local timestamp on hover, sender/profile shortcuts, and touch-accessible row
@@ -43,6 +58,7 @@ both themes, and motion respects the reduced-motion preference.
 ```sh
 npm run test:notification-entries
 npm run test:notifications-ui
+npm run test:notifications-page-ui
 npm run test:profile-menu-ui
 npm run build
 ```

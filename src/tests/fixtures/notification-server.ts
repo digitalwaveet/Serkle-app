@@ -13,13 +13,17 @@ export async function startNotificationServer() {
       alias: { "@": fileURLToPath(new URL("../../", import.meta.url)) },
     },
     optimizeDeps: {
-      entries: ["src/tests/fixtures/notification-ui.tsx"],
+      entries: [
+        "src/tests/fixtures/notification-ui.tsx",
+        "src/tests/fixtures/notification-page-ui.tsx",
+      ],
       include: [
         "react",
         "react-dom/client",
         "react-router-dom",
         "@tanstack/react-query",
         "@radix-ui/react-dialog",
+        "@radix-ui/react-alert-dialog",
         "@radix-ui/react-dropdown-menu",
         "@radix-ui/react-switch",
         "@radix-ui/react-avatar",
@@ -58,10 +62,13 @@ export async function startNotificationServer() {
         },
         configureServer(instance) {
           instance.middlewares.use((req, res, next) => {
-            if (req.url === "/notification-fixture") {
+            if (
+              req.url === "/notification-fixture" ||
+              req.url === "/notification-page-fixture"
+            ) {
               res.setHeader("Content-Type", "text/html");
               res.end(
-                '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"/></head><body><div id="root"></div><script type="module" src="/src/tests/fixtures/notification-ui.tsx"></script></body></html>',
+                `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"/></head><body><div id="root"></div><script type="module" src="/src/tests/fixtures/${req.url === "/notification-page-fixture" ? "notification-page-ui" : "notification-ui"}.tsx"></script></body></html>`,
               );
             } else next();
           });
