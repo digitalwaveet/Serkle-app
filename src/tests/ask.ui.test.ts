@@ -490,6 +490,48 @@ test("question detail puts real community replies before AI and preserves bookma
     await page.context().close();
   }
 });
+test("reply cards keep author names readable and edit controls accessible at 320px", async () => {
+  const page = await askPage("", "/ask/question/q1", {
+    width: 320,
+    height: 568,
+  });
+  try {
+    const ownReply = page
+      .locator(".ask-detail-answer")
+      .filter({ hasText: "Actual Account Name" });
+    const author = ownReply.getByText("Actual Account Name", { exact: true });
+    await expect(author).toBeVisible();
+    assert.ok(
+      await author.evaluate(
+        (element) => element.getBoundingClientRect().height < 30,
+      ),
+    );
+    assert.equal(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+      true,
+    );
+    await expect(
+      page.locator('.ask-detail-answer img[src^="/src/"]'),
+    ).toHaveCount(0);
+    await expect(
+      page
+        .locator('.ask-detail-answer[data-expert="true"]')
+        .getByText("HT", { exact: true }),
+    ).toBeVisible();
+    await ownReply
+      .getByRole("button", { name: "Edit reply", exact: true })
+      .click();
+    await expect(
+      ownReply.getByRole("textbox", { name: "Edit reply", exact: true }),
+    ).toHaveValue("I make time for a short walk when I can.");
+    assert.deepEqual(await calls(page), []);
+  } finally {
+    await page.context().close();
+  }
+});
+
 test("replies retain text on failure and prevent repeated sends while pending", async () => {
   for (const scenario of ["create-answer-error", "pending-create-answer"]) {
     const page = await askPage(scenario, "/ask/question/q1");
@@ -805,7 +847,9 @@ test("small screens scroll dialogs, restore focus and preserve light/dark text c
         assert.ok(
           await control.evaluate(
             (element) =>
-              Number.parseFloat(getComputedStyle(element).borderTopLeftRadius) >= 12,
+              Number.parseFloat(
+                getComputedStyle(element).borderTopLeftRadius,
+              ) >= 12,
           ),
           `${theme} rounded controls`,
         );

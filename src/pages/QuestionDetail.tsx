@@ -1109,6 +1109,7 @@ export default function QuestionDetail() {
                                       variant="ghost"
                                       size="sm"
                                       className="h-6 w-6 p-0 text-muted-foreground hover:text-primary"
+                                      aria-label="Edit story update"
                                       onClick={() => {
                                         setEditingThreadUpdateId(update.id);
                                         setEditedThreadUpdateText(
@@ -1403,17 +1404,13 @@ export default function QuestionDetail() {
               isAnswerByQuestionAuthor && questionIsAnonymous;
 
             let answerDisplayName = "Anonymous";
-            let answerAvatar = "/src/assets/anonymous-logo.png";
-            let answerColor = "#4B164C";
+            let answerColor = "#713a20";
 
             if (showAnonymousName) {
               answerDisplayName = question.anonymous_name || "Anonymous (OP)";
-              answerAvatar = anonymousLogo;
-              answerColor = "#4B164C";
             } else if (answer.profile) {
               answerDisplayName =
                 answer.profile.name || answer.profile.username || "User";
-              answerAvatar = answer.profile.avatar_url || answerAvatar;
               answerColor = answer.profile.avatar_color || answerColor;
             }
 
@@ -1429,8 +1426,8 @@ export default function QuestionDetail() {
                 {answer.isExpert && (
                   <div className="absolute top-0 left-0 w-1 h-full bg-primary" />
                 )}
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-3">
+                <div className="ask-answer-header flex items-start justify-between">
+                  <div className="ask-answer-identity flex items-center gap-3">
                     <div
                       className="size-10 rounded-full grid place-items-center text-xs font-medium text-white overflow-hidden flex-shrink-0"
                       style={{ backgroundColor: answerColor }}
@@ -1453,14 +1450,13 @@ export default function QuestionDetail() {
                           className="w-full h-full object-cover"
                         />
                       ) : (
-                        <img
-                          src={answerAvatar}
-                          alt={answerDisplayName}
-                          className="w-full h-full object-cover"
-                        />
+                        <span aria-hidden="true">
+                          {answer.profile?.initials ||
+                            answerDisplayName.slice(0, 2)}
+                        </span>
                       )}
                     </div>
-                    <div className="flex flex-col">
+                    <div className="ask-answer-copy flex flex-col">
                       {answer.isExpert ? (
                         <div className="flex flex-col">
                           <span className="text-sm font-bold text-foreground">
@@ -1471,7 +1467,7 @@ export default function QuestionDetail() {
                               {answer.expertProfile.specialty}
                             </span>
                           )}
-                          <div className="flex items-center gap-1 mt-1">
+                          <div className="ask-answer-metadata flex items-center gap-1 mt-1">
                             <BadgeCheck className="w-3.5 h-3.5 text-primary" />
                             <span className="text-xs text-muted-foreground font-medium">
                               Verified Professional
@@ -1502,7 +1498,7 @@ export default function QuestionDetail() {
                       )}
                     </div>
                   </div>
-                  <div className="flex flex-col gap-1 items-end">
+                  <div className="ask-answer-actions flex flex-col gap-1 items-end">
                     <div className="flex items-center gap-2">
                       <Button
                         variant="ghost"
@@ -1526,6 +1522,7 @@ export default function QuestionDetail() {
                               variant="ghost"
                               size="sm"
                               className="h-8 px-2"
+                              aria-label="Edit reply"
                               onClick={() => {
                                 setEditingAnswerId(answer.id);
                                 setEditedAnswerText(answer.answer || "");

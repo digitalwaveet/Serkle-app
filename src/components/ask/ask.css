@@ -40,6 +40,9 @@
 .ask-ui :where(button, a[role="button"], [role="tab"], [role="combobox"]) {
   min-height: 44px;
 }
+.ask-ui button:has(> svg:only-child):not([role="radio"]) {
+  min-width: 44px;
+}
 .ask-ui button:disabled {
   cursor: not-allowed;
   opacity: 0.5;
@@ -842,6 +845,29 @@
 }
 .ask-detail .ask-detail-answer[data-expert="true"] {
   border-color: hsl(var(--ask-brand) / 0.35);
+}
+.ask-answer-header {
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.ask-answer-identity {
+  min-width: 0;
+  flex: 1 1 220px;
+}
+.ask-answer-copy {
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+.ask-answer-metadata {
+  flex-wrap: wrap;
+}
+.ask-answer-metadata > svg {
+  flex-shrink: 0;
+}
+.ask-answer-actions {
+  flex: 0 0 auto;
+  margin-left: auto;
 }
 .ask-detail [class*="max-w-4xl"] {
   max-width: 720px;
