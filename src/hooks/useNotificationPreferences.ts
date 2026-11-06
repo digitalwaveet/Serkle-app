@@ -70,7 +70,7 @@ export const useNotificationPreferences = (userId?: string) => {
     return () => window.removeEventListener('storage', handleStorage);
   }, []);
 
-  const { data: dbPrefs, isLoading } = useQuery({
+  const { data: dbPrefs, isLoading, error, refetch } = useQuery({
     queryKey: ['notification-preferences', userId],
     queryFn: async () => {
       if (!userId) return null;
@@ -168,6 +168,8 @@ export const useNotificationPreferences = (userId?: string) => {
   return {
     preferences: mergedPreferences,
     isLoading,
+    error,
+    refetch,
     updatePreferences,
   };
 };

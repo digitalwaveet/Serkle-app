@@ -4,7 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 export const useNotifications = () => {
   const queryClient = useQueryClient();
 
-  const { data: notifications, isLoading, error } = useQuery({
+  const { data: notifications, isLoading, isFetching, error, refetch } = useQuery({
     queryKey: ['push-notifications'],
     queryFn: async () => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -114,6 +114,8 @@ export const useNotifications = () => {
   return {
     notifications: notifications || [],
     isLoading,
+    isFetching,
+    refetch,
     unreadCount,
     markAsRead,
     markAllAsRead,

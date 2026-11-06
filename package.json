@@ -23,7 +23,9 @@
     "test:shop-checkout-ui": "node --experimental-strip-types --test src/tests/shop-checkout.ui.test.ts",
     "test:profile-menu-ui": "node --experimental-strip-types --test src/tests/profile-menu.ui.test.ts",
     "test:settings-ui": "node --experimental-strip-types --test src/tests/settings.ui.test.ts",
-    "test:profile-updates": "node --experimental-strip-types --test src/tests/profile-updates.test.ts"
+    "test:profile-updates": "node --experimental-strip-types --test src/tests/profile-updates.test.ts",
+    "test:notifications-ui": "node --experimental-strip-types --test src/tests/notifications.ui.test.ts",
+    "test:notification-entries": "node --experimental-strip-types --test src/tests/notification-panel-entries.test.ts"
   },
   "dependencies": {
     "@capacitor/android": "^7.4.2",

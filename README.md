@@ -32,6 +32,8 @@ npm run test:shop-checkout-ui
 npm run test:profile-menu-ui
 npm run test:settings-ui
 npm run test:profile-updates
+npm run test:notifications-ui
+npm run test:notification-entries
 npm run test:circle-entitlements
 npm run test:circle-membership
 npm run test:circle-collections
@@ -54,6 +56,7 @@ Supabase migrations are in `supabase/migrations`, and Edge Functions are in
 - [Wallet audit deployment and recovery operations](docs/wallet-audit-deployment.md)
 - [Wallet interface and receipt design](docs/wallet-interface.md)
 - [Settings interface](docs/settings-interface.md)
+- [Notification panel and preferences](docs/notification-interface.md)
 - [Circle membership and leaving](docs/circle-membership.md)
 
 Chapa requires server secrets, a registered signed webhook, and the reconciliation

@@ -30,18 +30,23 @@ interface HeaderProps {
   onNotificationPanelChange?: (isOpen: boolean) => void;
 }
 
-const IconButton = ({ label, children, badge, onClick, 'data-testid': dataTestId }: {
+const IconButton = ({ label, children, badge, onClick, buttonRef, expanded, 'data-testid': dataTestId }: {
   label: string;
   children: React.ReactNode;
   badge?: number;
   onClick?: () => void;
+  buttonRef?: React.Ref<HTMLButtonElement>;
+  expanded?: boolean;
   'data-testid'?: string;
 }) => (
   <button
+    ref={buttonRef}
     type="button"
     onClick={onClick}
     className="relative p-1.5 rounded-full hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-secondary transition-colors"
     aria-label={label}
+    aria-haspopup={expanded !== undefined ? 'dialog' : undefined}
+    aria-expanded={expanded}
     title={label}
     data-testid={dataTestId}
   >
@@ -63,6 +68,7 @@ const Header: React.FC<HeaderProps> = ({ onNotifications, onMessages, onMenuOpen
   const { pushModalState } = useNavigation();
   const [menuOpen, setMenuOpen] = useState(false);
   const profileMenuTrigger = useRef<HTMLButtonElement>(null);
+  const notificationTrigger = useRef<HTMLButtonElement>(null);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showSearchModal, setShowSearchModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
@@ -171,6 +177,8 @@ const Header: React.FC<HeaderProps> = ({ onNotifications, onMessages, onMenuOpen
             <div className="relative">
               <IconButton
                 label="Notifications"
+                buttonRef={notificationTrigger}
+                expanded={showNotificationPanel}
                 badge={unreadCount}
                 onClick={() => {
                   if (showNotificationPanel) {
@@ -185,6 +193,7 @@ const Header: React.FC<HeaderProps> = ({ onNotifications, onMessages, onMenuOpen
               </IconButton>
 
               <NotificationPanel
+                anchorRef={notificationTrigger}
                 isOpen={showNotificationPanel}
                 onClose={() => setShowNotificationPanel(false)}
               />
