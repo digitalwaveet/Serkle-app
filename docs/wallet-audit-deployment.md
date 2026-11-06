@@ -6,6 +6,13 @@ deploys the frontend through Vercel; it does not deploy the Supabase changes.
 These files contain no secrets. Keep all payment and service credentials on the
 server. The tests use an isolated database and mocked Chapa, never real payouts.
 
+November 6 Shop follow-up: the product owner approved temporarily disabling Shop
+coin payments while keeping card, PayPal, Apple Pay and Google Pay available.
+For an already deployed wallet release, apply only the new migration
+`20261106100000_disable_shop_coin_payments.sql` and deploy the matching frontend.
+This follow-up does not require redeploying Edge Functions. Older open checkouts
+cannot use the blocked generic debit endpoint after this SQL is applied.
+
 ## 1. Apply the database changes
 
 Back up the database and inspect Supabase migration history first. Use SQL Editor
@@ -20,6 +27,7 @@ For a project with the November 4 payment schema already installed, apply:
 2. `20261105161000_wallet_withdrawal_safety.sql`
 3. `20261105162000_wallet_ledger_integrity.sql`
 4. `20261105163000_wallet_tip_idempotency.sql`
+5. `20261106100000_disable_shop_coin_payments.sql`
 
 Apply each entire migration as a transaction (wrap its contents in `BEGIN;` and
 `COMMIT;` if your SQL Editor does not run the selection in one transaction).
@@ -110,5 +118,7 @@ every configured mode. Test failed/duplicate callbacks with the automated mocked
 suite; do not replay real charges for testing. No live payment or payout is
 authorized merely by following these deployment checks.
 
-Existing Shop coin checkout still needs a product decision on conversion from
-its dollar totals and atomic order settlement; see the main lifecycle guide.
+Shop coin checkout is temporarily paused in the UI and database. Other checkout
+options, Circle purchases, tips, top-ups and withdrawals use their existing
+paths. Restoring Shop coins requires an approved currency conversion and atomic
+server-priced order settlement; see the main lifecycle guide.

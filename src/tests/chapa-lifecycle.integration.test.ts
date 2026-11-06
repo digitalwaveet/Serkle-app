@@ -92,7 +92,7 @@ before(async()=>{
   await db.exec("CREATE ROLE service_role BYPASSRLS; GRANT USAGE ON SCHEMA public,auth,storage TO service_role; ALTER TYPE coin_transaction_type ADD VALUE 'topup'; ALTER TYPE coin_transaction_type ADD VALUE 'withdrawal'; CREATE TABLE coin_topups(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),user_id uuid,amount integer,payment_method text,status text,created_at timestamptz DEFAULT now()); CREATE TABLE coin_withdrawals(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),user_id uuid,amount integer,payout_method text,status text DEFAULT 'pending')");
   const original=await file('../../supabase/migrations/20260302072500_4606f06a-a7ce-49ac-aa6d-44e29b3037cb.sql');
   for(const name of ['topup_coins','transfer_coins','spend_coins']) await db.exec(original.match(new RegExp(`CREATE OR REPLACE FUNCTION public\\.${name}\\([\\s\\S]*?\\$\\$;`))![0]);
-  for(const name of ['20261102150000_circle_entitlements.sql','20261102151000_circle_content_security.sql','20261102152000_circle_post_rpc_entitlements.sql','20261102153000_circle_separate_purchases.sql','20261104140000_verified_chapa_payments.sql','20261105160000_wallet_payment_audit.sql','20261105161000_wallet_withdrawal_safety.sql','20261105162000_wallet_ledger_integrity.sql','20261105163000_wallet_tip_idempotency.sql']) await db.exec(await file(`../../supabase/migrations/${name}`));
+  for(const name of ['20261102150000_circle_entitlements.sql','20261102151000_circle_content_security.sql','20261102152000_circle_post_rpc_entitlements.sql','20261102153000_circle_separate_purchases.sql','20261104140000_verified_chapa_payments.sql','20261105160000_wallet_payment_audit.sql','20261105161000_wallet_withdrawal_safety.sql','20261105162000_wallet_ledger_integrity.sql','20261105163000_wallet_tip_idempotency.sql','20261106100000_disable_shop_coin_payments.sql']) await db.exec(await file(`../../supabase/migrations/${name}`));
   await db.exec('GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO service_role');
 });
 after(async()=>{await db.close();});
@@ -567,6 +567,20 @@ test('tip retries transfer coins once, keep both ledger entries linked and rejec
   await assert.rejects(q("SELECT transfer_coins($1,$2,20,'topup','refund',NULL,'forged')",[buyer,seller]),/permission denied/);
   await assert.rejects(q('SELECT wallet_transfer_tip($1,$2,30,NULL,$3)',[key,seller,'Different amount']),/different tip/);
   assert.equal(await balance(),80);
+});
+
+test('paused Shop checkout rejects legacy coin debits for every API role and preserves the wallet and ledger',async()=>{
+  await seedBalance();await service();
+  const entries=(await q('SELECT count(*)::int count FROM coin_transactions'))[0].count;
+  for(const user of [buyer,other,null]) {
+    await login(user);
+    await assert.rejects(q("SELECT spend_coins($1,20,'premium_unlock',NULL,'Shop purchase')",[buyer]),/permission denied/);
+  }
+  await service();await assert.rejects(q("SELECT spend_coins($1,20,'premium_unlock',NULL,'Shop purchase')",[buyer]),/permission denied/);
+  await db.exec('RESET ROLE');
+  await assert.rejects(q("SELECT spend_coins($1,20,'premium_unlock',NULL,'Shop purchase')",[buyer]),/Shop coin payments are temporarily unavailable/);
+  assert.equal(await balance(),100);
+  assert.equal((await q('SELECT count(*)::int count FROM coin_transactions'))[0].count,entries);
 });
 
 test('wallet balance mutations without matching journal entries fail at commit and existing journal rows cannot be altered',async()=>{

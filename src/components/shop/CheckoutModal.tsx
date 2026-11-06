@@ -8,10 +8,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { useCart } from '../../contexts/CartContext';
 import { useOrderMutations } from '../../hooks/useOrderMutations';
 import { ShippingAddress, PaymentMethod } from '../../types/cart';
-import { CreditCard, Truck, DollarSign, ArrowLeft, Coins, AlertCircle } from 'lucide-react';
+import { CreditCard, Truck, DollarSign, ArrowLeft, Coins } from 'lucide-react';
 import { toast } from '../ui/use-toast';
-import { useCoinWallet } from '@/hooks/useCoinWallet';
-import { useUser } from '@/contexts/UserContext';
+import { isShopPaymentType, SHOP_COIN_PAYMENTS_UNAVAILABLE } from '@/lib/shopPayments';
 
 type CheckoutStep = 'shipping' | 'payment' | 'review';
 
@@ -27,8 +26,6 @@ export const CheckoutModal: React.FC = () => {
   } = useCart();
 
   const { createOrder } = useOrderMutations();
-  const { user } = useUser();
-  const { balance, spendCoins } = useCoinWallet(user?.id);
 
   const [currentStep, setCurrentStep] = useState<CheckoutStep>('shipping');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -52,7 +49,13 @@ export const CheckoutModal: React.FC = () => {
     isDefault: true,
   });
 
-  const [selectedPaymentType, setSelectedPaymentType] = useState<'card' | 'paypal' | 'apple_pay' | 'google_pay' | 'coins'>('card');
+  const [selectedPaymentType, setSelectedPaymentType] = useState<PaymentMethod['type']>('card');
+
+  const validatePaymentType = () => {
+    if (isShopPaymentType(selectedPaymentType)) return true;
+    toast({ title: SHOP_COIN_PAYMENTS_UNAVAILABLE, variant: 'destructive' });
+    return false;
+  };
 
   const subtotal = getCartTotal();
   const shipping = subtotal > 50 ? 0 : 9.99;
@@ -72,6 +75,7 @@ export const CheckoutModal: React.FC = () => {
   };
 
   const handlePaymentSubmit = () => {
+    if (!validatePaymentType()) return;
     if (selectedPaymentType === 'card') {
       if (!paymentMethod.cardNumber || !paymentMethod.expiryDate || !paymentMethod.holderName) {
         toast({
@@ -86,31 +90,15 @@ export const CheckoutModal: React.FC = () => {
   };
 
   const handlePlaceOrder = async () => {
+    if (!validatePaymentType()) return;
     setIsProcessing(true);
     
     try {
-      // If paying with coins, deduct first
-      if (selectedPaymentType === 'coins') {
-        const coinTotal = Math.ceil(total);
-        if (coinTotal > balance) {
-          toast({ title: 'Insufficient coins', description: 'Please top up your wallet.', variant: 'destructive' });
-          setIsProcessing(false);
-          return;
-        }
-        await spendCoins.mutateAsync({
-          amount: coinTotal,
-          type: 'purchase',
-          description: `Shop purchase - ${items.length} item(s)`,
-        });
-      }
-
-      const payType = selectedPaymentType === 'coins' ? 'card' : selectedPaymentType;
-
       // Process order
       const order = await createOrder.mutateAsync({
         items,
         shippingAddress,
-        paymentMethod: { ...paymentMethod, type: payType },
+        paymentMethod: { ...paymentMethod, type: selectedPaymentType },
         subtotal,
         shipping,
         tax,
@@ -118,7 +106,7 @@ export const CheckoutModal: React.FC = () => {
       });
 
       // Create local order record
-      const localOrder = createLocalOrder(shippingAddress, { ...paymentMethod, type: payType });
+      const localOrder = createLocalOrder(shippingAddress, { ...paymentMethod, type: selectedPaymentType });
       setCurrentOrder(localOrder);
       clearCart();
       closeCheckout();
@@ -215,7 +203,9 @@ export const CheckoutModal: React.FC = () => {
     <div className="space-y-4">
       <div>
         <Label>Payment Method</Label>
-        <RadioGroup value={selectedPaymentType} onValueChange={(value: any) => setSelectedPaymentType(value)}>
+        <RadioGroup value={selectedPaymentType} onValueChange={value => {
+          if (isShopPaymentType(value)) setSelectedPaymentType(value);
+        }}>
           <div className="flex items-center space-x-2">
             <RadioGroupItem value="card" id="card" />
             <label htmlFor="card" className="flex items-center gap-2">
@@ -236,16 +226,14 @@ export const CheckoutModal: React.FC = () => {
             <label htmlFor="google_pay">Google Pay</label>
           </div>
           <div className="flex items-center space-x-2">
-            <RadioGroupItem value="coins" id="coins" />
-            <label htmlFor="coins" className="flex items-center gap-2">
+            <RadioGroupItem value="coins" id="coins" disabled aria-describedby="shop-coins-unavailable" />
+            <label htmlFor="coins" className="flex items-center gap-2 text-muted-foreground">
               <Coins className="h-4 w-4 text-yellow-500" />
               Pay with Coins
-              <span className="text-xs text-muted-foreground">
-                (Balance: {balance.toLocaleString()})
-              </span>
             </label>
           </div>
         </RadioGroup>
+        <p id="shop-coins-unavailable" className="mt-2 text-sm text-muted-foreground">{SHOP_COIN_PAYMENTS_UNAVAILABLE}</p>
       </div>
 
       {selectedPaymentType === 'card' && (
@@ -294,27 +282,7 @@ export const CheckoutModal: React.FC = () => {
         </div>
       )}
 
-      {selectedPaymentType === 'coins' && (
-        <Card>
-          <CardContent className="p-4 space-y-2">
-            <div className="flex items-center gap-2">
-              <Coins className="h-5 w-5 text-yellow-500" />
-              <span className="font-semibold">Pay with Coins</span>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              Total: {Math.ceil(total)} coins will be deducted from your wallet.
-            </p>
-            {Math.ceil(total) > balance && (
-              <div className="flex items-center gap-2 text-destructive text-sm">
-                <AlertCircle className="w-4 h-4" />
-                Insufficient coins (need {Math.ceil(total)}, have {balance})
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {selectedPaymentType !== 'card' && selectedPaymentType !== 'coins' && (
+      {selectedPaymentType !== 'card' && (
         <Card>
           <CardContent className="p-4">
             <p className="text-sm text-muted-foreground">

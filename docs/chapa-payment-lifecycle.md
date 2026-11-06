@@ -150,11 +150,16 @@ happened, keep the saved receipt, reconcile with Chapa and authorize a separatel
 audited correction only after evidence establishes the outcome. Provider/network
 availability cannot be guaranteed by application code.
 
-The separate Shop coin flow currently deducts coins before creating an order and
-displays dollar totals. It needs an approved conversion and atomic server-priced
-order settlement, or a temporary disablement. No currency conversion, automatic
-refund for an ambiguous order, or silent change in shopper charges is introduced
-by this wallet release. That product decision remains outstanding.
+The product owner approved temporarily disabling Shop coin payments on November
+6. The checkout shows a disabled coin option with clear guidance, and its order
+mutation rejects unsupported payment methods before any API call. The new
+`20261106100000_disable_shop_coin_payments.sql` migration blocks the generic
+`spend_coins` endpoint, including old browsers attempting the debit-before-order
+flow. Card, PayPal, Apple Pay and Google Pay remain available through their
+existing order flow. Bound Circle purchases, tips, top-ups and withdrawals are
+unaffected. No currency conversion or automatic refund for an ambiguous old
+order is introduced. Restoring Shop coins requires an approved conversion and
+atomic server-priced order settlement.
 
 ## Deployment
 
@@ -163,7 +168,7 @@ To deploy using the Supabase Dashboard editor, run
 shared-module imports in `deployment/chapa-payment-fix`, plus deployment notes
 and the matching SQL files. Create each function using its exact filename stem.
 Follow [the wallet release guide](wallet-audit-deployment.md) for this release's
-four new SQL migrations and all five functions, including `chapa-transfer`.
+five wallet/Shop SQL migrations and all five functions, including `chapa-transfer`.
 `chapa-reconcile` and `chapa-webhook` disable gateway JWT verification and enforce
 their own authentication for POST. Browser OPTIONS is answered before loading
 payment secrets, and configuration errors include the complete CORS headers.
@@ -234,3 +239,9 @@ successful test payments, cleared pending storage, reloads, legacy bare returns,
 receipt selection, unknown/pending states, unverified success and login redirects,
 receipt/status pagination, ledger history beyond 50 entries, account mismatch
 rejection, manual recovery and test/live withdrawal confirmation changes.
+
+`npm run test:shop-checkout-ui` verifies the disabled Shop coin option, unchanged
+order flows for all four alternatives and rejection of stale/forged coin
+selections before any API call. The payment integration suite also verifies that
+the paused debit RPC rejects every API role without changing balances or ledger
+entries, while existing Circle purchases, tips and payout tests still pass.

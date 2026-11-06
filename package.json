@@ -19,7 +19,8 @@
     "test:payments": "node --experimental-strip-types --test src/tests/chapa-lifecycle.integration.test.ts src/tests/edge-function-error.test.ts src/tests/wallet-history.test.ts src/tests/wallet-integrity.integration.test.ts",
     "build:chapa-deployment": "node scripts/build-chapa-deployment.mjs",
     "test:payment-cors": "node --experimental-strip-types --test src/tests/chapa-cors.test.ts",
-    "test:payment-return-ui": "node --experimental-strip-types --test src/tests/chapa-return.ui.test.ts"
+    "test:payment-return-ui": "node --experimental-strip-types --test src/tests/chapa-return.ui.test.ts",
+    "test:shop-checkout-ui": "node --experimental-strip-types --test src/tests/shop-checkout.ui.test.ts"
   },
   "dependencies": {
     "@capacitor/android": "^7.4.2",

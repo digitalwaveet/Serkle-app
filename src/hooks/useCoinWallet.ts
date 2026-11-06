@@ -240,35 +240,6 @@ export function useCoinWallet(userId?: string) {
     },
   });
 
-  const spendCoins = useMutation({
-    mutationFn: async ({
-      amount,
-      type,
-      referenceId,
-      description,
-    }: {
-      amount: number;
-      type: string;
-      referenceId?: string;
-      description?: string;
-    }) => {
-      const { data, error } = await supabase.rpc('spend_coins', {
-        _user_id: userId!,
-        _amount: amount,
-        _type: type as any,
-        _reference_id: referenceId || null,
-        _description: description || '',
-      });
-      if (error) throw error;
-      if (!data) throw new Error('Insufficient coin balance');
-      return data;
-    },
-    onSuccess: () => invalidate(),
-    onError: (err: any) => {
-      toast({ title: 'Payment failed', description: err.message, variant: 'destructive' });
-    },
-  });
-
   // ─── WITHDRAW: Via Chapa bank transfer ───────────────────────────────────
   const requestWithdrawal = useMutation({
     mutationFn: async ({
@@ -337,7 +308,6 @@ export function useCoinWallet(userId?: string) {
     initiateTopUp,
     verifyTopUp,
     transferCoins,
-    spendCoins,
     requestWithdrawal,
     chapaBanks: chapaBankData?.banks ?? [],
     chapaMode: chapaBankData?.mode,

@@ -28,6 +28,7 @@ npm run build
 npm run test:payments
 npm run test:payment-cors
 npm run test:payment-return-ui
+npm run test:shop-checkout-ui
 npm run test:circle-entitlements
 npm run test:circle-membership
 npm run test:circle-collections
