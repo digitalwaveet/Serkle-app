@@ -1,39 +1,59 @@
-import { SerkleLoader } from '@/components/ui/SerkleLoader';
-import React, { useRef, useState, useCallback, useEffect } from 'react';
-import { Mic, X, Lock, Send } from 'lucide-react';
-import { uploadChatMedia } from '@/lib/chatMedia';
-import { toast } from 'sonner';
+import { SerkleLoader } from "@/components/ui/SerkleLoader";
+import React, { useRef, useState, useCallback, useEffect } from "react";
+import { Mic, X, Lock, Send } from "lucide-react";
+import { uploadChatMedia } from "@/lib/chatMedia";
+import { toast } from "sonner";
 
 interface VoiceRecorderProps {
   conversationId: string;
-  onSend: (type: string, url: string, label: string) => void;
+  onSend: (
+    type: string,
+    url: string,
+    label: string,
+    id?: string,
+  ) => Promise<unknown> | void;
 }
 
 /** Pick the best supported MIME type for MediaRecorder */
 function getSupportedMimeType(): { mimeType: string; ext: string } {
   const candidates = [
-    { mimeType: 'audio/webm;codecs=opus', ext: 'webm' },
-    { mimeType: 'audio/webm', ext: 'webm' },
-    { mimeType: 'audio/mp4', ext: 'mp4' },
-    { mimeType: 'audio/ogg;codecs=opus', ext: 'ogg' },
-    { mimeType: 'audio/wav', ext: 'wav' },
-    { mimeType: '', ext: 'webm' }, // fallback: let browser choose
+    { mimeType: "audio/webm;codecs=opus", ext: "webm" },
+    { mimeType: "audio/webm", ext: "webm" },
+    { mimeType: "audio/mp4", ext: "mp4" },
+    { mimeType: "audio/ogg;codecs=opus", ext: "ogg" },
+    { mimeType: "audio/wav", ext: "wav" },
+    { mimeType: "", ext: "webm" }, // fallback: let browser choose
   ];
   for (const c of candidates) {
-    if (!c.mimeType || (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(c.mimeType))) {
+    if (
+      !c.mimeType ||
+      (typeof MediaRecorder !== "undefined" &&
+        MediaRecorder.isTypeSupported(c.mimeType))
+    ) {
       return c;
     }
   }
   return candidates[candidates.length - 1];
 }
 
-const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ conversationId, onSend }) => {
+const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
+  conversationId,
+  onSend,
+}) => {
   const [recording, setRecording] = useState(false);
   const [locked, setLocked] = useState(false);
   const [time, setTime] = useState(0);
   const [uploading, setUploading] = useState(false);
   const [slideX, setSlideX] = useState(0);
   const [slideY, setSlideY] = useState(0);
+  const [sendError, setSendError] = useState("");
+  const pendingVoice = useRef<{
+    blob: Blob;
+    duration: number;
+    id: string;
+    reference?: string;
+  } | null>(null);
+  const uploadLock = useRef(false);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -53,7 +73,7 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ conversationId, onSend })
   }, []);
 
   const releaseStream = useCallback(() => {
-    streamRef.current?.getTracks().forEach(t => t.stop());
+    streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
   }, []);
 
@@ -68,10 +88,12 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ conversationId, onSend })
   const stopAndCleanup = useCallback(() => {
     cancelledRef.current = true;
     try {
-      if (mediaRecorderRef.current?.state === 'recording') {
+      if (mediaRecorderRef.current?.state === "recording") {
         mediaRecorderRef.current.stop();
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     mediaRecorderRef.current = null;
     chunksRef.current = [];
     clearTimer();
@@ -80,33 +102,56 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ conversationId, onSend })
   }, [clearTimer, releaseStream, resetState]);
 
   const uploadAndSend = useCallback(async () => {
+    if (uploadLock.current) return;
     const mime = mimeRef.current;
-    const blob = new Blob(chunksRef.current, { type: mime.mimeType || 'audio/webm' });
+    const blob =
+      pendingVoice.current?.blob ||
+      new Blob(chunksRef.current, { type: mime.mimeType || "audio/webm" });
     chunksRef.current = [];
 
     if (blob.size < 500) {
-      toast.error('Recording too short');
+      toast.error("Recording too short");
       return;
     }
 
     // Calculate real duration from wall-clock
-    const durationSec = Math.max(1, Math.round((Date.now() - startTimeRef.current) / 1000));
-
+    const durationSec = Math.max(
+      1,
+      Math.round((Date.now() - startTimeRef.current) / 1000),
+    );
+    pendingVoice.current ??= {
+      blob,
+      duration: durationSec,
+      id: crypto.randomUUID(),
+    };
+    uploadLock.current = true;
+    setSendError("");
     setUploading(true);
     try {
       const fileName = `voice_${Date.now()}.${mime.ext}`;
-      const file = new File([blob], fileName, { type: mime.mimeType || 'audio/webm' });
-      const reference = await uploadChatMedia(conversationId, file, fileName);
-      onSend('voice', reference, `🎤 Voice (${durationSec}s)`);
+      const file = new File([blob], fileName, {
+        type: mime.mimeType || "audio/webm",
+      });
+      const job = pendingVoice.current;
+      job.reference ||= await uploadChatMedia(conversationId, file, fileName);
+      await onSend(
+        "voice",
+        job.reference,
+        `🎤 Voice (${job.duration}s)`,
+        job.id,
+      );
+      pendingVoice.current = null;
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to send voice message');
+      setSendError("Your recording could not be sent. Retry or discard it.");
     } finally {
       setUploading(false);
+      uploadLock.current = false;
     }
   }, [conversationId, onSend]);
 
   const startRecording = useCallback(async () => {
-    if (isStartingRef.current) return;
+    if (isStartingRef.current || pendingVoice.current || uploadLock.current)
+      return;
     isStartingRef.current = true;
     cancelledRef.current = false;
 
@@ -115,7 +160,7 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ conversationId, onSend })
 
       // If user released / cancelled while we were waiting for permission
       if (cancelledRef.current) {
-        stream.getTracks().forEach(t => t.stop());
+        stream.getTracks().forEach((t) => t.stop());
         isStartingRef.current = false;
         return;
       }
@@ -141,11 +186,11 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ conversationId, onSend })
       setTime(0);
 
       timerRef.current = setInterval(() => {
-        setTime(prev => {
+        setTime((prev) => {
           if (prev >= 59) {
             // Auto-stop at 60s — trigger send
             clearTimer();
-            if (mediaRecorderRef.current?.state === 'recording') {
+            if (mediaRecorderRef.current?.state === "recording") {
               mediaRecorderRef.current.onstop = () => {
                 releaseStream();
                 uploadAndSend();
@@ -159,40 +204,46 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ conversationId, onSend })
         });
       }, 1000);
     } catch {
-      toast.error('Microphone access denied');
+      toast.error("Microphone access denied");
     } finally {
       isStartingRef.current = false;
     }
   }, [clearTimer, releaseStream, resetState, uploadAndSend]);
 
-  const handlePointerDown = useCallback((e: React.PointerEvent) => {
-    e.preventDefault();
-    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
-    startPosRef.current = { x: e.clientX, y: e.clientY };
-    startRecording();
-  }, [startRecording]);
+  const handlePointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      e.preventDefault();
+      (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+      startPosRef.current = { x: e.clientX, y: e.clientY };
+      startRecording();
+    },
+    [startRecording],
+  );
 
-  const handlePointerMove = useCallback((e: React.PointerEvent) => {
-    if (!recording || locked) return;
-    const dx = e.clientX - startPosRef.current.x;
-    const dy = e.clientY - startPosRef.current.y;
-    setSlideX(Math.min(0, dx));
-    setSlideY(Math.min(0, dy));
+  const handlePointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      if (!recording || locked) return;
+      const dx = e.clientX - startPosRef.current.x;
+      const dy = e.clientY - startPosRef.current.y;
+      setSlideX(Math.min(0, dx));
+      setSlideY(Math.min(0, dy));
 
-    if (dx < -100) {
-      stopAndCleanup();
-    }
-    if (dy < -60) {
-      setLocked(true);
-      setSlideX(0);
-      setSlideY(0);
-    }
-  }, [recording, locked, stopAndCleanup]);
+      if (dx < -100) {
+        stopAndCleanup();
+      }
+      if (dy < -60) {
+        setLocked(true);
+        setSlideX(0);
+        setSlideY(0);
+      }
+    },
+    [recording, locked, stopAndCleanup],
+  );
 
   const finishAndSend = useCallback(() => {
     clearTimer();
     const recorder = mediaRecorderRef.current;
-    if (recorder && recorder.state === 'recording') {
+    if (recorder && recorder.state === "recording") {
       recorder.onstop = () => {
         releaseStream();
         uploadAndSend();
@@ -231,7 +282,7 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ conversationId, onSend })
     };
   }, [clearTimer, releaseStream]);
 
-  const timeStr = `${Math.floor(time / 60)}:${time % 60 < 10 ? '0' : ''}${time % 60}`;
+  const timeStr = `${Math.floor(time / 60)}:${time % 60 < 10 ? "0" : ""}${time % 60}`;
 
   if (uploading) {
     return (
@@ -245,6 +296,7 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ conversationId, onSend })
     <div className="absolute bottom-full left-0 right-0 bg-background border-t border-border animate-fade-in">
       <div className="flex items-center gap-3 px-3 py-2.5">
         <button
+          aria-label="Discard recording"
           onClick={locked ? handleLockedCancel : stopAndCleanup}
           className="p-2 rounded-full hover:bg-destructive/10 transition-colors shrink-0"
         >
@@ -252,7 +304,9 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ conversationId, onSend })
         </button>
 
         <div className="w-2 h-2 rounded-full bg-destructive animate-pulse shrink-0" />
-        <span className="text-sm font-mono font-medium text-destructive shrink-0 w-10">{timeStr}</span>
+        <span className="text-sm font-mono font-medium text-destructive shrink-0 w-10">
+          {timeStr}
+        </span>
 
         <div className="flex items-center gap-[2px] flex-1 min-w-0 overflow-hidden h-8">
           {Array.from({ length: 32 }).map((_, i) => (
@@ -261,7 +315,7 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ conversationId, onSend })
               className="w-[3px] rounded-full bg-destructive/50 shrink-0"
               style={{
                 height: `${6 + Math.sin((time * 3 + i) * 0.7) * 12 + Math.random() * 4}px`,
-                transition: 'height 0.15s',
+                transition: "height 0.15s",
               }}
             />
           ))}
@@ -279,6 +333,7 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ conversationId, onSend })
           </div>
         ) : (
           <button
+            aria-label="Send recording"
             onClick={handleLockedSend}
             className="h-10 w-10 rounded-full bg-primary flex items-center justify-center active:scale-90 transition-transform shadow-lg shrink-0"
           >
@@ -291,17 +346,57 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ conversationId, onSend })
 
   return (
     <>
+      {sendError && (
+        <div className="absolute bottom-full left-0 right-0 bg-background border p-3">
+          <p className="msg-error" role="alert">
+            {sendError}
+          </p>
+          <div className="flex gap-2">
+            <button
+              className="msg-button primary"
+              onClick={() => void uploadAndSend()}
+            >
+              Retry recording
+            </button>
+            <button
+              className="msg-button secondary"
+              onClick={() => {
+                pendingVoice.current = null;
+                setSendError("");
+              }}
+            >
+              Discard recording
+            </button>
+          </div>
+        </div>
+      )}
       {recordingOverlay}
       <button
+        disabled={!!sendError}
+        aria-label={
+          recording ? "Recording voice message" : "Record voice message"
+        }
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            if (recording) finishAndSend();
+            else {
+              void startRecording();
+              setLocked(true);
+            }
+          }
+        }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerLeave={handlePointerUp}
         className={`shrink-0 h-11 w-11 rounded-full flex items-center justify-center active:scale-90 transition-transform touch-none select-none ${
-          recording ? 'bg-destructive' : 'bg-primary'
+          recording ? "bg-destructive" : "bg-primary"
         }`}
       >
-        <Mic className={`h-5 w-5 ${recording ? 'text-white' : 'text-primary-foreground'}`} />
+        <Mic
+          className={`h-5 w-5 ${recording ? "text-white" : "text-primary-foreground"}`}
+        />
       </button>
     </>
   );

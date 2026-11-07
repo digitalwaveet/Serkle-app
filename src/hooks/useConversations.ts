@@ -1,9 +1,13 @@
-import { useQueryClient } from '@tanstack/react-query';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { supabase } from '@/integrations/supabase/client';
-import { chatDb } from '@/lib/db';
-import { syncConversations, syncPinnedConversations, togglePinnedConversation } from '@/lib/sync';
-import { useEffect, useCallback } from 'react';
+import { useQueryClient } from "@tanstack/react-query";
+import { useLiveQuery } from "dexie-react-hooks";
+import { supabase } from "@/integrations/supabase/client";
+import { chatDb } from "@/lib/db";
+import {
+  syncConversations,
+  syncPinnedConversations,
+  togglePinnedConversation,
+} from "@/lib/sync";
+import { useEffect, useCallback, useRef, useState } from "react";
 
 export interface Conversation {
   conversation_id: string;
@@ -28,40 +32,70 @@ export const useConversations = (userId: string | undefined) => {
     if (!userId) return [];
     const list = await chatDb.conversations_meta.toArray();
     return list.sort((a, b) => {
-      const timeA = a.last_message_at ? new Date(a.last_message_at).getTime() : 0;
-      const timeB = b.last_message_at ? new Date(b.last_message_at).getTime() : 0;
+      const timeA = a.last_message_at
+        ? new Date(a.last_message_at).getTime()
+        : 0;
+      const timeB = b.last_message_at
+        ? new Date(b.last_message_at).getTime()
+        : 0;
       return timeB - timeA;
     });
   }, [userId]);
 
-  useEffect(() => {
-    if (userId) {
-      syncConversations(userId).catch(console.error);
-      syncPinnedConversations(userId).catch(console.error);
+  const [status, setStatus] = useState<{
+    userId?: string;
+    pending: boolean;
+    error: Error | null;
+    synced: boolean;
+  }>({ userId, pending: !!userId, error: null, synced: false });
+  const activeUser = useRef(userId);
+  activeUser.current = userId;
+  const refetch = useCallback(async () => {
+    if (!userId) return;
+    setStatus((previous) => ({ ...previous, userId, pending: true }));
+    try {
+      await syncConversations(userId);
+      if (activeUser.current === userId)
+        setStatus({ userId, pending: false, error: null, synced: true });
+    } catch (error) {
+      if (activeUser.current === userId)
+        setStatus((previous) => ({
+          ...previous,
+          userId,
+          pending: false,
+          error:
+            error instanceof Error
+              ? error
+              : new Error("Conversations could not be refreshed"),
+        }));
     }
-    const refresh = () => {
-      if (userId && document.visibilityState === 'visible') void syncConversations(userId).catch(console.error);
-    };
-    window.addEventListener('focus', refresh);
-    window.addEventListener('online', refresh);
-    const timer = setInterval(refresh, 30000);
-    return () => {
-      window.removeEventListener('focus', refresh);
-      window.removeEventListener('online', refresh);
-      clearInterval(timer);
-    };
   }, [userId]);
 
-  const refetch = useCallback(async () => {
-    if (userId) {
-      await syncConversations(userId);
-    }
-  }, [userId]);
+  useEffect(() => {
+    void refetch();
+    if (userId) void syncPinnedConversations(userId).catch(console.error);
+    const refresh = () => {
+      if (document.visibilityState === "visible") void refetch();
+    };
+    window.addEventListener("focus", refresh);
+    window.addEventListener("online", refresh);
+    const timer = setInterval(refresh, 30000);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("online", refresh);
+      clearInterval(timer);
+    };
+  }, [userId, refetch]);
 
   return {
     conversations: conversations || [],
-    isLoading: conversations === undefined,
-    error: null,
+    isLoading:
+      conversations === undefined ||
+      (!conversations.length &&
+        (status.userId !== userId || status.pending) &&
+        !status.synced),
+    isSyncing: status.userId === userId && status.pending,
+    error: status.userId === userId ? status.error : null,
     refetch,
   };
 };
@@ -69,21 +103,24 @@ export const useConversations = (userId: string | undefined) => {
 export const useCreateConversation = () => {
   const queryClient = useQueryClient();
 
-  const createConversation = async (currentUserId: string, otherUserId: string) => {
-    const { data, error } = await supabase.rpc('get_or_create_conversation', {
-      _user1_id: currentUserId,
-      _user2_id: otherUserId,
-    });
+  const createConversation = useCallback(
+    async (currentUserId: string, otherUserId: string) => {
+      const { data, error } = await supabase.rpc("get_or_create_conversation", {
+        _user1_id: currentUserId,
+        _user2_id: otherUserId,
+      });
 
-    if (error) throw error;
+      if (error) throw error;
 
-    // Trigger background sync instead of just invalidating
-    if (currentUserId) {
-      syncConversations(currentUserId).catch(console.error);
-    }
+      // Trigger background sync instead of just invalidating
+      if (currentUserId) {
+        await syncConversations(currentUserId, true);
+      }
 
-    return data as string;
-  };
+      return data as string;
+    },
+    [],
+  );
 
   return { createConversation };
 };
@@ -95,7 +132,7 @@ export const usePinnedConversations = (userId: string | undefined) => {
   const pinnedIds = useLiveQuery(async () => {
     if (!userId) return new Set<string>();
     const pins = await chatDb.pinned_conversations.toArray();
-    return new Set(pins.map(p => p.conversation_id));
+    return new Set(pins.map((p) => p.conversation_id));
   }, [userId]);
 
   return pinnedIds || new Set<string>();
@@ -105,9 +142,12 @@ export const usePinnedConversations = (userId: string | undefined) => {
  * Hook to toggle pinned state.
  */
 export const useTogglePin = () => {
-  const togglePin = useCallback(async (userId: string, conversationId: string, isPinned: boolean) => {
-    await togglePinnedConversation(userId, conversationId, isPinned);
-  }, []);
+  const togglePin = useCallback(
+    async (userId: string, conversationId: string, isPinned: boolean) => {
+      await togglePinnedConversation(userId, conversationId, isPinned);
+    },
+    [],
+  );
 
   return { togglePin };
 };

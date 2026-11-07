@@ -1,11 +1,11 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
-import { useEffect, useState, useMemo, useRef, useCallback } from 'react';
-import { useToast } from '@/hooks/use-toast';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { chatDb, sanitizeMessage } from '@/lib/db';
-import { syncConversation, processSyncQueue } from '@/lib/sync';
-import { useNotifications } from './useNotifications';
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import { useEffect, useState, useMemo, useRef, useCallback } from "react";
+import { useToast } from "@/hooks/use-toast";
+import { useLiveQuery } from "dexie-react-hooks";
+import { chatDb, sanitizeMessage } from "@/lib/db";
+import { syncConversation, processSyncQueue } from "@/lib/sync";
+import { useNotifications } from "./useNotifications";
 
 export interface Message {
   id: string;
@@ -26,7 +26,11 @@ export interface Message {
   };
 }
 
-export const useMessages = (conversationId: string | null, userId: string | undefined, canMarkRead = false) => {
+export const useMessages = (
+  conversationId: string | null,
+  userId: string | undefined,
+  canMarkRead = false,
+) => {
   const queryClient = useQueryClient();
   const [isSyncing, setIsSyncing] = useState(false);
   const [error, setError] = useState<Error | null>(null);
@@ -38,70 +42,74 @@ export const useMessages = (conversationId: string | null, userId: string | unde
   const syncPending = useRef(false);
 
   // 1. Local data stream via Dexie (Replaces network fetch)
-  const localMessages = useLiveQuery(
-    async () => {
-      if (!conversationId) return [];
-      
-      const msgs = await chatDb.messages
-        .where('[conversation_id+created_at]')
-        .between([conversationId, ''], [conversationId, '\uffff'])
-        .reverse()
-        .limit(limit)
-        .toArray();
-      
-      const sorted = msgs.reverse();
-      setHasMore(msgs.length === limit);
-      return sorted;
-    },
-    [conversationId, limit]
-  );
+  const localMessages = useLiveQuery(async () => {
+    if (!conversationId) return [];
+
+    const msgs = await chatDb.messages
+      .where("[conversation_id+created_at]")
+      .between([conversationId, ""], [conversationId, "\uffff"])
+      .reverse()
+      .limit(limit)
+      .toArray();
+
+    const sorted = msgs.reverse();
+    setHasMore(msgs.length === limit);
+    return sorted;
+  }, [conversationId, limit]);
 
   // 2. Resolve missing sender profiles via Dexie Cache
-  const profileCache = useLiveQuery(
-    async () => {
-      if (!localMessages || localMessages.length === 0) return {};
-      const senderIds = [...new Set(localMessages.map(m => m.sender_id))];
-      const profiles = await chatDb.profiles.bulkGet(senderIds);
-      const cache: Record<string, any> = {};
-      profiles.forEach((p, idx) => {
-        if (p) cache[senderIds[idx]] = p;
-      });
-      return cache;
-    },
-    [localMessages]
-  );
+  const profileCache = useLiveQuery(async () => {
+    if (!localMessages || localMessages.length === 0) return {};
+    const senderIds = [...new Set(localMessages.map((m) => m.sender_id))];
+    const profiles = await chatDb.profiles.bulkGet(senderIds);
+    const cache: Record<string, any> = {};
+    profiles.forEach((p, idx) => {
+      if (p) cache[senderIds[idx]] = p;
+    });
+    return cache;
+  }, [localMessages]);
 
   useEffect(() => {
     if (!localMessages || localMessages.length === 0 || !profileCache) return;
-    
-    const missingSenderIds = [...new Set(localMessages.map(m => m.sender_id))]
-      .filter(id => !profileCache[id] && !fetchingIdsRef.current.has(id));
-      
+
+    const missingSenderIds = [
+      ...new Set(localMessages.map((m) => m.sender_id)),
+    ].filter((id) => !profileCache[id] && !fetchingIdsRef.current.has(id));
+
     if (missingSenderIds.length > 0) {
-      missingSenderIds.forEach(id => fetchingIdsRef.current.add(id));
-      
-      Promise.resolve(supabase.from('profiles')
-        .select('id, name, username, avatar_url, initials')
-        .in('id', missingSenderIds))
+      missingSenderIds.forEach((id) => fetchingIdsRef.current.add(id));
+
+      Promise.resolve(
+        supabase
+          .from("profiles")
+          .select("id, name, username, avatar_url, initials")
+          .in("id", missingSenderIds),
+      )
         .then(({ data }) => {
           if (data && data.length > 0) {
-            chatDb.profiles.bulkPut(data.map(p => ({
-              id: p.id,
-              name: p.name,
-              username: p.username,
-              avatar_url: p.avatar_url,
-              initials: p.initials
-            }))).catch(err => console.error('[Sync] Profile cache update failed:', err));
+            chatDb.profiles
+              .bulkPut(
+                data.map((p) => ({
+                  id: p.id,
+                  name: p.name,
+                  username: p.username,
+                  avatar_url: p.avatar_url,
+                  initials: p.initials,
+                })),
+              )
+              .catch((err) =>
+                console.error("[Sync] Profile cache update failed:", err),
+              );
           }
-          
+
           // Clear from fetching list after a short delay
           setTimeout(() => {
-            missingSenderIds.forEach(id => fetchingIdsRef.current.delete(id));
+            missingSenderIds.forEach((id) => fetchingIdsRef.current.delete(id));
           }, 1000);
         })
-        .catch(err => {
-          console.error('[Sync] Profile fetch error:', err);
-          missingSenderIds.forEach(id => fetchingIdsRef.current.delete(id));
+        .catch((err) => {
+          console.error("[Sync] Profile fetch error:", err);
+          missingSenderIds.forEach((id) => fetchingIdsRef.current.delete(id));
         });
     }
   }, [localMessages, profileCache]);
@@ -121,8 +129,10 @@ export const useMessages = (conversationId: string | null, userId: string | unde
       await syncConversation(conversationId);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err : new Error('Unable to refresh messages'));
-      console.error('[Sync] Conversation sync error:', err);
+      setError(
+        err instanceof Error ? err : new Error("Unable to refresh messages"),
+      );
+      console.error("[Sync] Conversation sync error:", err);
     } finally {
       syncInFlight.current = false;
       setIsSyncing(false);
@@ -150,39 +160,66 @@ export const useMessages = (conversationId: string | null, userId: string | unde
     const broadcastChannel = supabase
       .channel(`chat:${conversationId}`)
       // Broadcasts are hints, never trusted message content.
-      .on('broadcast', { event: 'new_message' }, debouncedSync)
+      .on("broadcast", { event: "new_message" }, debouncedSync)
       .subscribe();
 
     // Reliability Fallback: Postgres Changes Channel (delivered in ~300-800ms)
     const pgChannel = supabase
       .channel(`pg:messages:${conversationId}`)
       .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'messages', filter: `conversation_id=eq.${conversationId}` },
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "messages",
+          filter: `conversation_id=eq.${conversationId}`,
+        },
         () => {
           debouncedSync();
-          queryClient.invalidateQueries({ queryKey: ['conversations'] });
-        }
+          queryClient.invalidateQueries({ queryKey: ["conversations"] });
+        },
       )
       .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'conversation_members', filter: `conversation_id=eq.${conversationId}` },
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "conversation_members",
+          filter: `conversation_id=eq.${conversationId}`,
+        },
         () => {
-          queryClient.invalidateQueries({ queryKey: ['conversations'] });
-        }
+          queryClient.invalidateQueries({ queryKey: ["conversations"] });
+        },
       )
       .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'read_receipts', filter: `conversation_id=eq.${conversationId}` },
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "read_receipts",
+          filter: `conversation_id=eq.${conversationId}`,
+        },
         async (payload) => {
-          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-            const receipt = payload.new as { conversation_id: string; user_id: string; last_read_seq: number; updated_at: string };
-            await chatDb.transaction('rw', chatDb.read_receipts, async () => {
-              const current = await chatDb.read_receipts.get([receipt.conversation_id, receipt.user_id]);
-              if (!current || receipt.last_read_seq > current.last_read_seq) await chatDb.read_receipts.put(receipt);
+          if (
+            payload.eventType === "INSERT" ||
+            payload.eventType === "UPDATE"
+          ) {
+            const receipt = payload.new as {
+              conversation_id: string;
+              user_id: string;
+              last_read_seq: number;
+              updated_at: string;
+            };
+            await chatDb.transaction("rw", chatDb.read_receipts, async () => {
+              const current = await chatDb.read_receipts.get([
+                receipt.conversation_id,
+                receipt.user_id,
+              ]);
+              if (!current || receipt.last_read_seq > current.last_read_seq)
+                await chatDb.read_receipts.put(receipt);
             });
           }
-        }
+        },
       )
       .subscribe();
 
@@ -194,38 +231,60 @@ export const useMessages = (conversationId: string | null, userId: string | unde
   }, [conversationId, userId, queryClient, runSync, debouncedSync]);
 
   const { markConversationNotificationsAsRead } = useNotifications();
-  useEffect(() => { lastSyncedReadSeq.current = 0; }, [conversationId, userId]);
-  
+  useEffect(() => {
+    lastSyncedReadSeq.current = 0;
+  }, [conversationId, userId]);
+
   // 5. Optimized Read-Receipt Loop - Fixes redundant sync triggers
   useEffect(() => {
     const lastMsg = localMessages?.[localMessages.length - 1];
-    if (!canMarkRead || !conversationId || !userId || !lastMsg?.seq || lastMsg.seq <= lastSyncedReadSeq.current) return;
+    if (
+      !canMarkRead ||
+      !conversationId ||
+      !userId ||
+      !lastMsg?.seq ||
+      lastMsg.seq <= lastSyncedReadSeq.current
+    )
+      return;
 
     // Debounce read-receipt write for a better feel
     const timer = setTimeout(async () => {
-      if (document.visibilityState !== 'visible' || !document.hasFocus()) return;
+      if (document.visibilityState !== "visible" || !document.hasFocus())
+        return;
 
       try {
         const receipt = {
           user_id: userId,
           conversation_id: conversationId,
           last_read_seq: lastMsg.seq!,
-          updated_at: new Date().toISOString()
+          updated_at: new Date().toISOString(),
         };
 
-        await chatDb.transaction('rw', chatDb.read_receipts, chatDb.conversations_meta, chatDb.sync_queue, async () => {
-          const existing = await chatDb.read_receipts.get([conversationId, userId]);
-          if (existing && existing.last_read_seq >= receipt.last_read_seq) return;
-          await chatDb.read_receipts.put(receipt);
-          await chatDb.conversations_meta.update(conversationId, { unread_count: 0 });
-          await chatDb.sync_queue.put({
-            id: `read_${conversationId}_${userId}`,
-            type: 'read_receipt',
-            payload: receipt,
-            created_at: new Date().toISOString(),
-            retry_count: 0
-          });
-        });
+        await chatDb.transaction(
+          "rw",
+          chatDb.read_receipts,
+          chatDb.conversations_meta,
+          chatDb.sync_queue,
+          async () => {
+            const existing = await chatDb.read_receipts.get([
+              conversationId,
+              userId,
+            ]);
+            if (existing && existing.last_read_seq >= receipt.last_read_seq)
+              return;
+            await chatDb.read_receipts.put(receipt);
+            await chatDb.conversations_meta.update(conversationId, {
+              unread_count: 0,
+            });
+            await chatDb.sync_queue.put({
+              id: `read_${conversationId}_${userId}`,
+              type: "read_receipt",
+              payload: receipt,
+              created_at: new Date().toISOString(),
+              retry_count: 0,
+            });
+          },
+        );
         lastSyncedReadSeq.current = lastMsg.seq!;
 
         // 3. Trigger queue processing
@@ -233,34 +292,83 @@ export const useMessages = (conversationId: string | null, userId: string | unde
 
         // 4. Mark related notifications as read on server
         markConversationNotificationsAsRead.mutate(conversationId);
-        
+
         // 5. Optimistic update for React Query cache (fallback)
-        queryClient.invalidateQueries({ queryKey: ['conversations', userId] });
+        queryClient.invalidateQueries({ queryKey: ["conversations", userId] });
       } catch (err) {
-        console.error('Failed to mark as read:', err);
+        console.error("Failed to mark as read:", err);
       }
     }, 300); // Reduced delay for more responsive feel
 
     return () => clearTimeout(timer);
-  }, [localMessages && localMessages.length > 0 ? localMessages[localMessages.length - 1].seq : null, conversationId, userId, canMarkRead]);
+  }, [
+    localMessages && localMessages.length > 0
+      ? localMessages[localMessages.length - 1].seq
+      : null,
+    conversationId,
+    userId,
+    canMarkRead,
+  ]);
 
   const messagesWithSenders = useMemo(() => {
-    return localMessages?.map((msg: any) => ({
-      ...msg,
-      sender: profileCache?.[msg.sender_id] ? {
-        name: profileCache[msg.sender_id].name,
-        username: profileCache[msg.sender_id].username,
-        avatar_url: profileCache[msg.sender_id].avatar_url,
-        initials: profileCache[msg.sender_id].initials
-      } : undefined
-    })) || [];
+    return (
+      localMessages?.map((msg: any) => ({
+        ...msg,
+        sender: profileCache?.[msg.sender_id]
+          ? {
+              name: profileCache[msg.sender_id].name,
+              username: profileCache[msg.sender_id].username,
+              avatar_url: profileCache[msg.sender_id].avatar_url,
+              initials: profileCache[msg.sender_id].initials,
+            }
+          : undefined,
+      })) || []
+    );
   }, [localMessages, profileCache]);
 
   const loadMore = useCallback(() => {
     if (hasMore) {
-      setLimit(prev => prev + 50);
+      setLimit((prev) => prev + 50);
     }
   }, [hasMore]);
+
+  const showMessage = useCallback(
+    async (id: string) => {
+      if (!conversationId) return;
+      let target = await chatDb.messages.get(id);
+      if (!target || target.conversation_id !== conversationId) {
+        const { data: deletion, error: deletionError } = await supabase
+          .from("message_deletions")
+          .select("message_id")
+          .eq("message_id", id)
+          .eq("user_id", userId!)
+          .maybeSingle();
+        if (deletionError || deletion)
+          throw deletionError || new Error("Message unavailable");
+        const { data, error } = await supabase
+          .from("messages")
+          .select("*")
+          .eq("id", id)
+          .eq("conversation_id", conversationId)
+          .single();
+        if (error || !data) throw error || new Error("Message unavailable");
+        if (data.deleted_for_everyone) throw new Error("Message unavailable");
+        target = sanitizeMessage(data);
+        await chatDb.messages.put(target);
+      }
+      const newer = await chatDb.messages
+        .where("[conversation_id+created_at]")
+        .between(
+          [conversationId, target.created_at],
+          [conversationId, "\uffff"],
+          true,
+          true,
+        )
+        .count();
+      setLimit((previous) => Math.max(previous, newer + 10));
+    },
+    [conversationId, userId],
+  );
 
   return {
     messages: (messagesWithSenders as Message[]) || [],
@@ -268,16 +376,20 @@ export const useMessages = (conversationId: string | null, userId: string | unde
     isSyncing,
     hasMore,
     loadMore,
+    showMessage,
     error,
     refetch: runSync,
   };
 };
 
-export const useOtherUserLastRead = (conversationId: string | null, otherUserId: string | null) => {
+export const useOtherUserLastRead = (
+  conversationId: string | null,
+  otherUserId: string | null,
+) => {
   const otherReceipt = useLiveQuery(() => {
     if (!conversationId || !otherUserId) return null;
     return chatDb.read_receipts
-      .where('[conversation_id+user_id]')
+      .where("[conversation_id+user_id]")
       .equals([conversationId, otherUserId])
       .first();
   }, [conversationId, otherUserId]);
@@ -292,14 +404,14 @@ export const useRetryMessage = () => {
   return useMutation({
     mutationFn: async (messageId: string) => {
       const msg = await chatDb.messages.get(messageId);
-      if (!msg) throw new Error('Message not found');
+      if (!msg) throw new Error("Message not found");
 
       // Add to sync queue if not already there
       const existingQueueItem = await chatDb.sync_queue.get(messageId);
       if (!existingQueueItem) {
         await chatDb.sync_queue.put({
           id: messageId,
-          type: 'message_insert',
+          type: "message_insert",
           payload: {
             id: msg.id,
             conversation_id: msg.conversation_id,
@@ -310,27 +422,27 @@ export const useRetryMessage = () => {
             reply_to_id: msg.reply_to_id,
             forwarded_from_name: msg.forwarded_from_name,
             created_at: msg.created_at,
-            updated_at: msg.updated_at
+            updated_at: msg.updated_at,
           },
           created_at: new Date().toISOString(),
           retry_count: 0,
-          status: 'pending'
+          status: "pending",
         });
       } else {
         await chatDb.sync_queue.update(messageId, {
-          status: 'pending',
-          retry_count: 0
+          status: "pending",
+          retry_count: 0,
         });
       }
 
       // Update status to pending
       const existing = await chatDb.messages.get(messageId);
       if (existing) {
-        existing.sync_status = 'pending';
+        existing.sync_status = "pending";
         await chatDb.messages.put(existing);
       }
 
-      toast({ title: 'Retrying message...', variant: 'default' });
+      toast({ title: "Retrying message...", variant: "default" });
 
       // Trigger sync
       processSyncQueue().catch(console.error);
@@ -338,7 +450,8 @@ export const useRetryMessage = () => {
     onSuccess: () => {
       // Refresh local messages if needed or let hooks handle it
     },
-    onError: () => toast({ title: 'Could not retry this message', variant: 'destructive' }),
+    onError: () =>
+      toast({ title: "Could not retry this message", variant: "destructive" }),
   });
 };
 
@@ -351,10 +464,10 @@ export const useSendMessage = () => {
       conversationId,
       senderId,
       content,
-      messageType = 'text',
+      messageType = "text",
       attachmentUrl = null,
       replyToId = null,
-      id: providedId
+      id: providedId,
     }: {
       conversationId: string;
       senderId: string;
@@ -373,39 +486,62 @@ export const useSendMessage = () => {
         sender_id: senderId,
         content,
         message_type: messageType,
-        attachment_url: attachmentUrl || '',
-        reply_to_id: replyToId || '',
+        attachment_url: attachmentUrl || "",
+        reply_to_id: replyToId || "",
         created_at: now,
         updated_at: now,
       };
 
       // Save the message AND outbox entry atomically before any network work.
-      await chatDb.transaction('rw', chatDb.messages, chatDb.sync_queue, async () => {
-        await chatDb.messages.put(sanitizeMessage({ ...insertData, sync_status: 'pending' }));
-        await chatDb.sync_queue.put({
-          id: messageId,
-          type: 'message_insert',
-          payload: insertData,
-          created_at: now,
-          retry_count: 0,
-          status: 'pending'
-        });
-      });
+      await chatDb.transaction(
+        "rw",
+        chatDb.messages,
+        chatDb.sync_queue,
+        async () => {
+          const existing = await chatDb.messages.get(messageId);
+          if (existing) {
+            if (
+              existing.conversation_id !== conversationId ||
+              existing.sender_id !== senderId ||
+              existing.content !== content ||
+              existing.attachment_url !== (attachmentUrl || "")
+            )
+              throw new Error("This message request ID has already been used");
+            // A partial attachment retry may revisit an already saved item.
+            // Never reset its original timestamp, delivery status, or outbox entry.
+            return;
+          }
+          await chatDb.messages.put(
+            sanitizeMessage({ ...insertData, sync_status: "pending" }),
+          );
+          await chatDb.sync_queue.put({
+            id: messageId,
+            type: "message_insert",
+            payload: insertData,
+            created_at: now,
+            retry_count: 0,
+            status: "pending",
+          });
+        },
+      );
 
       return insertData;
     },
     onSuccess: (_, variables) => {
-      processSyncQueue().then(() => syncConversation(variables.conversationId)).catch(console.error);
-      queryClient.invalidateQueries({ queryKey: ['conversations'] });
+      processSyncQueue()
+        .then(() => syncConversation(variables.conversationId))
+        .catch(console.error);
+      queryClient.invalidateQueries({ queryKey: ["conversations"] });
     },
     onError: (error) => {
-      console.error('Error sending message:', error);
-      toast({ title: 'Failed to send message', variant: 'destructive' });
+      console.error("Error sending message:", error);
+      toast({ title: "Failed to send message", variant: "destructive" });
     },
   });
 
   return {
     sendMessage: sendMessageMutation.mutate,
+    sendMessageAsync: sendMessageMutation.mutateAsync,
     isSending: sendMessageMutation.isPending,
   };
 };
@@ -414,14 +550,14 @@ export const useUpdateMessage = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ 
-      messageId, 
-      attachmentUrl, 
-      syncStatus = 'sent' 
-    }: { 
-      messageId: string; 
-      attachmentUrl: string; 
-      syncStatus?: 'sent' | 'pending' | 'failed' 
+    mutationFn: async ({
+      messageId,
+      attachmentUrl,
+      syncStatus = "sent",
+    }: {
+      messageId: string;
+      attachmentUrl: string;
+      syncStatus?: "sent" | "pending" | "failed";
     }) => {
       // 1. Update local DB
       const existingUpdate = await chatDb.messages.get(messageId);
@@ -436,7 +572,7 @@ export const useUpdateMessage = () => {
       if (msg) {
         await chatDb.sync_queue.put({
           id: messageId,
-          type: 'message_insert',
+          type: "message_insert",
           payload: {
             id: msg.id,
             conversation_id: msg.conversation_id,
@@ -447,19 +583,19 @@ export const useUpdateMessage = () => {
             reply_to_id: msg.reply_to_id,
             forwarded_from_name: msg.forwarded_from_name,
             created_at: msg.created_at,
-            updated_at: new Date().toISOString()
+            updated_at: new Date().toISOString(),
           },
           created_at: new Date().toISOString(),
           retry_count: 0,
-          status: 'pending'
+          status: "pending",
         });
-        
+
         // 3. Trigger sync
         processSyncQueue().catch(console.error);
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['conversations'] });
-    }
+      queryClient.invalidateQueries({ queryKey: ["conversations"] });
+    },
   });
 };

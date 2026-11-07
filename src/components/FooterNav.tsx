@@ -1,3 +1,4 @@
+import { formatMessageBadge } from '@/lib/messagingPresentation';
 import React, { useState } from 'react';
 import { Camera, UserPlus, Radio, Video, MessagesSquare } from 'lucide-react';
 import { HomeIcon, CirclesIcon, CreateIcon, AskIcon, MessagesIcon } from '@/components/icons/FooterIcons';
@@ -251,7 +252,7 @@ const FooterNav: React.FC<FooterNavProps> = ({ active, onSelect, onOpenCreate, o
             <NavLabel active={active === "messages"}>Messages</NavLabel>
             {totalUnreadMessages > 0 && (
               <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full text-[11px] grid place-items-center bg-destructive text-white font-medium">
-                {formatBadge(totalUnreadMessages)}
+                {formatMessageBadge(totalUnreadMessages)}
               </span>
             )}
           </button>
@@ -384,7 +385,7 @@ const FooterNav: React.FC<FooterNavProps> = ({ active, onSelect, onOpenCreate, o
               <NavLabel active={active === "messages"}>Messages</NavLabel>
               {totalUnreadMessages > 0 && (
                 <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full text-[11px] grid place-items-center bg-destructive text-white font-medium">
-                  {formatBadge(totalUnreadMessages)}
+                  {formatMessageBadge(totalUnreadMessages)}
                 </span>
               )}
             </button>

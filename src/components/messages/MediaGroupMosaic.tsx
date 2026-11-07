@@ -1,12 +1,13 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { SerkleLoader } from '@/components/ui/SerkleLoader';
-import { Play, Download } from 'lucide-react';
-import { useChatMediaUrls } from '@/hooks/useChatMediaUrls';
+import React, { useState, useRef, useEffect } from "react";
+import { SerkleLoader } from "@/components/ui/SerkleLoader";
+import { Play, Download } from "lucide-react";
+import { useChatMediaUrls } from "@/hooks/useChatMediaUrls";
+import { formatVideoDuration } from "@/lib/videoDuration";
 
 export interface MediaItem {
   id: string;
   url: string;
-  type: 'photo' | 'video';
+  type: "photo" | "video";
   caption?: string;
 }
 
@@ -17,7 +18,12 @@ interface MediaGroupMosaicProps {
   onOpenLightbox: (index: number) => void;
 }
 
-const MediaGroupMosaic: React.FC<MediaGroupMosaicProps> = ({ items, isOwn, timestamp, onOpenLightbox }) => {
+const MediaGroupMosaic: React.FC<MediaGroupMosaicProps> = ({
+  items,
+  isOwn,
+  timestamp,
+  onOpenLightbox,
+}) => {
   const count = items.length;
 
   return (
@@ -45,50 +51,84 @@ const MediaCell: React.FC<{
   onOpen: (i: number) => void;
   className?: string;
   style?: React.CSSProperties;
-}> = ({ item: source, index, onOpen, className = '', style }) => {
+}> = ({ item: source, index, onOpen, className = "", style }) => {
   const media = useChatMediaUrls([source.url]);
   const item = { ...source, url: media.url(source.url) };
   const [loaded, setLoaded] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const [duration, setDuration] = useState('');
+  const [duration, setDuration] = useState("");
+  const [failed, setFailed] = useState(false),
+    [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    if (item.type === 'video' && videoRef.current) {
+    setLoaded(false);
+    setFailed(false);
+    setDuration("");
+    if (item.type === "video" && videoRef.current) {
       const handleMeta = () => {
-        const d = videoRef.current?.duration || 0;
-        const m = Math.floor(d / 60);
-        const s = Math.floor(d % 60).toString().padStart(2, '0');
-        setDuration(`${m}:${s}`);
+        setDuration(formatVideoDuration(videoRef.current?.duration) || "");
       };
-      videoRef.current.addEventListener('loadedmetadata', handleMeta);
-      return () => videoRef.current?.removeEventListener('loadedmetadata', handleMeta);
+      videoRef.current.addEventListener("loadedmetadata", handleMeta);
+      videoRef.current.addEventListener("durationchange", handleMeta);
+      const video = videoRef.current;
+      return () => {
+        video.removeEventListener("loadedmetadata", handleMeta);
+        video.removeEventListener("durationchange", handleMeta);
+      };
     }
-  }, [item]);
+  }, [item.url, item.type, attempt]);
 
   return (
     <div
       className={`relative overflow-hidden cursor-pointer ${className}`}
       style={style}
-      onClick={() => onOpen(index)}
     >
+      <button
+        type="button"
+        className="absolute inset-0 z-10 w-full h-full"
+        aria-label={`Open ${item.type} ${index + 1}`}
+        disabled={!item.url || failed || media.failed(source.url)}
+        onClick={() => onOpen(index)}
+      />
       {/* Shimmer skeleton */}
-      {media.failed(source.url) ? (
-        <button type="button" className="absolute inset-0 z-10 bg-muted px-2 text-sm" onClick={event => { event.stopPropagation(); media.retry(); }}>Attachment unavailable · Retry</button>
-      ) : !loaded && (
-        <div className="absolute inset-0 bg-muted flex items-center justify-center"><SerkleLoader size="sm" label="Loading attachment" /></div>
+      {media.failed(source.url) || failed ? (
+        <button
+          type="button"
+          className="absolute inset-0 z-20 bg-muted px-2 text-sm"
+          onClick={() => {
+            setAttempt((value) => value + 1);
+            media.retry();
+          }}
+        >
+          Attachment unavailable · Retry
+        </button>
+      ) : (
+        !loaded && (
+          <div className="absolute inset-0 bg-muted flex items-center justify-center">
+            <SerkleLoader size="sm" label="Loading attachment" />
+          </div>
+        )
       )}
 
-      {item.type === 'photo' ? (
+      {item.type === "photo" ? (
         <img
+          key={attempt}
           src={item.url || undefined}
           alt=""
           className="w-full h-full object-cover"
           loading="lazy"
           onLoad={() => setLoaded(true)}
+          onError={() => {
+            if (item.url) {
+              setFailed(true);
+              setDuration("");
+            }
+          }}
         />
       ) : (
         <>
           <video
+            key={attempt}
             ref={videoRef}
             src={item.url || undefined}
             className="w-full h-full object-cover"
@@ -96,6 +136,12 @@ const MediaCell: React.FC<{
             muted
             playsInline
             onLoadedData={() => setLoaded(true)}
+            onError={() => {
+              if (item.url) {
+                setFailed(true);
+                setDuration("");
+              }
+            }}
           />
           {/* Play icon overlay */}
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
@@ -116,12 +162,23 @@ const MediaCell: React.FC<{
 };
 
 // --- Layout: 1 file ---
-const Layout1: React.FC<{ items: MediaItem[]; onOpen: (i: number) => void }> = ({ items, onOpen }) => (
-  <MediaCell item={items[0]} index={0} onOpen={onOpen} style={{ maxHeight: 300, minHeight: 180 }} />
+const Layout1: React.FC<{
+  items: MediaItem[];
+  onOpen: (i: number) => void;
+}> = ({ items, onOpen }) => (
+  <MediaCell
+    item={items[0]}
+    index={0}
+    onOpen={onOpen}
+    style={{ maxHeight: 300, minHeight: 180 }}
+  />
 );
 
 // --- Layout: 2 files ---
-const Layout2: React.FC<{ items: MediaItem[]; onOpen: (i: number) => void }> = ({ items, onOpen }) => (
+const Layout2: React.FC<{
+  items: MediaItem[];
+  onOpen: (i: number) => void;
+}> = ({ items, onOpen }) => (
   <div className="flex gap-[2px]" style={{ height: 220 }}>
     <MediaCell item={items[0]} index={0} onOpen={onOpen} className="flex-1" />
     <MediaCell item={items[1]} index={1} onOpen={onOpen} className="flex-1" />
@@ -129,7 +186,10 @@ const Layout2: React.FC<{ items: MediaItem[]; onOpen: (i: number) => void }> = (
 );
 
 // --- Layout: 3 files ---
-const Layout3: React.FC<{ items: MediaItem[]; onOpen: (i: number) => void }> = ({ items, onOpen }) => (
+const Layout3: React.FC<{
+  items: MediaItem[];
+  onOpen: (i: number) => void;
+}> = ({ items, onOpen }) => (
   <div className="flex gap-[2px]" style={{ height: 240 }}>
     <MediaCell item={items[0]} index={0} onOpen={onOpen} className="flex-1" />
     <div className="flex flex-col gap-[2px] flex-1">
@@ -140,7 +200,10 @@ const Layout3: React.FC<{ items: MediaItem[]; onOpen: (i: number) => void }> = (
 );
 
 // --- Layout: 4 files ---
-const Layout4: React.FC<{ items: MediaItem[]; onOpen: (i: number) => void }> = ({ items, onOpen }) => (
+const Layout4: React.FC<{
+  items: MediaItem[];
+  onOpen: (i: number) => void;
+}> = ({ items, onOpen }) => (
   <div className="flex gap-[2px]" style={{ height: 280 }}>
     <MediaCell item={items[0]} index={0} onOpen={onOpen} className="flex-1" />
     <div className="flex flex-col gap-[2px] flex-1">
@@ -152,7 +215,10 @@ const Layout4: React.FC<{ items: MediaItem[]; onOpen: (i: number) => void }> = (
 );
 
 // --- Layout: 5+ files ---
-const Layout5Plus: React.FC<{ items: MediaItem[]; onOpen: (i: number) => void }> = ({ items, onOpen }) => {
+const Layout5Plus: React.FC<{
+  items: MediaItem[];
+  onOpen: (i: number) => void;
+}> = ({ items, onOpen }) => {
   const rest = items.slice(1);
   const rows: MediaItem[][] = [];
   for (let i = 0; i < rest.length; i += 3) {
@@ -161,7 +227,12 @@ const Layout5Plus: React.FC<{ items: MediaItem[]; onOpen: (i: number) => void }>
 
   return (
     <div className="flex flex-col gap-[2px]">
-      <MediaCell item={items[0]} index={0} onOpen={onOpen} style={{ height: 180 }} />
+      <MediaCell
+        item={items[0]}
+        index={0}
+        onOpen={onOpen}
+        style={{ height: 180 }}
+      />
       {rows.map((row, ri) => (
         <div key={ri} className="flex gap-[2px]" style={{ height: 100 }}>
           {row.map((item, ci) => {

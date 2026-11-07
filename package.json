@@ -28,7 +28,9 @@
     "test:notification-entries": "node --experimental-strip-types --test src/tests/notification-panel-entries.test.ts",
     "test:notifications-page-ui": "node --experimental-strip-types --test src/tests/notifications-page.ui.test.ts",
     "test:ask-presentation": "node --experimental-strip-types --test src/tests/ask-presentation.test.ts",
-    "test:ask-ui": "node --experimental-strip-types --test src/tests/ask.ui.test.ts"
+    "test:ask-ui": "node --experimental-strip-types --test src/tests/ask.ui.test.ts",
+    "test:messaging": "node --experimental-strip-types --test src/tests/messaging-presentation.test.ts src/tests/messaging-groups.integration.test.ts",
+    "test:messaging-ui": "node --experimental-strip-types --test src/tests/messaging.ui.test.ts"
   },
   "dependencies": {
     "@capacitor/android": "^7.4.2",
@@ -96,6 +98,7 @@
     "mapbox-gl": "^3.16.0",
     "pdfjs-dist": "^4.10.38",
     "perfect-freehand": "^1.2.3",
+    "qrcode-generator": "^2.0.4",
     "react": "^18.3.1",
     "react-day-picker": "^8.10.1",
     "react-dom": "^18.3.1",

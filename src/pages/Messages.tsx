@@ -1,157 +1,327 @@
-import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Plus } from 'lucide-react';
-import { useNavigate, useSearchParams, useParams } from 'react-router-dom';
-import { useUser } from '@/contexts/UserContext';
-import { useConversations, useCreateConversation } from '@/hooks/useConversations';
-import ConversationsList from '@/components/messages/ConversationsList';
-import ChatView from '@/components/messages/ChatView';
-import CreateGroupModal from '@/components/messages/CreateGroupModal';
-import { useNavigation } from '@/contexts/NavigationContext';
-
-const Messages = () => {
-  const navigate = useNavigate();
-  const { conversationId: selectedConversationId } = useParams();
-  const [searchParams] = useSearchParams();
-  const { user } = useUser();
-  const { pushModalState } = useNavigation();
-  const [showCreateGroup, setShowCreateGroup] = useState(false);
-
-  const handleOpenCreateGroup = () => {
-    pushModalState('create-group', () => setShowCreateGroup(false));
-    setShowCreateGroup(true);
-  };
-  
-  const { conversations, isLoading } = useConversations(user?.id);
+import { useEffect, useRef, useState } from "react";
+import {
+  ArrowLeft,
+  Check,
+  PenSquare,
+  Search,
+  Users,
+  WifiOff,
+} from "lucide-react";
+import {
+  useLocation,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router-dom";
+import { useUser } from "@/contexts/UserContext";
+import {
+  useConversations,
+  useCreateConversation,
+} from "@/hooks/useConversations";
+import { useUnreadCount } from "@/hooks/useUnreadCount";
+import ConversationsList from "@/components/messages/ConversationsList";
+import ChatView from "@/components/messages/ChatView";
+import CreateGroupModal from "@/components/messages/CreateGroupModal";
+import NewConversationModal from "@/components/messages/NewConversationModal";
+import MessageBadge from "@/components/messages/MessageBadge";
+import InviteGroupDialog from "@/components/messages/InviteGroupDialog";
+import { circleLoginPath } from "@/lib/authReturnPath";
+import {
+  MessagingLoading,
+  MessagingState,
+} from "@/components/messages/MessagingState";
+import { messageCount } from "@/lib/messagingPresentation";
+import "@/components/messages/messages.css";
+export default function Messages() {
+  const navigate = useNavigate(),
+    location = useLocation(),
+    { conversationId } = useParams(),
+    [params] = useSearchParams();
+  const { user, isLoading: userLoading } = useUser();
+  const { conversations, isLoading, isSyncing, error, refetch } =
+    useConversations(user?.id);
+  const {
+    totalUnreadCount,
+    unreadConversationCount,
+    isLoading: countsLoading,
+  } = useUnreadCount();
   const { createConversation } = useCreateConversation();
-
-  // Handle opening group creation modal from URL params
+  const [groupOpen, setGroupOpen] = useState(false),
+    [newOpen, setNewOpen] = useState(false),
+    [search, setSearch] = useState("");
+  const [filter, setFilter] = useState<"all" | "unread" | "groups">("all"),
+    [opening, setOpening] = useState(false),
+    [openError, setOpenError] = useState("");
+  const [online, setOnline] = useState(navigator.onLine),
+    openingKey = useRef("");
+  const [openAttempt, setOpenAttempt] = useState(0);
   useEffect(() => {
-    if (searchParams.get('createGroup') === 'true') {
-      setShowCreateGroup(true);
-      navigate('/messages', { replace: true });
-    }
-  }, [searchParams, navigate]);
-
-  // Handle opening conversation from URL params (when clicking "Message" on profile)
+    const update = () => setOnline(navigator.onLine);
+    window.addEventListener("online", update);
+    window.addEventListener("offline", update);
+    return () => {
+      window.removeEventListener("online", update);
+      window.removeEventListener("offline", update);
+    };
+  }, []);
   useEffect(() => {
-    const userId = searchParams.get('userId');
-    if (userId && user?.id && !selectedConversationId) {
-      const initConversation = async () => {
-        try {
-          const conversationId = await createConversation(user.id, userId);
-          navigate(`/messages/${conversationId}`, { replace: true });
-        } catch (error) {
-          console.error('Error creating conversation:', error);
-        }
-      };
-      initConversation();
+    const legacy = params.get("conversationId"),
+      message = params.get("messageId");
+    if (!conversationId && legacy && /^[0-9a-f-]{36}$/i.test(legacy))
+      navigate(
+        `/messages/${legacy}${message && /^[0-9a-f-]{36}$/i.test(message) ? "?messageId=" + message : ""}`,
+        { replace: true },
+      );
+  }, [params, conversationId, navigate]);
+  useEffect(() => {
+    if (params.get("createGroup") === "true") {
+      setGroupOpen(true);
+      navigate("/messages", { replace: true });
     }
-  }, [searchParams, user?.id, createConversation, selectedConversationId, navigate]);
-
-  const selectedConversation = conversations.find(
-    (c) => c.conversation_id === selectedConversationId
+  }, [params, navigate]);
+  useEffect(() => {
+    const other = params.get("userId");
+    if (!other || !user?.id || conversationId) return;
+    const key = `${user.id}:${other}`;
+    if (openingKey.current === key) return;
+    openingKey.current = key;
+    setOpening(true);
+    setOpenError("");
+    void createConversation(user.id, other)
+      .then((id) => navigate(`/messages/${id}`, { replace: true }))
+      .catch(() =>
+        setOpenError(
+          "This conversation could not be opened. Please try again.",
+        ),
+      )
+      .finally(() => setOpening(false));
+  }, [
+    params,
+    user?.id,
+    conversationId,
+    createConversation,
+    navigate,
+    openAttempt,
+  ]);
+  useEffect(() => {
+    if (!userLoading && !user)
+      navigate(circleLoginPath(location.pathname + location.search), {
+        replace: true,
+      });
+  }, [userLoading, user, navigate, location.pathname, location.search]);
+  if (!user)
+    return (
+      <div className="msg-ui msg-page">
+        <MessagingLoading label="Loading your messages" />
+      </div>
+    );
+  const selected = conversations.find(
+    (c) => c.conversation_id === conversationId,
   );
-
-  const handleBack = () => {
-    const hasHistory = window.history.state && window.history.state.idx > 0;
-    if (hasHistory) {
-      navigate(-1);
-    } else {
-      navigate('/messages', { replace: true });
-    }
+  const select = (id: string) => navigate(`/messages/${id}`);
+  const retryOpen = () => {
+    openingKey.current = "";
+    setOpenAttempt((value) => value + 1);
+    void refetch();
   };
-
-  const handleSelectConversation = (id: string) => {
-    navigate(`/messages/${id}`);
-  };
-
-  if (!user) return null;
-
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header - Only show when no conversation selected on mobile */}
-      {!selectedConversationId && (
-        <div className="sticky top-0 z-20 bg-background/95 backdrop-blur-lg border-b border-border/50 safe-top lg:hidden">
-          <div className="flex items-center justify-between px-3 py-3">
-            <button
-              onClick={() => {
-                const hasHistory = window.history.state && window.history.state.idx > 0;
-                if (hasHistory) {
-                  navigate(-1);
-                } else {
-                  navigate('/', { replace: true });
-                }
-              }}
-              className="p-2 -ml-2 hover:bg-muted rounded-full active:scale-95 transition-all"
-            >
-              <ArrowLeft className="h-6 w-6" />
-            </button>
-            <h1 className="text-xl font-bold">Messages</h1>
-            <button
-              onClick={handleOpenCreateGroup}
-              className="p-2 -mr-2 hover:bg-muted rounded-full active:scale-95 transition-all"
-            >
-              <Plus className="h-6 w-6" />
-            </button>
-          </div>
-        </div>
+    <main className="msg-ui msg-page" data-testid="messages-page">
+      {(params.has("invite") || params.has("join_group")) && (
+        <InviteGroupDialog
+          key={params.get("invite") || "legacy"}
+          token={params.get("invite") || "invalid-legacy-link"}
+          userId={user.id}
+          onClose={() => navigate("/messages", { replace: true })}
+          onJoined={(id) => navigate(`/messages/${id}`, { replace: true })}
+        />
       )}
-
-      {/* One responsive tree: never mount a second hidden chat/subscription. */}
-      <div className="flex h-dvh">
-        {/* Conversations List */}
-        <div className={`${selectedConversation ? 'hidden lg:block' : 'block'} w-full lg:w-96 lg:shrink-0 lg:border-r border-border bg-background`}>
-          <div className="sticky top-0 z-10 bg-background/95 backdrop-blur-lg border-b border-border px-4 py-4 hidden lg:flex items-center justify-between">
-            <h1 className="text-xl font-bold">Messages</h1>
+      <div className="msg-workspace">
+        <section
+          className={`msg-inbox ${conversationId ? "hide-mobile" : ""}`}
+          aria-label="Conversations"
+        >
+          <header className="msg-inbox-header">
+            <div className="msg-eyebrow">Serkle messages</div>
+            <div className="msg-inbox-heading">
+              <button
+                className="msg-icon text-white -ml-2"
+                aria-label="Back to Serkle"
+                onClick={() => navigate("/")}
+              >
+                <ArrowLeft aria-hidden="true" />
+              </button>
+              <h1>Messages</h1>
+              <MessageBadge
+                count={countsLoading ? undefined : totalUnreadCount}
+              />
+              <button
+                className="msg-icon"
+                aria-label="New message"
+                onClick={() => setNewOpen(true)}
+              >
+                <PenSquare aria-hidden="true" />
+              </button>
+            </div>
+            <p>
+              {countsLoading
+                ? "Checking unread messages…"
+                : totalUnreadCount
+                  ? `${messageCount(totalUnreadCount, "unread message")} in ${messageCount(unreadConversationCount, "chat")}`
+                  : "You’re all caught up."}
+            </p>
+          </header>
+          <div className="msg-search">
+            <Search aria-hidden="true" />
+            <label className="sr-only" htmlFor="conversation-search">
+              Search conversations
+            </label>
+            <input
+              id="conversation-search"
+              type="search"
+              placeholder="Search conversations"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+          </div>
+          <div
+            className="msg-filters"
+            role="group"
+            aria-label="Filter conversations"
+          >
+            {(["all", "unread", "groups"] as const).map((value) => (
+              <button
+                key={value}
+                aria-pressed={value === filter}
+                onClick={() => setFilter(value)}
+              >
+                {value === "all"
+                  ? "All"
+                  : value === "unread"
+                    ? "Unread"
+                    : "Groups"}
+                {value === "unread" && !countsLoading && (
+                  <span
+                    className="msg-badge"
+                    aria-label={messageCount(
+                      unreadConversationCount,
+                      "unread chat",
+                    )}
+                  >
+                    {unreadConversationCount > 99
+                      ? "99+"
+                      : unreadConversationCount}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+          <div className="msg-inbox-list">
+            {openError && (
+              <div className="msg-error mx-4" role="alert">
+                {openError}
+                <button className="msg-button quiet" onClick={retryOpen}>
+                  Retry opening conversation
+                </button>
+              </div>
+            )}
+            {error && (
+              <div className="msg-error mx-4" role="alert">
+                Conversations couldn’t be refreshed. Saved conversations are
+                still available.
+                <button
+                  className="msg-button quiet"
+                  disabled={isSyncing}
+                  onClick={() => void refetch()}
+                >
+                  Retry refresh
+                </button>
+              </div>
+            )}
+            <ConversationsList
+              conversations={conversations}
+              selectedConversationId={conversationId || null}
+              onSelectConversation={select}
+              isLoading={isLoading || opening}
+              currentUserId={user.id}
+              search={search}
+              filter={filter}
+            />
+            <div className="msg-sync-note">
+              {!online ? (
+                <>
+                  <WifiOff aria-hidden="true" />
+                  Offline · Showing saved conversations
+                </>
+              ) : isSyncing ? (
+                "Refreshing conversations…"
+              ) : (
+                !error && (
+                  <>
+                    <Check aria-hidden="true" />
+                    Messages are up to date
+                  </>
+                )
+              )}
+            </div>
+          </div>
+          <div className="msg-inbox-footer">
             <button
-              onClick={handleOpenCreateGroup}
-              className="p-2 -mr-2 hover:bg-muted rounded-full active:scale-95 transition-all"
+              className="msg-button primary"
+              onClick={() => setGroupOpen(true)}
             >
-              <Plus className="h-5 w-5" />
+              <Users aria-hidden="true" />
+              New group
             </button>
           </div>
-          <ConversationsList
-            conversations={conversations}
-            selectedConversationId={selectedConversationId || null}
-            onSelectConversation={handleSelectConversation}
-            isLoading={isLoading}
-            currentUserId={user.id}
-          />
-        </div>
-
-        {/* Chat View */}
-        <div className={`${selectedConversation ? 'block' : 'hidden lg:block'} min-w-0 flex-1`}>
-          {selectedConversation ? (
+        </section>
+        <section
+          className={`msg-chat-region ${!conversationId ? "hide-mobile" : ""}`}
+          aria-label="Current conversation"
+        >
+          {selected ? (
             <ChatView
-              key={selectedConversation.conversation_id}
-              conversation={selectedConversation}
+              key={selected.conversation_id}
+              conversation={selected}
               currentUserId={user.id}
               currentUserAvatar={user.avatar}
               currentUserInitials={user.initials}
               currentUserName={user.name}
-              onBack={handleBack}
+              onBack={() => navigate("/messages")}
             />
+          ) : conversationId ? (
+            isLoading || isSyncing ? (
+              <MessagingLoading />
+            ) : (
+              <MessagingState
+                title="Conversation unavailable"
+                description="This conversation may no longer be available to your account."
+                onRetry={() => void refetch()}
+              />
+            )
           ) : (
-            <div className="flex items-center justify-center h-full text-center p-8">
-              <div>
-                <h2 className="text-2xl font-bold text-foreground mb-2">Select a conversation</h2>
-                <p className="text-muted-foreground">
-                  Choose a conversation from the list to start messaging
-                </p>
-              </div>
-            </div>
+            <MessagingState
+              title="Your conversations, together"
+              description="Choose a conversation to continue, or start a new message."
+            />
           )}
-        </div>
+        </section>
       </div>
-
-      <CreateGroupModal
-        open={showCreateGroup}
-        onClose={() => setShowCreateGroup(false)}
-        currentUserId={user.id}
-        onGroupCreated={handleSelectConversation}
-      />
-    </div>
+      {groupOpen && (
+        <CreateGroupModal
+          open
+          onClose={() => setGroupOpen(false)}
+          currentUserId={user.id}
+          onGroupCreated={select}
+        />
+      )}
+      {newOpen && (
+        <NewConversationModal
+          open
+          onClose={() => setNewOpen(false)}
+          currentUserId={user.id}
+          onCreated={select}
+        />
+      )}
+    </main>
   );
-};
-
-export default Messages;
+}

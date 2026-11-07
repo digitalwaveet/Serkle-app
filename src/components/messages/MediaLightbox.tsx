@@ -1,10 +1,10 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { createPortal } from 'react-dom';
-import { X, ChevronLeft, ChevronRight, Download } from 'lucide-react';
-import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
-import type { MediaItem } from './MediaGroupMosaic';
-import { useChatMediaUrls } from '@/hooks/useChatMediaUrls';
-import { SerkleLoader } from '@/components/ui/SerkleLoader';
+import React, { useState, useRef, useCallback, useEffect } from "react";
+import { Dialog, DialogContent, DialogTitle } from "./MessagingDialog";
+import { X, ChevronLeft, ChevronRight, Download } from "lucide-react";
+import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
+import type { MediaItem } from "./MediaGroupMosaic";
+import { useChatMediaUrls } from "@/hooks/useChatMediaUrls";
+import { SerkleLoader } from "@/components/ui/SerkleLoader";
 
 interface MediaLightboxProps {
   items: MediaItem[];
@@ -12,30 +12,36 @@ interface MediaLightboxProps {
   onClose: () => void;
 }
 
-const MediaLightbox: React.FC<MediaLightboxProps> = ({ items, initialIndex, onClose }) => {
+const MediaLightbox: React.FC<MediaLightboxProps> = ({
+  items,
+  initialIndex,
+  onClose,
+}) => {
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const touchStart = useRef<{ x: number; y: number } | null>(null);
   const source = items[currentIndex];
   const media = useChatMediaUrls([source.url]);
   const item = { ...source, url: media.url(source.url) };
+  const [failed, setFailed] = useState(false),
+    [attempt, setAttempt] = useState(0);
+  useEffect(() => setFailed(false), [item.url, currentIndex]);
 
   const goNext = useCallback(() => {
-    if (currentIndex < items.length - 1) setCurrentIndex(i => i + 1);
+    if (currentIndex < items.length - 1) setCurrentIndex((i) => i + 1);
   }, [currentIndex, items.length]);
 
   const goPrev = useCallback(() => {
-    if (currentIndex > 0) setCurrentIndex(i => i - 1);
+    if (currentIndex > 0) setCurrentIndex((i) => i - 1);
   }, [currentIndex]);
 
   // Keyboard navigation
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-      if (e.key === 'ArrowRight') goNext();
-      if (e.key === 'ArrowLeft') goPrev();
+      if (e.key === "ArrowRight") goNext();
+      if (e.key === "ArrowLeft") goPrev();
     };
-    window.addEventListener('keydown', handleKey);
-    return () => window.removeEventListener('keydown', handleKey);
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
   }, [onClose, goNext, goPrev]);
 
   // Swipe handling (only when not zoomed)
@@ -57,10 +63,10 @@ const MediaLightbox: React.FC<MediaLightboxProps> = ({ items, initialIndex, onCl
   };
 
   const handleDownload = () => {
-    const link = document.createElement('a');
+    const link = document.createElement("a");
     link.href = item.url;
     link.download = `media-${currentIndex + 1}`;
-    link.target = '_blank';
+    link.target = "_blank";
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -68,7 +74,7 @@ const MediaLightbox: React.FC<MediaLightboxProps> = ({ items, initialIndex, onCl
 
   const content = (
     <div
-      className="fixed inset-0 z-[100] bg-black/95 flex flex-col animate-fade-in select-none"
+      className="h-full bg-black/95 flex flex-col select-none"
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
     >
@@ -76,6 +82,7 @@ const MediaLightbox: React.FC<MediaLightboxProps> = ({ items, initialIndex, onCl
       <div className="flex items-center justify-between px-4 py-3 safe-top z-10">
         <button
           type="button"
+          aria-label="Close media viewer"
           onClick={onClose}
           className="p-2 rounded-full hover:bg-card/10 transition-colors active:scale-90"
         >
@@ -102,35 +109,62 @@ const MediaLightbox: React.FC<MediaLightboxProps> = ({ items, initialIndex, onCl
       {/* Media */}
       <div className="flex-1 flex items-center justify-center relative overflow-hidden">
         {!item.url ? (
-          media.failed(source.url)
-            ? <button type="button" onClick={media.retry} className="min-h-11 px-4 text-white">Attachment unavailable · Retry</button>
-            : <SerkleLoader size="md" dark label="Loading private attachment" />
-        ) : item.type === 'video' ? (
+          media.failed(source.url) ? (
+            <button
+              type="button"
+              onClick={media.retry}
+              className="min-h-11 px-4 text-white"
+            >
+              Attachment unavailable · Retry
+            </button>
+          ) : (
+            <SerkleLoader size="md" dark label="Loading private attachment" />
+          )
+        ) : failed ? (
+          <button
+            className="msg-button secondary"
+            onClick={() => {
+              setFailed(false);
+              setAttempt((value) => value + 1);
+              media.retry();
+            }}
+          >
+            Media unavailable · Retry
+          </button>
+        ) : item.type === "video" ? (
           <video
-            key={item.id}
+            key={`${item.id}-${attempt}`}
             src={item.url}
             controls
             autoPlay
             playsInline
+            onError={() => setFailed(true)}
             className="max-w-full max-h-full"
           />
         ) : (
           <TransformWrapper
-            key={item.id}
+            key={`${item.id}-${attempt}`}
             initialScale={1}
             minScale={1}
             maxScale={5}
-            doubleClick={{ mode: 'toggle', step: 2 }}
+            doubleClick={{ mode: "toggle", step: 2 }}
             wheel={{ step: 0.2 }}
             panning={{ velocityDisabled: true }}
           >
             <TransformComponent
-              wrapperStyle={{ width: '100%', height: '100%' }}
-              contentStyle={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              wrapperStyle={{ width: "100%", height: "100%" }}
+              contentStyle={{
+                width: "100%",
+                height: "100%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
             >
               <img
                 src={item.url}
-                alt=""
+                alt={source.caption || "Shared photo"}
+                onError={() => setFailed(true)}
                 className="max-w-full max-h-full object-contain"
                 draggable={false}
               />
@@ -143,6 +177,7 @@ const MediaLightbox: React.FC<MediaLightboxProps> = ({ items, initialIndex, onCl
           <button
             type="button"
             onClick={goPrev}
+            aria-label="Previous attachment"
             className="hidden md:flex absolute left-3 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/50 hover:bg-black/70 text-white transition-colors"
           >
             <ChevronLeft className="h-6 w-6" />
@@ -152,6 +187,7 @@ const MediaLightbox: React.FC<MediaLightboxProps> = ({ items, initialIndex, onCl
           <button
             type="button"
             onClick={goNext}
+            aria-label="Next attachment"
             className="hidden md:flex absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/50 hover:bg-black/70 text-white transition-colors"
           >
             <ChevronRight className="h-6 w-6" />
@@ -167,17 +203,37 @@ const MediaLightbox: React.FC<MediaLightboxProps> = ({ items, initialIndex, onCl
               key={i}
               type="button"
               onClick={() => setCurrentIndex(i)}
-              className={`w-2 h-2 rounded-full transition-all ${
-                i === currentIndex ? 'bg-card scale-125' : 'bg-card/40'
-              }`}
-            />
+              aria-label={`View attachment ${i + 1}`}
+              aria-current={i === currentIndex ? "true" : undefined}
+              className="w-11 h-11 grid place-items-center"
+            >
+              <span
+                className={`w-2 h-2 rounded-full ${i === currentIndex ? "bg-white" : "bg-white/40"}`}
+              />
+            </button>
           ))}
         </div>
       )}
     </div>
   );
 
-  return createPortal(content, document.body);
+  return (
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <DialogContent
+        hideClose
+        className="msg-fullscreen"
+        aria-describedby={undefined}
+      >
+        <DialogTitle className="sr-only">Media viewer</DialogTitle>
+        {content}
+      </DialogContent>
+    </Dialog>
+  );
 };
 
 export default MediaLightbox;

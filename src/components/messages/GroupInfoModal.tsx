@@ -1,245 +1,49 @@
-import { SerkleLoader } from '@/components/ui/SerkleLoader';
-import React, { useState } from 'react';
-import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import * as VisuallyHidden from '@radix-ui/react-visually-hidden';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { Switch } from '@/components/ui/switch';
-import { Pencil, UserPlus, Link2, Check, X, Users, Crown, Shield, ShieldOff, LogOut, UserMinus, BellOff, Bell, Camera, Image, BarChart3, Plus, QrCode, Info, MessageSquare } from 'lucide-react';
-import { toast } from 'sonner';
-import { supabase } from '@/integrations/supabase/client';
-import { CustomFilePicker } from '@/components/CustomFilePicker';
-import { useQueryClient } from '@tanstack/react-query';
-import FriendPicker from '@/components/circles/FriendPicker';
-import { useGroupMembers, useGroupInfo, useGroupMute, useSharedMedia, useGroupPolls } from '@/hooks/useGroupManagement';
-import { useChatMediaUrls } from '@/hooks/useChatMediaUrls';
-
-/* ─────── Premium Dark Theme Styles ─────── */
-const groupModalStyles = `
-  @keyframes groupModalSlideUp {
-    from { opacity: 0; transform: translateY(24px); }
-    to   { opacity: 1; transform: translateY(0); }
-  }
-  .group-modal-card {
-    animation: groupModalSlideUp 0.4s ease-out both;
-  }
-
-  /* Friend picker overlay */
-  .g-friend-picker-overlay {
-    position: absolute;
-    inset: 0;
-    z-index: 50;
-    background: rgba(42,26,14,0.95);
-    backdrop-filter: blur(8px);
-    display: flex;
-    flex-direction: column;
-    padding: 16px;
-    border-radius: 16px;
-    animation: groupModalSlideUp 0.25s ease-out both;
-  }
-
-  .group-avatar-ring {
-    background: conic-gradient(from 0deg, #E09F4D, #713A20, #FFE2BE, #E09F4D);
-    border-radius: 50%;
-    padding: 3px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .group-avatar-ring .avatar-inner {
-    border-radius: 50%;
-    overflow: hidden;
-    width: 80px;
-    height: 80px;
-  }
-
-  .g-action-btn {
-    transition: all 0.18s ease;
-    cursor: pointer;
-    background: none;
-    border: none;
-  }
-  .g-action-btn:hover {
-    background: rgba(224,159,77,0.12);
-    box-shadow: 0 0 10px rgba(224,159,77,0.2);
-    transform: scale(1.06);
-  }
-
-  @keyframes gTabExpand {
-    from { width: 0; }
-    to   { width: 100%; }
-  }
-  .g-tab-btn {
-    position: relative;
-    transition: color 0.15s;
-    cursor: pointer;
-    background: none;
-    border: none;
-    padding: 0 4px 10px;
-    font-size: 12px;
-    font-weight: 600;
-    color: rgba(255,226,190,0.4);
-    white-space: nowrap;
-  }
-  .g-tab-btn::after {
-    content: '';
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    height: 2px;
-    width: 0;
-    background: #E09F4D;
-    border-radius: 1px;
-    transition: width 0.25s ease;
-  }
-  .g-tab-btn.active { color: #E09F4D; }
-  .g-tab-btn.active::after { animation: gTabExpand 0.25s ease forwards; }
-
-  .g-close-btn {
-    transition: background 0.2s, transform 0.2s;
-    cursor: pointer;
-  }
-  .g-close-btn:hover {
-    background: rgba(255,255,255,0.15);
-    transform: rotate(90deg);
-  }
-
-  .g-row-hover {
-    cursor: pointer;
-    border-radius: 8px;
-    transition: background 0.15s;
-  }
-  .g-row-hover:hover {
-    background: rgba(255,226,190,0.04);
-  }
-
-  .g-scroll::-webkit-scrollbar { width: 4px; }
-  .g-scroll::-webkit-scrollbar-track { background: transparent; }
-  .g-scroll::-webkit-scrollbar-thumb { background: rgba(255,226,190,0.08); border-radius: 10px; }
-
-  .g-btn-outline {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-    padding: 10px 12px;
-    border-radius: 10px;
-    border: 1px solid rgba(255,226,190,0.08);
-    background: transparent;
-    color: #FFE2BE;
-    font-size: 13px;
-    cursor: pointer;
-    transition: background 0.15s, border-color 0.15s;
-  }
-  .g-btn-outline:hover {
-    background: rgba(255,226,190,0.04);
-    border-color: rgba(255,226,190,0.15);
-  }
-  .g-btn-outline.danger {
-    color: #f87171;
-    border-color: rgba(248,113,113,0.15);
-  }
-  .g-btn-outline.danger:hover {
-    background: rgba(248,113,113,0.06);
-  }
-
-  .g-btn-solid {
-    padding: 6px 16px;
-    border-radius: 8px;
-    border: none;
-    font-size: 12px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: opacity 0.15s;
-  }
-  .g-btn-solid:disabled { opacity: 0.4; cursor: not-allowed; }
-  .g-btn-solid.primary { background: #E09F4D; color: #2a1a0e; }
-  .g-btn-solid.ghost { background: transparent; color: rgba(255,226,190,0.5); }
-  .g-btn-solid.ghost:hover { color: #FFE2BE; }
-  .g-btn-solid.secondary { background: #3a2212; color: #FFE2BE; }
-
-  .g-input {
-    width: 100%;
-    padding: 8px 12px;
-    border-radius: 8px;
-    border: 1px solid rgba(255,226,190,0.12);
-    background: #3a2212;
-    color: #FFE2BE;
-    font-size: 13px;
-    outline: none;
-    transition: border-color 0.15s;
-  }
-  .g-input:focus { border-color: #E09F4D; }
-  .g-input::placeholder { color: rgba(255,226,190,0.3); }
-
-  .g-textarea {
-    width: 100%;
-    padding: 8px 12px;
-    border-radius: 8px;
-    border: 1px solid rgba(255,226,190,0.12);
-    background: #3a2212;
-    color: #FFE2BE;
-    font-size: 13px;
-    outline: none;
-    resize: vertical;
-    min-height: 60px;
-    font-family: inherit;
-  }
-  .g-textarea:focus { border-color: #E09F4D; }
-  .g-textarea::placeholder { color: rgba(255,226,190,0.3); }
-
-  .g-poll-bar {
-    height: 6px;
-    border-radius: 3px;
-    background: rgba(255,226,190,0.08);
-    overflow: hidden;
-  }
-  .g-poll-fill {
-    height: 100%;
-    border-radius: 3px;
-    background: #E09F4D;
-    transition: width 0.3s ease;
-  }
-
-  .g-member-actions {
-    display: none;
-    gap: 4px;
-  }
-  .g-member-row:hover .g-member-actions {
-    display: flex;
-  }
-  .g-icon-btn {
-    width: 28px;
-    height: 28px;
-    border-radius: 6px;
-    border: none;
-    background: transparent;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    color: rgba(255,226,190,0.5);
-    transition: background 0.15s, color 0.15s;
-  }
-  .g-icon-btn:hover { background: rgba(255,226,190,0.08); color: #FFE2BE; }
-  .g-icon-btn.danger { color: #f87171; }
-  .g-icon-btn.danger:hover { background: rgba(248,113,113,0.08); }
-
-  .g-media-cell {
-    overflow: hidden;
-    cursor: pointer;
-    transition: transform 0.2s ease;
-    position: relative;
-    border-radius: 6px;
-    background: #3a2212;
-  }
-  .g-media-cell:hover { transform: scale(1.04); }
-`;
-
-interface Friend { id: string; name: string; username: string; avatar_url: string | null; initials: string; avatar_color: string; }
-
-interface GroupInfoModalProps {
+import { useRef, useState } from "react";
+import {
+  Bell,
+  BellOff,
+  Camera,
+  Check,
+  ChevronRight,
+  Image,
+  Link2,
+  LogOut,
+  MessageSquare,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  Shield,
+  UserPlus,
+  Users,
+  X,
+} from "lucide-react";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import FriendPicker from "@/components/circles/FriendPicker";
+import {
+  useGroupMembers,
+  useGroupInfo,
+  useGroupMute,
+  useGroupPolls,
+  chatRpc,
+} from "@/hooks/useGroupManagement";
+import { useSharedChatHistory } from "@/hooks/useSharedChatHistory";
+import { messageCount } from "@/lib/messagingPresentation";
+import { SerkleLoader } from "@/components/ui/SerkleLoader";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "./MessagingDialog";
+import MessagingProfileFrame from "./MessagingProfileFrame";
+import MessagingConfirm from "./MessagingConfirm";
+import { MessagingLoading, MessagingState } from "./MessagingState";
+import SharedChatContent from "./SharedChatContent";
+import PollMessageBubble from "./PollMessageBubble";
+import InviteQrCode from "./InviteQrCode";
+interface Props {
   isOpen: boolean;
   onClose: () => void;
   conversationId: string;
@@ -247,526 +51,996 @@ interface GroupInfoModalProps {
   groupAvatarUrl: string | null;
   currentUserId: string;
   createdBy?: string;
+  onLeft?: () => void;
+  presentation?: "dialog" | "panel";
+  onViewMessage?: (id: string) => void;
+  onMediaSelect?: (url: string, type: "photo" | "video") => void;
 }
-
-type GTab = 'info' | 'members' | 'media' | 'polls';
-
-const GroupInfoModal: React.FC<GroupInfoModalProps> = ({
-  isOpen, onClose, conversationId, groupName, groupAvatarUrl, currentUserId, createdBy,
-}) => {
-  const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<GTab>('info');
-
-  // State
-  const [isEditingName, setIsEditingName] = useState(false);
-  const [editedName, setEditedName] = useState(groupName);
-  const [isEditingDesc, setIsEditingDesc] = useState(false);
-  const [editedDesc, setEditedDesc] = useState('');
-  const [isAddingMembers, setIsAddingMembers] = useState(false);
-  const [selectedFriends, setSelectedFriends] = useState<Friend[]>([]);
-  const [isAddingSaving, setIsAddingSaving] = useState(false);
-  const [showQR, setShowQR] = useState(false);
-  const [showMuteOptions, setShowMuteOptions] = useState(false);
-
-  // Poll creation state
-  const [showPollForm, setShowPollForm] = useState(false);
-  const [pollQuestion, setPollQuestion] = useState('');
-  const [pollOptions, setPollOptions] = useState(['', '']);
-  const [pollAnonymous, setPollAnonymous] = useState(false);
-  const [pollMultiple, setPollMultiple] = useState(false);
-
-  // Hooks
-  const { members, isLoading: membersLoading, promoteToAdmin, demoteAdmin, removeMember, leaveGroup } = useGroupMembers(conversationId, isOpen);
-  const { groupInfo, updateDescription, updateAvatar, updateName } = useGroupInfo(conversationId, isOpen);
-  const { isMuted, mute, unmute } = useGroupMute(conversationId, currentUserId);
-  const { data: sharedMedia = [] } = useSharedMedia(conversationId, isOpen);
-  const privateMedia = useChatMediaUrls(sharedMedia.map(item => item.attachment_url), isOpen);
-  const { polls, createPoll, endPoll, vote, unvote } = useGroupPolls(conversationId, currentUserId, isOpen);
-
-  const resolvedCreatedBy = groupInfo?.created_by || createdBy;
-  const isCreator = currentUserId === resolvedCreatedBy;
-  const currentMember = members.find(m => m.id === currentUserId);
-  const isAdmin = currentMember?.is_admin || isCreator;
-  const inviteLink = `${window.location.origin}/messages?join_group=${conversationId}`;
-
-  const handleSaveName = async () => {
-    if (!editedName.trim()) return;
-    await updateName.mutateAsync(editedName.trim());
-    setIsEditingName(false);
-  };
-
-  const handleSaveDesc = async () => {
-    await updateDescription.mutateAsync(editedDesc.trim());
-    setIsEditingDesc(false);
-  };
-
-  const handleAddMembers = async () => {
-    if (selectedFriends.length === 0) return;
-    setIsAddingSaving(true);
+export default function GroupInfoModal({
+  isOpen,
+  onClose,
+  conversationId,
+  groupName,
+  groupAvatarUrl,
+  currentUserId,
+  onLeft,
+  presentation,
+  onViewMessage,
+  onMediaSelect,
+}: Props) {
+  const members = useGroupMembers(conversationId, isOpen, currentUserId),
+    info = useGroupInfo(conversationId, isOpen, currentUserId),
+    muting = useGroupMute(conversationId, currentUserId, isOpen),
+    polls = useGroupPolls(conversationId, currentUserId, isOpen),
+    history = useSharedChatHistory(conversationId, isOpen);
+  const [tab, setTab] = useState("overview"),
+    [editing, setEditing] = useState<"name" | "description" | null>(null),
+    [value, setValue] = useState(""),
+    [error, setError] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [adding, setAdding] = useState(false),
+    [friends, setFriends] = useState<any[]>([]),
+    [target, setTarget] = useState<any>(null),
+    [confirm, setConfirm] = useState<{
+      title: string;
+      description: string;
+      action: string;
+      run: () => Promise<unknown>;
+    } | null>(null);
+  const [invite, setInvite] = useState<{
+      url: string;
+      expiresAt: string;
+    } | null>(null),
+    [invitePending, setInvitePending] = useState(false),
+    [muteOpen, setMuteOpen] = useState(false),
+    [transferring, setTransferring] = useState(false),
+    [newOwner, setNewOwner] = useState("");
+  const [pollOpen, setPollOpen] = useState(false),
+    [question, setQuestion] = useState(""),
+    [options, setOptions] = useState(["", ""]),
+    [anonymous, setAnonymous] = useState(false),
+    [multiple, setMultiple] = useState(false);
+  const pollRequest = useRef(crypto.randomUUID()),
+    actionLock = useRef(false);
+  const roleKnown =
+    !members.isLoading && !members.error && !info.isLoading && !info.error;
+  const self = members.members.find((member) => member.id === currentUserId),
+    owner = roleKnown && info.groupInfo?.created_by === currentUserId,
+    admin = roleKnown && !!self?.is_admin;
+  const name = info.groupInfo?.group_name || groupName || "Group conversation",
+    description = info.groupInfo?.description || "",
+    avatar = info.groupInfo?.group_avatar_url || groupAvatarUrl;
+  const avatarInput = useRef<HTMLInputElement>(null);
+  const busy =
+    members.promoteToAdmin.isPending ||
+    members.demoteAdmin.isPending ||
+    members.removeMember.isPending ||
+    members.leaveGroup.isPending ||
+    members.addMembers.isPending ||
+    members.transferOwnership.isPending ||
+    info.updateName.isPending ||
+    info.updateDescription.isPending ||
+    info.updateAvatar.isPending ||
+    invitePending ||
+    polls.createPoll.isPending;
+  const run = async (callback: () => Promise<unknown>) => {
+    if (actionLock.current) return;
+    actionLock.current = true;
+    setError("");
     try {
-      const { error } = await supabase.from('conversation_members').insert(
-        selectedFriends.map(f => ({ conversation_id: conversationId, user_id: f.id }))
-      );
-      if (error) throw error;
-      queryClient.invalidateQueries({ queryKey: ['group-members', conversationId] });
-      queryClient.invalidateQueries({ queryKey: ['conversations'] });
-      toast.success(`Added ${selectedFriends.length} member(s)`);
-      setIsAddingMembers(false);
-      setSelectedFriends([]);
-    } catch (err: any) {
-      toast.error(err.code === '23505' ? 'Some members already in group' : 'Failed to add members');
+      await callback();
+    } catch {
+      setError("This change could not be saved. Please try again.");
     } finally {
-      setIsAddingSaving(false);
+      actionLock.current = false;
     }
   };
-
-  const handleCreatePoll = () => {
-    const validOptions = pollOptions.filter(o => o.trim());
-    if (!pollQuestion.trim() || validOptions.length < 2) {
-      toast.error('Need a question and at least 2 options');
-      return;
-    }
-    createPoll.mutate({ question: pollQuestion, options: validOptions, is_anonymous: pollAnonymous, is_multiple_choice: pollMultiple });
-    setPollQuestion(''); setPollOptions(['', '']); setShowPollForm(false);
-    setPollAnonymous(false); setPollMultiple(false);
-  };
-
-  const handleLeave = () => {
-    if (confirm('Are you sure you want to leave this group?')) {
-      leaveGroup.mutate(currentUserId, { onSuccess: onClose });
-    }
-  };
-
-  const displayAvatar = groupInfo?.group_avatar_url || groupAvatarUrl;
-  const displayName = groupInfo?.group_name || groupName;
-  const description = groupInfo?.description || '';
-
-  const tabDefs: { key: GTab; label: string }[] = [
-    { key: 'info', label: 'Info' },
-    { key: 'members', label: `Members (${members.length})` },
-    { key: 'media', label: `Media (${sharedMedia.length})` },
-    { key: 'polls', label: `Polls (${polls.length})` },
-  ];
-
+  const createInvite = () =>
+    void run(async () => {
+      setCopied(false);
+      setInvitePending(true);
+      try {
+        const result = await chatRpc<{ token: string; expires_at: string }>(
+          "create_chat_group_invite",
+          { p_conversation_id: conversationId },
+        );
+        setInvite({
+          url: `${window.location.origin}/messages?invite=${result.token}`,
+          expiresAt: result.expires_at,
+        });
+      } finally {
+        setInvitePending(false);
+      }
+    });
+  const renderMember = (member: any) => (
+    <div className="msg-member" key={member.id}>
+      <Avatar className="msg-avatar">
+        <AvatarImage src={member.avatar_url || undefined} alt="" />
+        <AvatarFallback className="msg-avatar">
+          {member.initials || member.name.slice(0, 2)}
+        </AvatarFallback>
+      </Avatar>
+      <div className="copy">
+        <strong>{member.id === currentUserId ? "You" : member.name}</strong>
+        <p>{member.username ? `@${member.username}` : "Member"}</p>
+      </div>
+      {member.is_creator ? (
+        <span className="msg-role">Owner</span>
+      ) : member.is_admin ? (
+        <span className="msg-role">Admin</span>
+      ) : null}
+      {admin && member.id !== currentUserId && !member.is_creator && (
+        <button
+          className="msg-icon"
+          aria-label={`Manage ${member.name}`}
+          onClick={() => {
+            setError("");
+            setTarget(member);
+          }}
+        >
+          <MoreHorizontal aria-hidden="true" />
+        </button>
+      )}
+    </div>
+  );
   return (
-    <Dialog open={isOpen} onOpenChange={open => !open && onClose()}>
-      <DialogContent
-        className="max-w-[380px] p-0 overflow-hidden border-none shadow-[0_24px_64px_rgba(0,0,0,0.6)] outline-none rounded-[16px] gap-0"
-        style={{ background: 'rgba(42,26,14,0.85)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)' }}
-        aria-describedby={undefined}
+    <>
+      <MessagingProfileFrame
+        open={isOpen}
+        onClose={onClose}
+        title="Group profile"
+        presentation={presentation}
+        busy={busy}
       >
-        <VisuallyHidden.Root><DialogTitle>Group Info</DialogTitle></VisuallyHidden.Root>
-        <style dangerouslySetInnerHTML={{ __html: groupModalStyles }} />
-
-        <div className="group-modal-card" style={{ position: 'relative' }}>
-          {/* ─── Header with Gradient ─── */}
-          <div
-            className="relative overflow-hidden"
-            style={{ background: 'linear-gradient(160deg, #9B5230 0%, #713A20 60%, #4d2714 100%)', padding: '20px 16px 24px' }}
-          >
+        <div className="msg-profile-hero">
+          <div className="relative">
+            <Avatar className="msg-avatar">
+              <AvatarImage src={avatar || undefined} alt="" />
+              <AvatarFallback className="msg-avatar">
+                <Users aria-hidden="true" />
+              </AvatarFallback>
+            </Avatar>
+            {admin && (
+              <>
+                <input
+                  ref={avatarInput}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/gif,image/avif"
+                  className="hidden"
+                  aria-label="Group avatar image"
+                  disabled={busy}
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file)
+                      void run(() =>
+                        info.updateAvatar.mutateAsync(file),
+                      ).finally(() => {
+                        if (avatarInput.current) avatarInput.current.value = "";
+                      });
+                  }}
+                />
+                <button
+                  className="msg-icon absolute -bottom-2 -right-2 bg-background border border-border"
+                  aria-label="Change group avatar"
+                  disabled={busy}
+                  onClick={() => avatarInput.current?.click()}
+                >
+                  <Camera aria-hidden="true" />
+                </button>
+              </>
+            )}
+          </div>
+          <h2>{name}</h2>
+          <p>
+            Group ·{" "}
+            {roleKnown
+              ? messageCount(members.members.length, "member")
+              : "Member count unavailable"}
+          </p>
+          {roleKnown && (
+            <span className="msg-role">
+              <Shield aria-hidden="true" />
+              {owner
+                ? "You’re the owner"
+                : admin
+                  ? "You’re an admin"
+                  : "Group member"}
+            </span>
+          )}
+        </div>
+        <div className="msg-quick-actions">
+          <button onClick={onClose}>
+            <MessageSquare aria-hidden="true" />
+            Open chat
+          </button>
+          {admin ? (
+            <>
+              <button
+                onClick={() => {
+                  setError("");
+                  setAdding(true);
+                }}
+                disabled={busy}
+              >
+                <UserPlus aria-hidden="true" />
+                Add members
+              </button>
+              <button onClick={createInvite} disabled={busy}>
+                <Link2 aria-hidden="true" />
+                {invitePending ? "Creating link…" : "Invite"}
+              </button>
+            </>
+          ) : (
+            <>
+              <button onClick={() => setTab("members")}>
+                <Users aria-hidden="true" />
+                Members
+              </button>
+              <button onClick={() => setTab("media")}>
+                <Image aria-hidden="true" />
+                Shared media
+              </button>
+            </>
+          )}
+        </div>
+        {error && (
+          <p role="alert" className="msg-error">
+            {error}
+          </p>
+        )}
+        {(members.error || info.error) && (
+          <p className="msg-error" role="alert">
+            Group details and permissions couldn’t be checked.
             <button
-              onClick={onClose}
-              className="g-close-btn absolute top-3 right-3 w-8 h-8 rounded-full flex items-center justify-center"
-              style={{ background: 'rgba(0,0,0,0.15)', color: 'rgba(255,226,190,0.7)' }}
+              className="msg-button quiet"
+              onClick={() => {
+                void members.refetch();
+                void info.refetch();
+              }}
             >
-              <X className="w-4 h-4" />
+              Retry group details
             </button>
-
-            <div className="flex flex-col items-center mt-2">
-              {/* Avatar with ring */}
-              <div className="relative mb-4">
-                <div className="group-avatar-ring">
-                  <div className="avatar-inner">
-                    <Avatar className="w-full h-full" style={{ width: 80, height: 80 }}>
-                      <AvatarImage src={displayAvatar || undefined} />
-                      <AvatarFallback
-                        className="text-2xl font-bold text-white"
-                        style={{ background: '#9B5230', width: 80, height: 80, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                      >
-                        {displayName.substring(0, 2).toUpperCase()}
-                      </AvatarFallback>
-                    </Avatar>
-                  </div>
-                </div>
-                {isAdmin && (
-                  <CustomFilePicker
-                    onUpload={async (file) => { await updateAvatar.mutateAsync(file as File); }}
-                    accept="image/*"
-                    hidePreviewList
+          </p>
+        )}
+        <div
+          className="msg-tabs"
+          role="group"
+          aria-label="Group profile sections"
+        >
+          {["overview", "members", "media", "polls"].map((key) => (
+            <button
+              key={key}
+              aria-pressed={tab === key}
+              onClick={() => setTab(key)}
+            >
+              {key.charAt(0).toUpperCase() + key.slice(1)}
+              {key === "members" && roleKnown
+                ? ` ${members.members.length}`
+                : ""}
+            </button>
+          ))}
+        </div>
+        {tab === "overview" && (
+          <>
+            <section className="msg-panel">
+              <div className="msg-panel-heading">
+                About this group
+                {admin && (
+                  <button
+                    className="msg-icon"
+                    aria-label="Edit group description"
+                    disabled={busy}
+                    onClick={() => {
+                      setValue(description);
+                      setEditing("description");
+                      setError("");
+                    }}
                   >
-                    <button
-                      className="absolute bottom-0 right-0 rounded-full p-1.5 shadow-md"
-                      style={{ background: '#E09F4D', color: '#2a1a0e' }}
-                    >
-                      <Camera className="h-3.5 w-3.5" />
-                    </button>
-                  </CustomFilePicker>
+                    <Pencil aria-hidden="true" />
+                  </button>
                 )}
               </div>
-
-              {/* Name */}
-              {isEditingName ? (
-                <div className="flex items-center gap-2 w-full max-w-xs">
-                  <input
-                    className="g-input text-center"
-                    value={editedName}
-                    onChange={e => setEditedName(e.target.value)}
-                    autoFocus
-                  />
-                  <button className="g-icon-btn" onClick={handleSaveName} disabled={updateName.isPending}>
-                    {updateName.isPending ? <SerkleLoader size="xs" className="text-current" style={{ color: '#E09F4D' }}/> : <Check className="h-4 w-4" style={{ color: '#4ade80' }} />}
-                  </button>
-                  <button className="g-icon-btn" onClick={() => { setIsEditingName(false); setEditedName(displayName); }}>
-                    <X className="h-4 w-4" style={{ color: '#f87171' }} />
-                  </button>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <h2 className="font-bold leading-tight text-center" style={{ fontSize: 20, color: '#FFE2BE' }}>
-                    {displayName}
-                  </h2>
-                  {isAdmin && (
-                    <button className="g-icon-btn" onClick={() => setIsEditingName(true)}>
-                      <Pencil className="h-3.5 w-3.5" style={{ color: 'rgba(255,226,190,0.5)' }} />
-                    </button>
-                  )}
-                </div>
+              <p>{description || "No description added."}</p>
+              {admin && (
+                <button
+                  className="msg-button quiet"
+                  onClick={() => {
+                    setValue(name);
+                    setEditing("name");
+                    setError("");
+                  }}
+                >
+                  Edit group name
+                </button>
               )}
-              <span style={{ fontSize: 13, color: 'rgba(255,226,190,0.5)' }}>
-                {members.length} members
-              </span>
-            </div>
-          </div>
-
-          {/* ─── Action Buttons ─── */}
-          <div
-            className="flex justify-around items-center py-3"
-            style={{ background: '#2a1a0e', borderBottom: '1px solid rgba(255,226,190,0.08)' }}
-          >
-            {[
-              { icon: <MessageSquare className="w-5 h-5" />, label: 'Message', accent: true, onClick: onClose },
-              { icon: isMuted ? <Bell className="w-5 h-5" /> : <BellOff className="w-5 h-5" />, label: isMuted ? 'Unmute' : 'Mute', onClick: () => isMuted ? unmute.mutate() : setShowMuteOptions(!showMuteOptions) },
-              { icon: <UserPlus className="w-5 h-5" />, label: 'Add', onClick: () => { setActiveTab('info'); setIsAddingMembers(true); } },
-              { icon: <Link2 className="w-5 h-5" />, label: 'Invite', onClick: () => { navigator.clipboard.writeText(inviteLink); toast.success('Link copied'); } },
-            ].map((btn) => (
+            </section>
+            <section className="msg-panel py-1">
               <button
-                key={btn.label}
-                onClick={btn.onClick}
-                className="g-action-btn flex flex-col items-center gap-1.5 px-4 py-2 rounded-xl"
+                className="msg-setting"
+                aria-label={
+                  muting.isMuted
+                    ? "Unmute group notifications"
+                    : "Mute group notifications"
+                }
+                disabled={
+                  muting.isLoading ||
+                  !!muting.error ||
+                  muting.mute.isPending ||
+                  muting.unmute.isPending
+                }
+                onClick={() =>
+                  muting.isMuted
+                    ? void run(() => muting.unmute.mutateAsync())
+                    : setMuteOpen(true)
+                }
               >
-                <span style={{ color: btn.accent ? '#E09F4D' : 'rgba(255,226,190,0.6)' }}>{btn.icon}</span>
-                <span className="font-medium" style={{ fontSize: 11, color: btn.accent ? '#E09F4D' : 'rgba(255,226,190,0.6)' }}>
-                  {btn.label}
+                {muting.isMuted ? (
+                  <BellOff aria-hidden="true" />
+                ) : (
+                  <Bell aria-hidden="true" />
+                )}
+                <span>Notifications</span>
+                <span className="detail">
+                  {muting.isLoading
+                    ? "Checking…"
+                    : muting.error
+                      ? "Unavailable"
+                      : muting.isMuted
+                        ? "Muted"
+                        : "On"}
+                  <ChevronRight aria-hidden="true" />
                 </span>
               </button>
-            ))}
-          </div>
-
-          {/* Mute Options */}
-          {showMuteOptions && !isMuted && (
-            <div className="flex justify-center gap-2 py-2 px-4" style={{ background: '#2a1a0e', borderBottom: '1px solid rgba(255,226,190,0.08)' }}>
-              {[{ label: '1 hour', value: '1h' as const }, { label: '24 hours', value: '24h' as const }, { label: 'Forever', value: 'forever' as const }].map(opt => (
+              <button className="msg-setting" onClick={() => setTab("media")}>
+                <Image aria-hidden="true" />
+                Shared content
+                <span className="detail">
+                  <ChevronRight aria-hidden="true" />
+                </span>
+              </button>
+            </section>
+            {muting.error && (
+              <button
+                className="msg-button quiet"
+                onClick={() => void muting.refetch()}
+              >
+                Retry notification settings
+              </button>
+            )}
+            <div className="msg-section-title">
+              <h3>Members {roleKnown ? members.members.length : "—"}</h3>
+              <button onClick={() => setTab("members")}>See all</button>
+            </div>
+            {members.isLoading ? (
+              <MessagingLoading label="Loading group members" />
+            ) : (
+              members.members.slice(0, 3).map(renderMember)
+            )}
+            {owner ? (
+              <button
+                className="msg-setting"
+                onClick={() => {
+                  setError("");
+                  setTransferring(true);
+                }}
+              >
+                <Shield aria-hidden="true" />
+                Transfer ownership
+              </button>
+            ) : roleKnown && self ? (
+              <button
+                className="msg-button danger mt-4"
+                onClick={() =>
+                  setConfirm({
+                    title: "Leave this group?",
+                    description:
+                      "You’ll stop receiving new messages from this group. The group and other members will remain.",
+                    action: "Leave group",
+                    run: async () => {
+                      await members.leaveGroup.mutateAsync(currentUserId);
+                      if (onLeft) onLeft();
+                      else onClose();
+                    },
+                  })
+                }
+              >
+                <LogOut aria-hidden="true" />
+                Leave group
+              </button>
+            ) : null}
+          </>
+        )}
+        {tab === "members" &&
+          (members.isLoading ? (
+            <MessagingLoading label="Loading group members" />
+          ) : members.error ? (
+            <MessagingState
+              title="Members couldn’t be loaded"
+              description="Try loading this group again."
+              onRetry={() => void members.refetch()}
+            />
+          ) : (
+            <>
+              {admin && (
                 <button
-                  key={opt.value}
-                  className="g-btn-solid secondary"
-                  onClick={() => { mute.mutate(opt.value); setShowMuteOptions(false); }}
+                  className="msg-button secondary mb-3"
+                  onClick={() => setAdding(true)}
                 >
-                  {opt.label}
+                  <UserPlus aria-hidden="true" />
+                  Add members
+                </button>
+              )}
+              {members.members.map(renderMember)}
+            </>
+          ))}
+        {tab === "media" && (
+          <>
+            {history.error && (
+              <p className="msg-error" role="alert">
+                Shared content couldn’t be refreshed.
+                <button
+                  className="msg-button quiet"
+                  onClick={() => void history.refetch()}
+                >
+                  Retry shared content
+                </button>
+              </p>
+            )}
+            {history.isLoading ? (
+              <MessagingLoading label="Loading group content" />
+            ) : (
+              <SharedChatContent
+                messages={history.messages}
+                onMediaSelect={(url, type) => {
+                  if (presentation !== "panel") {
+                    onClose();
+                    setTimeout(() => onMediaSelect?.(url, type), 100);
+                  } else onMediaSelect?.(url, type);
+                }}
+                onViewMessage={(id) => {
+                  if (presentation !== "panel") {
+                    onClose();
+                    setTimeout(() => onViewMessage?.(id), 100);
+                  } else onViewMessage?.(id);
+                }}
+              />
+            )}
+            {history.hasNextPage && (
+              <button
+                className="msg-button secondary mt-4"
+                disabled={history.isFetchingNextPage}
+                onClick={() => void history.fetchNextPage()}
+              >
+                Load older shared content
+              </button>
+            )}
+          </>
+        )}
+        {tab === "polls" && (
+          <>
+            {self && (
+              <button
+                className="msg-button secondary mb-4"
+                onClick={() => {
+                  setPollOpen(true);
+                  setError("");
+                }}
+              >
+                <Plus aria-hidden="true" />
+                Create poll
+              </button>
+            )}
+            {polls.isLoading ? (
+              <MessagingLoading label="Loading group polls" />
+            ) : polls.error ? (
+              <MessagingState
+                title="Polls couldn’t be loaded"
+                description="Try loading the group’s polls again."
+                onRetry={() => void polls.refetch()}
+              />
+            ) : !polls.polls.length ? (
+              <MessagingState
+                title="No polls yet"
+                description="Create a poll to hear from the group."
+              />
+            ) : (
+              polls.polls.map((poll: any) => (
+                <section className="msg-panel" key={poll.id}>
+                  <PollMessageBubble
+                    pollId={poll.id}
+                    currentUserId={currentUserId}
+                    isOwn={poll.creator_id === currentUserId}
+                  />
+                </section>
+              ))
+            )}
+          </>
+        )}
+        <Dialog
+          open={!!editing}
+          onOpenChange={(open) => {
+            if (!open && !busy) setEditing(null);
+          }}
+        >
+          <DialogContent busy={busy} aria-describedby={undefined}>
+            <DialogHeader>
+              <DialogTitle>
+                {editing === "name"
+                  ? "Edit group name"
+                  : "Edit group description"}
+              </DialogTitle>
+            </DialogHeader>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                void run(async () => {
+                  if (editing === "name")
+                    await info.updateName.mutateAsync(value);
+                  else await info.updateDescription.mutateAsync(value);
+                  setEditing(null);
+                });
+              }}
+            >
+              <div className="msg-dialog-body">
+                <label htmlFor="group-detail-value">
+                  {editing === "name" ? "Group name" : "Description"}
+                </label>
+                <textarea
+                  id="group-detail-value"
+                  value={value}
+                  onChange={(event) => setValue(event.target.value)}
+                  maxLength={editing === "name" ? 80 : 1000}
+                  disabled={busy}
+                />
+                {error && (
+                  <p className="msg-error" role="alert">
+                    {error}
+                  </p>
+                )}
+              </div>
+              <DialogFooter>
+                <button
+                  type="button"
+                  className="msg-button secondary"
+                  disabled={busy}
+                  onClick={() => setEditing(null)}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="msg-button primary"
+                  type="submit"
+                  disabled={busy || (editing === "name" && !value.trim())}
+                >
+                  Save changes
+                </button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+        <Dialog
+          open={adding}
+          onOpenChange={(open) => {
+            if (!open && !busy) setAdding(false);
+          }}
+        >
+          <DialogContent busy={busy}>
+            <DialogHeader>
+              <DialogTitle>Add members</DialogTitle>
+              <DialogDescription>
+                Existing group members won’t be added again.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="msg-dialog-body">
+              <FriendPicker
+                multiSelect
+                selected={friends}
+                onSelect={setFriends}
+              />
+              {error && (
+                <p className="msg-error" role="alert">
+                  {error}
+                </p>
+              )}
+            </div>
+            <DialogFooter>
+              <button
+                className="msg-button secondary"
+                disabled={busy}
+                onClick={() => setAdding(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className="msg-button primary"
+                disabled={
+                  busy ||
+                  !friends.some(
+                    (friend) =>
+                      !members.members.some(
+                        (member) => member.id === friend.id,
+                      ),
+                  )
+                }
+                onClick={() =>
+                  void run(async () => {
+                    const ids = friends
+                      .map((friend) => friend.id)
+                      .filter(
+                        (id) =>
+                          !members.members.some((member) => member.id === id),
+                      );
+                    await members.addMembers.mutateAsync(ids);
+                    setFriends([]);
+                    setAdding(false);
+                  })
+                }
+              >
+                Add selected members
+              </button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+        <Dialog
+          open={!!target}
+          onOpenChange={(open) => {
+            if (!open && !busy) setTarget(null);
+          }}
+        >
+          <DialogContent busy={busy}>
+            <DialogHeader>
+              <DialogTitle>Member actions</DialogTitle>
+              <DialogDescription>{target?.name}</DialogDescription>
+            </DialogHeader>
+            <div className="msg-dialog-body">
+              {error && (
+                <p role="alert" className="msg-error">
+                  {error}
+                </p>
+              )}
+              <button
+                className="msg-setting"
+                disabled={busy}
+                onClick={() =>
+                  void run(async () => {
+                    if (target.is_admin)
+                      await members.demoteAdmin.mutateAsync(target.id);
+                    else await members.promoteToAdmin.mutateAsync(target.id);
+                    setTarget(null);
+                  })
+                }
+              >
+                <Shield aria-hidden="true" />
+                {target?.is_admin ? "Remove admin role" : "Make admin"}
+              </button>
+              <button
+                className="msg-setting text-destructive"
+                onClick={() => {
+                  const member = target;
+                  setTarget(null);
+                  setConfirm({
+                    title: "Remove this member?",
+                    description: `${member.name} will no longer receive new group messages.`,
+                    action: "Remove member",
+                    run: () => members.removeMember.mutateAsync(member.id),
+                  });
+                }}
+              >
+                <LogOut aria-hidden="true" />
+                Remove member
+              </button>
+            </div>
+          </DialogContent>
+        </Dialog>
+        <Dialog
+          open={!!invite}
+          onOpenChange={(open) => {
+            if (!open) setInvite(null);
+          }}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Invite to this group</DialogTitle>
+              <DialogDescription>
+                Anyone with this link can join until it expires. Share it with
+                people you want in the group.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="msg-dialog-body">
+              <label htmlFor="group-invite-link">Invitation link</label>
+              {invite && <InviteQrCode url={invite.url} />}
+              <input
+                id="group-invite-link"
+                readOnly
+                value={invite?.url || ""}
+                onFocus={(event) => event.target.select()}
+              />
+              <p className="text-xs text-muted-foreground mt-3">
+                Expires {invite && new Date(invite.expiresAt).toLocaleString()}
+              </p>
+              {error && (
+                <p role="alert" className="msg-error">
+                  {error}
+                </p>
+              )}
+              <button
+                className="msg-button secondary mt-4"
+                onClick={() =>
+                  void run(async () => {
+                    await navigator.clipboard.writeText(invite!.url);
+                    setError("");
+                    setCopied(true);
+                  })
+                }
+              >
+                Copy invitation link
+              </button>
+              {copied && (
+                <p className="text-sm mt-2" role="status">
+                  Invitation link copied
+                </p>
+              )}
+              <button
+                className="msg-button danger mt-3"
+                onClick={() =>
+                  setConfirm({
+                    title: "Revoke invitation link?",
+                    description:
+                      "This link and its QR code will stop working. Existing members keep access.",
+                    action: "Revoke link",
+                    run: async () => {
+                      await chatRpc("revoke_chat_group_invite", {
+                        p_token: new URL(invite!.url).searchParams.get(
+                          "invite",
+                        ),
+                      });
+                      setInvite(null);
+                    },
+                  })
+                }
+              >
+                Revoke invitation link
+              </button>
+            </div>
+          </DialogContent>
+        </Dialog>
+        <Dialog open={muteOpen} onOpenChange={setMuteOpen}>
+          <DialogContent busy={muting.mute.isPending}>
+            <DialogHeader>
+              <DialogTitle>Mute group notifications</DialogTitle>
+              <DialogDescription>
+                Unread messages and access to the group will remain.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="msg-dialog-body">
+              {error && (
+                <p role="alert" className="msg-error">
+                  {error}
+                </p>
+              )}
+              {(["1h", "24h", "forever"] as const).map((duration) => (
+                <button
+                  key={duration}
+                  className="msg-setting"
+                  disabled={muting.mute.isPending}
+                  onClick={() =>
+                    void run(async () => {
+                      await muting.mute.mutateAsync(duration);
+                      setMuteOpen(false);
+                    })
+                  }
+                >
+                  <BellOff aria-hidden="true" />
+                  {duration === "1h"
+                    ? "For 1 hour"
+                    : duration === "24h"
+                      ? "For 24 hours"
+                      : "Until I turn it back on"}
                 </button>
               ))}
             </div>
-          )}
-
-          {/* ─── Tab Bar ─── */}
-          <div
-            className="flex gap-4 px-4 pt-2"
-            style={{ borderBottom: '1px solid rgba(255,226,190,0.08)', background: '#2a1a0e' }}
-          >
-            {tabDefs.map((tab) => (
+          </DialogContent>
+        </Dialog>
+        <Dialog
+          open={transferring}
+          onOpenChange={(open) => {
+            if (!open && !busy) setTransferring(false);
+          }}
+        >
+          <DialogContent busy={busy}>
+            <DialogHeader>
+              <DialogTitle>Transfer ownership</DialogTitle>
+              <DialogDescription>
+                The selected member will become the owner. You’ll remain an
+                admin and can leave afterwards.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="msg-dialog-body">
+              {members.members
+                .filter((member) => member.id !== currentUserId)
+                .map((member) => (
+                  <label className="msg-checkbox-label" key={member.id}>
+                    <input
+                      type="radio"
+                      name="new-group-owner"
+                      checked={newOwner === member.id}
+                      onChange={() => setNewOwner(member.id)}
+                    />
+                    {member.name}
+                  </label>
+                ))}
+              {error && (
+                <p role="alert" className="msg-error">
+                  {error}
+                </p>
+              )}
+            </div>
+            <DialogFooter>
               <button
-                key={tab.key}
-                onClick={() => setActiveTab(tab.key)}
-                className={`g-tab-btn ${activeTab === tab.key ? 'active' : ''}`}
+                className="msg-button secondary"
+                onClick={() => setTransferring(false)}
+                disabled={busy}
               >
-                {tab.label}
+                Cancel
               </button>
-            ))}
-          </div>
-
-          {/* ─── Tab Content ─── */}
-          <div className="g-scroll" style={{ height: 280, overflowY: 'auto', background: '#2a1a0e', padding: '8px 12px' }}>
-
-            {/* ── Info Tab ── */}
-            {activeTab === 'info' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {/* Description */}
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,226,190,0.35)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                    Description
-                  </div>
-                  {isEditingDesc ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      <textarea
-                        className="g-textarea"
-                        value={editedDesc}
-                        onChange={e => setEditedDesc(e.target.value)}
-                        placeholder="Group description..."
-                        rows={3}
-                      />
-                      <div style={{ display: 'flex', gap: 8 }}>
-                        <button className="g-btn-solid primary" onClick={handleSaveDesc} disabled={updateDescription.isPending}>Save</button>
-                        <button className="g-btn-solid ghost" onClick={() => setIsEditingDesc(false)}>Cancel</button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div
-                      className="g-row-hover"
-                      style={{ fontSize: 13, color: description ? '#FFE2BE' : 'rgba(255,226,190,0.3)', padding: '8px' }}
-                      onClick={() => { if (isAdmin) { setEditedDesc(description); setIsEditingDesc(true); } }}
-                    >
-                      {description || (isAdmin ? 'Tap to add description...' : 'No description')}
-                    </div>
-                  )}
-                </div>
-
-                {/* Actions */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <button className="g-btn-outline" onClick={() => setIsAddingMembers(true)}>
-                    <UserPlus className="h-4 w-4" style={{ color: '#E09F4D' }} /> Add People
-                  </button>
-                  <button className="g-btn-outline" onClick={() => { navigator.clipboard.writeText(inviteLink); toast.success('Link copied'); }}>
-                    <Link2 className="h-4 w-4" style={{ color: '#E09F4D' }} /> Copy Invite Link
-                  </button>
-                  <button className="g-btn-outline" onClick={() => setShowQR(!showQR)}>
-                    <QrCode className="h-4 w-4" style={{ color: '#E09F4D' }} /> {showQR ? 'Hide' : 'Show'} QR Code
-                  </button>
-                  {showQR && (
-                    <div style={{ display: 'flex', justifyContent: 'center', padding: 12, background: '#3a2212', borderRadius: 10 }}>
-                      <img src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(inviteLink)}`} alt="QR Code" style={{ width: 140, height: 140, borderRadius: 8 }} />
-                    </div>
-                  )}
-                  <button className="g-btn-outline danger" onClick={handleLeave}>
-                    <LogOut className="h-4 w-4" /> Leave Group
-                  </button>
-                </div>
-
-                {/* Add Members — handled by floating overlay */}
-              </div>
-            )}
-
-            {/* ── Members Tab ── */}
-            {activeTab === 'members' && (
-              membersLoading ? (
-                <div style={{ display: 'flex', justifyContent: 'center', padding: '32px 0' }}>
-                  <SerkleLoader size="sm" className="text-current" style={{ color: 'rgba(255,226,190,0.3)' }}/>
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  {members.map(member => (
-                    <div
-                      key={member.id}
-                      className="g-member-row g-row-hover"
-                      style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px' }}
-                    >
-                      <Avatar style={{ width: 40, height: 40 }}>
-                        <AvatarImage src={member.avatar_url || undefined} />
-                        <AvatarFallback className="text-sm font-medium text-white" style={{ background: '#9B5230' }}>
-                          {member.initials}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span className="truncate" style={{ fontSize: 14, fontWeight: 500, color: '#FFE2BE'  }}>{member.name}</span>
-                          {member.is_creator && <Crown className="flex-shrink-0" style={{ width: 14, height: 14, color: '#f59e0b' }} />}
-                          {member.is_admin && !member.is_creator && <Shield className="flex-shrink-0" style={{ width: 14, height: 14, color: '#E09F4D' }} />}
-                          {member.id === currentUserId && <span style={{ fontSize: 11, color: 'rgba(255,226,190,0.35)' }}>(You)</span>}
-                        </div>
-                        <span className="truncate" style={{ fontSize: 12, color: 'rgba(255,226,190,0.4)', display: 'block' }}>@{member.username}</span>
-                      </div>
-                      {isAdmin && member.id !== currentUserId && !member.is_creator && (
-                        <div className="g-member-actions">
-                          {member.is_admin ? (
-                            <button className="g-icon-btn" title="Remove admin" onClick={() => demoteAdmin.mutate(member.id)}>
-                              <ShieldOff className="h-3.5 w-3.5" />
-                            </button>
-                          ) : (
-                            <button className="g-icon-btn" title="Make admin" onClick={() => promoteToAdmin.mutate(member.id)}>
-                              <Shield className="h-3.5 w-3.5" />
-                            </button>
-                          )}
-                          <button className="g-icon-btn danger" title="Remove" onClick={() => removeMember.mutate(member.id)}>
-                            <UserMinus className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )
-            )}
-
-            {/* ── Media Tab ── */}
-            {activeTab === 'media' && (
-              sharedMedia.length === 0 ? (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '48px 0', color: 'rgba(255,226,190,0.2)' }}>
-                  <Image style={{ width: 40, height: 40, marginBottom: 8 }} />
-                  <p style={{ fontSize: 13 }}>No shared media yet</p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-3 gap-1" style={{ overflow: 'hidden' }}>
-                  {sharedMedia.map((item: any) => (
-                    <div key={item.id} className="g-media-cell aspect-square">
-                      {privateMedia.failed(item.attachment_url) ? (
-                        <button type="button" onClick={privateMedia.retry} className="min-h-11 text-xs">Unavailable · Retry</button>
-                      ) : !privateMedia.url(item.attachment_url) ? (
-                        <SerkleLoader size="sm" label="Loading private attachment" />
-                      ) : item.message_type?.startsWith('video') ? (
-                        <video src={privateMedia.url(item.attachment_url)} className="w-full h-full object-cover" />
-                      ) : (
-                        <img src={privateMedia.url(item.attachment_url)} className="w-full h-full object-cover" alt="" loading="lazy" />
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )
-            )}
-
-            {/* ── Polls Tab ── */}
-            {activeTab === 'polls' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <button className="g-btn-outline" onClick={() => setShowPollForm(!showPollForm)}>
-                  <Plus className="h-4 w-4" style={{ color: '#E09F4D' }} /> Create Poll
-                </button>
-
-                {showPollForm && (
-                  <div style={{ border: '1px solid rgba(255,226,190,0.1)', borderRadius: 12, padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    <input className="g-input" placeholder="Ask a question..." value={pollQuestion} onChange={e => setPollQuestion(e.target.value)} />
-                    {pollOptions.map((opt, i) => (
-                      <div key={i} style={{ display: 'flex', gap: 6 }}>
-                        <input className="g-input" placeholder={`Option ${i + 1}`} value={opt} onChange={e => { const n = [...pollOptions]; n[i] = e.target.value; setPollOptions(n); }} />
-                        {i >= 2 && (
-                          <button className="g-icon-btn" onClick={() => setPollOptions(pollOptions.filter((_, j) => j !== i))}>
-                            <X className="h-3.5 w-3.5" style={{ color: '#f87171' }} />
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                    {pollOptions.length < 10 && (
-                      <button className="g-btn-solid ghost" style={{ alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: 4 }} onClick={() => setPollOptions([...pollOptions, ''])}>
-                        <Plus className="h-3.5 w-3.5" /> Add option
+              <button
+                className="msg-button primary"
+                disabled={busy || !newOwner}
+                onClick={() =>
+                  void run(async () => {
+                    await members.transferOwnership.mutateAsync(newOwner);
+                    setTransferring(false);
+                  })
+                }
+              >
+                Transfer ownership
+              </button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+        <Dialog
+          open={pollOpen}
+          onOpenChange={(open) => {
+            if (!open && !busy) setPollOpen(false);
+          }}
+        >
+          <DialogContent busy={busy}>
+            <DialogHeader>
+              <DialogTitle>Create a poll</DialogTitle>
+              <DialogDescription>
+                Ask a question and add at least two choices.
+              </DialogDescription>
+            </DialogHeader>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                void run(async () => {
+                  await polls.createPoll.mutateAsync({
+                    question: question.trim(),
+                    options: options
+                      .map((option) => option.trim())
+                      .filter(Boolean),
+                    is_anonymous: anonymous,
+                    is_multiple_choice: multiple,
+                    requestId: pollRequest.current,
+                  });
+                  setQuestion("");
+                  setOptions(["", ""]);
+                  setPollOpen(false);
+                  pollRequest.current = crypto.randomUUID();
+                });
+              }}
+            >
+              <div className="msg-dialog-body msg-form-stack">
+                <label htmlFor="poll-question">Question</label>
+                <input
+                  id="poll-question"
+                  value={question}
+                  onChange={(event) => setQuestion(event.target.value)}
+                  required
+                  maxLength={300}
+                />
+                {options.map((option, index) => (
+                  <div className="flex items-center gap-2" key={index}>
+                    <label className="sr-only" htmlFor={`poll-option-${index}`}>
+                      Option {index + 1}
+                    </label>
+                    <input
+                      id={`poll-option-${index}`}
+                      value={option}
+                      onChange={(event) =>
+                        setOptions((previous) =>
+                          previous.map((item, i) =>
+                            i === index ? event.target.value : item,
+                          ),
+                        )
+                      }
+                      placeholder={`Option ${index + 1}`}
+                      maxLength={160}
+                    />
+                    {index > 1 && (
+                      <button
+                        type="button"
+                        className="msg-icon"
+                        aria-label={`Remove option ${index + 1}`}
+                        onClick={() =>
+                          setOptions((previous) =>
+                            previous.filter((_, i) => i !== index),
+                          )
+                        }
+                      >
+                        <X aria-hidden="true" />
                       </button>
                     )}
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <span style={{ fontSize: 12, color: 'rgba(255,226,190,0.5)' }}>Anonymous</span>
-                      <Switch checked={pollAnonymous} onCheckedChange={setPollAnonymous} />
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <span style={{ fontSize: 12, color: 'rgba(255,226,190,0.5)' }}>Multiple choice</span>
-                      <Switch checked={pollMultiple} onCheckedChange={setPollMultiple} />
-                    </div>
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <button className="g-btn-solid primary" onClick={handleCreatePoll} disabled={createPoll.isPending}>Create</button>
-                      <button className="g-btn-solid ghost" onClick={() => setShowPollForm(false)}>Cancel</button>
-                    </div>
                   </div>
+                ))}
+                {options.length < 10 && (
+                  <button
+                    type="button"
+                    className="msg-button quiet"
+                    onClick={() => setOptions((previous) => [...previous, ""])}
+                  >
+                    <Plus aria-hidden="true" />
+                    Add option
+                  </button>
                 )}
-
-                {polls.map((poll: any) => {
-                  const options = poll.options as any[];
-                  const votes = poll.poll_votes || [];
-                  const totalVotes = votes.length;
-                  const userVotes = votes.filter((v: any) => v.user_id === currentUserId).map((v: any) => v.option_id);
-                  const isPollCreator = poll.creator_id === currentUserId;
-                  const isEnded = poll.status === 'ended';
-
-                  return (
-                    <div
-                      key={poll.id}
-                      style={{
-                        border: `1px solid ${isEnded ? 'rgba(255,226,190,0.04)' : 'rgba(255,226,190,0.08)'}`,
-                        borderRadius: 12,
-                        padding: 12,
-                        opacity: isEnded ? 0.6 : 1,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: 8,
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <BarChart3 style={{ width: 16, height: 16, color: '#E09F4D' }} />
-                          <span style={{ fontSize: 13, fontWeight: 600, color: '#FFE2BE' }}>{poll.question}</span>
-                        </div>
-                        {isPollCreator && !isEnded && (
-                          <button className="g-btn-solid ghost" style={{ fontSize: 11, color: '#f87171' }} onClick={() => endPoll.mutate(poll.id)}>End</button>
-                        )}
-                      </div>
-                      {isEnded && <span style={{ fontSize: 11, color: '#f87171', fontWeight: 500 }}>Poll ended</span>}
-                      {poll.is_anonymous && <span style={{ fontSize: 11, color: 'rgba(255,226,190,0.35)' }}>Anonymous poll</span>}
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        {options.map((opt: any) => {
-                          const optVotes = votes.filter((v: any) => v.option_id === opt.id).length;
-                          const pct = totalVotes > 0 ? Math.round((optVotes / totalVotes) * 100) : 0;
-                          const hasVoted = userVotes.includes(opt.id);
-
-                          return (
-                            <button
-                              key={opt.id}
-                              style={{ textAlign: 'left', background: 'none', border: 'none', cursor: isEnded ? 'default' : 'pointer', padding: 0 }}
-                              disabled={isEnded}
-                              onClick={() => hasVoted ? unvote.mutate({ pollId: poll.id, optionId: opt.id }) : vote.mutate({ pollId: poll.id, optionId: opt.id })}
-                            >
-                              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
-                                <span style={{ fontSize: 12, color: hasVoted ? '#E09F4D' : '#FFE2BE', fontWeight: hasVoted ? 600 : 400 }}>{opt.text}</span>
-                                <span style={{ fontSize: 11, color: 'rgba(255,226,190,0.4)' }}>{pct}%</span>
-                              </div>
-                              <div className="g-poll-bar">
-                                <div className="g-poll-fill" style={{ width: `${pct}%` }} />
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                      <span style={{ fontSize: 11, color: 'rgba(255,226,190,0.35)' }}>{totalVotes} vote{totalVotes !== 1 ? 's' : ''}</span>
-                    </div>
-                  );
-                })}
-
-                {polls.length === 0 && !showPollForm && (
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 0', color: 'rgba(255,226,190,0.2)' }}>
-                    <BarChart3 style={{ width: 40, height: 40, marginBottom: 8 }} />
-                    <p style={{ fontSize: 13 }}>No polls yet</p>
-                  </div>
+                <label className="msg-checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={anonymous}
+                    onChange={(event) => setAnonymous(event.target.checked)}
+                  />
+                  Anonymous voting
+                </label>
+                <label className="msg-checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={multiple}
+                    onChange={(event) => setMultiple(event.target.checked)}
+                  />
+                  Allow multiple choices
+                </label>
+                {error && (
+                  <p role="alert" className="msg-error">
+                    {error}
+                  </p>
                 )}
               </div>
-            )}
-          </div>
-
-          {/* ─── Friend Picker Floating Overlay ─── */}
-          {isAddingMembers && (
-            <div className="g-friend-picker-overlay">
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                <h3 style={{ fontSize: 16, fontWeight: 700, color: '#FFE2BE' }}>Add Members</h3>
-                <button className="g-icon-btn" onClick={() => { setIsAddingMembers(false); setSelectedFriends([]); }}>
-                  <X className="h-4 w-4" style={{ color: '#f87171' }} />
+              <DialogFooter>
+                <button
+                  type="button"
+                  className="msg-button secondary"
+                  disabled={busy}
+                  onClick={() => setPollOpen(false)}
+                >
+                  Cancel
                 </button>
-              </div>
-              <div style={{ flex: 1, overflow: 'auto', marginBottom: 12 }}>
-                <FriendPicker multiSelect selected={selectedFriends} onSelect={setSelectedFriends} />
-              </div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button className="g-btn-solid primary" style={{ flex: 1 }} onClick={handleAddMembers} disabled={selectedFriends.length === 0 || isAddingSaving}>
-                  {isAddingSaving && <SerkleLoader size="xs" className="text-current" style={{ marginRight: 4 }}/>}
-                  Add {selectedFriends.length > 0 ? `(${selectedFriends.length})` : ''}
+                <button
+                  className="msg-button primary"
+                  type="submit"
+                  disabled={
+                    busy ||
+                    !question.trim() ||
+                    options.filter((option) => option.trim()).length < 2
+                  }
+                >
+                  Create poll
                 </button>
-                <button className="g-btn-solid ghost" onClick={() => { setIsAddingMembers(false); setSelectedFriends([]); }}>Cancel</button>
-              </div>
-            </div>
-          )}
-        </div>
-      </DialogContent>
-    </Dialog>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+        {confirm && (
+          <MessagingConfirm
+            open
+            title={confirm.title}
+            description={confirm.description}
+            action={confirm.action}
+            onConfirm={confirm.run}
+            onClose={() => setConfirm(null)}
+          />
+        )}
+      </MessagingProfileFrame>
+    </>
   );
-};
-
-export default GroupInfoModal;
+}

@@ -1,14 +1,22 @@
-import { SerkleLoader } from '@/components/ui/SerkleLoader';
-import React, { useState, useEffect, useRef } from 'react';
-import { Paperclip, Camera, Image, Video, Mic, MapPin, X } from 'lucide-react';
-import { uploadChatMedia } from '@/lib/chatMedia';
-import { toast } from 'sonner';
-import { CustomFilePicker, useFileManager } from '@/components/CustomFilePicker';
+import { SerkleLoader } from "@/components/ui/SerkleLoader";
+import React, { useState, useEffect, useRef } from "react";
+import { Paperclip, Camera, Image, Video, Mic, MapPin, X } from "lucide-react";
+import { uploadChatMedia } from "@/lib/chatMedia";
+import { toast } from "sonner";
+import {
+  CustomFilePicker,
+  useFileManager,
+} from "@/components/CustomFilePicker";
 
 interface ChatAttachmentMenuProps {
   conversationId: string;
   senderId: string;
-  onSendAttachment: (type: string, url: string, label: string, id?: string) => void;
+  onSendAttachment: (
+    type: string,
+    url: string,
+    label: string,
+    id?: string,
+  ) => void;
 }
 
 const ChatAttachmentMenu: React.FC<ChatAttachmentMenuProps> = ({
@@ -20,7 +28,7 @@ const ChatAttachmentMenu: React.FC<ChatAttachmentMenuProps> = ({
   const [uploading, setUploading] = useState(false);
   const [recording, setRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
-  
+
   const photoManager = useFileManager();
   const videoManager = useFileManager();
   const cameraManager = useFileManager();
@@ -29,9 +37,19 @@ const ChatAttachmentMenu: React.FC<ChatAttachmentMenuProps> = ({
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const uploadFile = async (file: File | Blob, folder: string): Promise<string> => {
-    const ext = folder === 'voice' ? 'webm' : (file as File).name?.split('.').pop() || 'tmp';
-    return uploadChatMedia(conversationId, file, (file as File).name || `attachment.${ext}`);
+  const uploadFile = async (
+    file: File | Blob,
+    folder: string,
+  ): Promise<string> => {
+    const ext =
+      folder === "voice"
+        ? "webm"
+        : (file as File).name?.split(".").pop() || "tmp";
+    return uploadChatMedia(
+      conversationId,
+      file,
+      (file as File).name || `attachment.${ext}`,
+    );
   };
 
   // Photo processing
@@ -41,11 +59,11 @@ const ChatAttachmentMenu: React.FC<ChatAttachmentMenuProps> = ({
       const process = async () => {
         setOpen(false);
         try {
-          const url = await uploadFile(item.file, 'photos');
-          onSendAttachment('photo', url, '📷 Photo');
+          const url = await uploadFile(item.file, "photos");
+          onSendAttachment("photo", url, "📷 Photo");
         } catch (error) {
-          console.error('[Upload] Photo failed:', error);
-          toast.error('Failed to upload photo');
+          console.error("[Upload] Photo failed:", error);
+          toast.error("Failed to upload photo");
         } finally {
           photoManager.clearAll();
         }
@@ -61,11 +79,11 @@ const ChatAttachmentMenu: React.FC<ChatAttachmentMenuProps> = ({
       const process = async () => {
         setOpen(false);
         try {
-          const url = await uploadFile(item.file, 'videos');
-          onSendAttachment('video', url, '🎥 Video');
+          const url = await uploadFile(item.file, "videos");
+          onSendAttachment("video", url, "🎥 Video");
         } catch (error) {
-          console.error('[Upload] Video failed:', error);
-          toast.error('Failed to upload video');
+          console.error("[Upload] Video failed:", error);
+          toast.error("Failed to upload video");
         } finally {
           videoManager.clearAll();
         }
@@ -81,11 +99,11 @@ const ChatAttachmentMenu: React.FC<ChatAttachmentMenuProps> = ({
       const process = async () => {
         setOpen(false);
         try {
-          const url = await uploadFile(item.file, 'photos');
-          onSendAttachment('photo', url, '📷 Photo');
+          const url = await uploadFile(item.file, "photos");
+          onSendAttachment("photo", url, "📷 Photo");
         } catch (error) {
-          console.error('[Upload] Camera failed:', error);
-          toast.error('Failed to upload photo');
+          console.error("[Upload] Camera failed:", error);
+          toast.error("Failed to upload photo");
         } finally {
           cameraManager.clearAll();
         }
@@ -107,20 +125,15 @@ const ChatAttachmentMenu: React.FC<ChatAttachmentMenuProps> = ({
       };
 
       mediaRecorder.onstop = async () => {
-        stream.getTracks().forEach(t => t.stop());
-        const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
-        
-        // Optimistic Voice
-        const localUrl = URL.createObjectURL(blob);
-        const messageId = crypto.randomUUID();
-        onSendAttachment('voice', localUrl, '🎤 Voice message', messageId);
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(chunksRef.current, { type: "audio/webm" });
 
         try {
-          const url = await uploadFile(blob, 'voice');
-          updateMessage({ messageId, attachmentUrl: url });
+          const url = await uploadFile(blob, "voice");
+          await onSendAttachment("voice", url, "🎤 Voice message");
         } catch (err) {
-          console.error('[Upload] Voice failed:', err);
-          toast.error('Failed to upload voice message');
+          console.error("[Upload] Voice failed:", err);
+          toast.error("Failed to upload voice message");
         }
       };
 
@@ -129,7 +142,7 @@ const ChatAttachmentMenu: React.FC<ChatAttachmentMenuProps> = ({
       setOpen(false);
 
       timerRef.current = setInterval(() => {
-        setRecordingTime(prev => {
+        setRecordingTime((prev) => {
           if (prev >= 29) {
             stopRecording();
             return 30;
@@ -138,12 +151,12 @@ const ChatAttachmentMenu: React.FC<ChatAttachmentMenuProps> = ({
         });
       }, 1000);
     } catch (err) {
-      toast.error('Microphone access denied');
+      toast.error("Microphone access denied");
     }
   };
 
   const stopRecording = () => {
-    if (mediaRecorderRef.current?.state === 'recording') {
+    if (mediaRecorderRef.current?.state === "recording") {
       mediaRecorderRef.current.stop();
     }
     if (timerRef.current) clearInterval(timerRef.current);
@@ -154,7 +167,7 @@ const ChatAttachmentMenu: React.FC<ChatAttachmentMenuProps> = ({
   const handleShareLocation = () => {
     setOpen(false);
     if (!navigator.geolocation) {
-      toast.error('Geolocation not supported');
+      toast.error("Geolocation not supported");
       return;
     }
     navigator.geolocation.getCurrentPosition(
@@ -162,10 +175,10 @@ const ChatAttachmentMenu: React.FC<ChatAttachmentMenuProps> = ({
         const { latitude, longitude } = pos.coords;
         const locationText = `📍 My location: ${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
         const mapsUrl = `https://www.google.com/maps?q=${latitude},${longitude}`;
-        onSendAttachment('location', mapsUrl, locationText);
+        onSendAttachment("location", mapsUrl, locationText);
       },
-      () => toast.error('Unable to get location'),
-      { enableHighAccuracy: true }
+      () => toast.error("Unable to get location"),
+      { enableHighAccuracy: true },
     );
   };
 
@@ -174,7 +187,9 @@ const ChatAttachmentMenu: React.FC<ChatAttachmentMenuProps> = ({
       <div className="flex items-center gap-2">
         <div className="flex items-center gap-2 px-3 py-1.5 bg-destructive/10 rounded-full animate-pulse">
           <div className="w-2 h-2 rounded-full bg-destructive" />
-          <span className="text-xs font-medium text-destructive">{recordingTime}s / 30s</span>
+          <span className="text-xs font-medium text-destructive">
+            {recordingTime}s / 30s
+          </span>
         </div>
         <button
           onClick={stopRecording}
@@ -205,8 +220,14 @@ const ChatAttachmentMenu: React.FC<ChatAttachmentMenuProps> = ({
 
       {open && (
         <div className="absolute bottom-12 left-0 bg-background border border-border rounded-2xl shadow-lg p-2 flex gap-1 animate-fade-in z-50">
-          <CustomFilePicker manager={cameraManager} hideUploadButton hidePreviewList accept="image/*" useCameraImmediate>
-            <button 
+          <CustomFilePicker
+            manager={cameraManager}
+            hideUploadButton
+            hidePreviewList
+            accept="image/*"
+            useCameraImmediate
+          >
+            <button
               onClick={() => setOpen(false)}
               className="flex flex-col items-center gap-1 p-3 rounded-xl hover:bg-muted/50 transition-colors w-full"
             >
@@ -214,8 +235,13 @@ const ChatAttachmentMenu: React.FC<ChatAttachmentMenuProps> = ({
               <span className="text-[10px] text-muted-foreground">Camera</span>
             </button>
           </CustomFilePicker>
-          <CustomFilePicker manager={photoManager} hideUploadButton hidePreviewList accept="image/*">
-            <button 
+          <CustomFilePicker
+            manager={photoManager}
+            hideUploadButton
+            hidePreviewList
+            accept="image/*"
+          >
+            <button
               onClick={() => setOpen(false)}
               className="flex flex-col items-center gap-1 p-3 rounded-xl hover:bg-muted/50 transition-colors w-full"
             >
@@ -223,8 +249,13 @@ const ChatAttachmentMenu: React.FC<ChatAttachmentMenuProps> = ({
               <span className="text-[10px] text-muted-foreground">Photo</span>
             </button>
           </CustomFilePicker>
-          <CustomFilePicker manager={videoManager} hideUploadButton hidePreviewList accept="video/*">
-            <button 
+          <CustomFilePicker
+            manager={videoManager}
+            hideUploadButton
+            hidePreviewList
+            accept="video/*"
+          >
+            <button
               onClick={() => setOpen(false)}
               className="flex flex-col items-center gap-1 p-3 rounded-xl hover:bg-muted/50 transition-colors w-full"
             >
@@ -232,11 +263,17 @@ const ChatAttachmentMenu: React.FC<ChatAttachmentMenuProps> = ({
               <span className="text-[10px] text-muted-foreground">Video</span>
             </button>
           </CustomFilePicker>
-          <button onClick={startRecording} className="flex flex-col items-center gap-1 p-3 rounded-xl hover:bg-muted/50 transition-colors">
+          <button
+            onClick={startRecording}
+            className="flex flex-col items-center gap-1 p-3 rounded-xl hover:bg-muted/50 transition-colors"
+          >
             <Mic className="h-5 w-5 text-primary" />
             <span className="text-[10px] text-muted-foreground">Voice</span>
           </button>
-          <button onClick={handleShareLocation} className="flex flex-col items-center gap-1 p-3 rounded-xl hover:bg-muted/50 transition-colors">
+          <button
+            onClick={handleShareLocation}
+            className="flex flex-col items-center gap-1 p-3 rounded-xl hover:bg-muted/50 transition-colors"
+          >
             <MapPin className="h-5 w-5 text-primary" />
             <span className="text-[10px] text-muted-foreground">Location</span>
           </button>
