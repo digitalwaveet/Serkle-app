@@ -223,7 +223,19 @@ export const useMessages = (
       )
       .subscribe();
 
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") void runSync();
+    };
+    window.addEventListener("focus", refreshWhenVisible);
+    window.addEventListener("online", refreshWhenVisible);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    // Realtime may be unavailable on mobile networks; never rely on it alone.
+    const fallback = setInterval(refreshWhenVisible, 15000);
     return () => {
+      clearInterval(fallback);
+      window.removeEventListener("focus", refreshWhenVisible);
+      window.removeEventListener("online", refreshWhenVisible);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
       supabase.removeChannel(broadcastChannel);
       supabase.removeChannel(pgChannel);
       if (debounceTimer.current) clearTimeout(debounceTimer.current);

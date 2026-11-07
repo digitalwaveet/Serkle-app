@@ -1,6 +1,7 @@
 CREATE ROLE anon;CREATE ROLE authenticated;
 CREATE SCHEMA auth;CREATE SCHEMA storage;
 CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$ SELECT NULLIF(current_setting('request.jwt.claim.sub',true),'')::uuid $$;
+CREATE FUNCTION auth.role() RETURNS text LANGUAGE sql STABLE AS $$ SELECT COALESCE(NULLIF(current_setting('request.jwt.claim.role',true),''),'authenticated') $$;
 CREATE TABLE public.profiles(id uuid PRIMARY KEY,name text,username text,avatar_url text,avatar_color text,initials text);
 CREATE TABLE public.conversations(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),is_group boolean NOT NULL DEFAULT false,group_name text,group_avatar_url text,created_by uuid,current_seq bigint NOT NULL DEFAULT 0,created_at timestamptz DEFAULT now());
 CREATE TABLE public.conversation_members(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),conversation_id uuid NOT NULL REFERENCES public.conversations(id) ON DELETE CASCADE,user_id uuid NOT NULL REFERENCES public.profiles(id),last_read_at timestamptz DEFAULT now(),UNIQUE(conversation_id,user_id));
@@ -8,6 +9,15 @@ CREATE TABLE public.messages(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),conve
 CREATE TABLE public.read_receipts(conversation_id uuid NOT NULL,user_id uuid NOT NULL,last_read_seq bigint DEFAULT 0,updated_at timestamptz DEFAULT now(),PRIMARY KEY(conversation_id,user_id));
 CREATE TABLE storage.buckets(id text PRIMARY KEY,name text,public boolean);
 CREATE TABLE storage.objects(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),bucket_id text,name text);
+ALTER TABLE profiles ADD COLUMN is_online boolean DEFAULT false;
+ALTER TABLE messages ADD COLUMN forwarded_from_name text;
+ALTER TABLE storage.buckets ADD COLUMN file_size_limit bigint;
+CREATE TABLE public.message_deletions(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),message_id uuid NOT NULL REFERENCES messages(id) ON DELETE CASCADE,user_id uuid NOT NULL REFERENCES profiles(id),UNIQUE(message_id,user_id));
+CREATE TABLE public.message_reactions(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),message_id uuid NOT NULL REFERENCES messages(id) ON DELETE CASCADE,user_id uuid NOT NULL REFERENCES profiles(id),emoji text NOT NULL,created_at timestamptz DEFAULT now(),UNIQUE(message_id,user_id,emoji));
+ALTER TABLE public.message_deletions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.message_reactions ENABLE ROW LEVEL SECURITY;
+CREATE POLICY legacy_deletions ON public.message_deletions FOR ALL TO authenticated USING(true) WITH CHECK(true);
+CREATE POLICY legacy_reactions ON public.message_reactions FOR ALL TO authenticated USING(true) WITH CHECK(true);
 ALTER TABLE public.conversations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.conversation_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;

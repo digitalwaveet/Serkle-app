@@ -47,7 +47,7 @@ export default function MessageBubble({
 }: Props) {
   const media = useChatMediaUrls([reference]),
     url = media.url(reference);
-  if (reference?.startsWith("chat-media://") && !url)
+  if (reference && !url)
     return media.failed(reference) ? (
       <button type="button" onClick={media.retry} className="msg-button quiet">
         Attachment unavailable · Retry

@@ -4,7 +4,14 @@ The approved direction is implemented across the inbox, direct conversation, gro
 
 ## Deploy
 
-Run **`supabase/migrations/20261106190000_messaging_groups_and_polls.sql`** in the Supabase SQL Editor for the app’s project, then deploy the matching frontend. This is the only **new** deployment file for this change. No Edge Functions or secrets need to be deployed.
+Run these files in order in the Supabase SQL Editor for the app’s project, then deploy the matching frontend:
+
+1. `supabase/migrations/20261106190000_messaging_groups_and_polls.sql`
+2. `supabase/migrations/20261107140000_messaging_delivery_repair.sql`
+
+No Edge Functions or secrets need to be deployed. Run `npm run check:messaging-backend` to check that both sets of functions are installed and deny anonymous callers. This command makes read-only requests using the project's public key; it never sends messages or creates groups. An installed API still needs the signed-in smoke checks below.
+
+Use the latest complete files from GitHub, especially if a previous run reported `42P13: cannot change return type of existing function`. The corrected migrations recreate the named RPC endpoints before defining their current return contracts, including legacy boolean, JSON and TABLE results. They do not use `CASCADE` or delete messages, members or uploaded files. Both fresh installation and reapplication with existing data are covered by the migration tests.
 
 Existing chat schema and privacy migrations must already be present, including `20260921090000_chat_privacy_and_receipts.sql` and `20260921091000_guard_conversation_list.sql`. Do not rerun historical migrations indiscriminately. The new migration adds group support tables if absent, guards direct writes, and creates the authenticated group, invitation and poll RPCs used by these screens.
 
@@ -23,10 +30,22 @@ Poll creation and the associated chat message share one database transaction. Vo
 
 ## Local validation
 
-Run `npm run test:messaging`, `npm run test:messaging-ui`, and `npm run build`.
+Run `npm run test:messaging`, `npm run test:messaging-delivery`, `npm run test:messaging-ui`, and `npm run build`.
 
 The SQL suite executes the actual migration in isolated PGlite with deliberately permissive legacy policies. It covers role enforcement, owner transfer, membership changes, duplicate creation/join requests, expired/revoked invitations, anonymous voting, poll state, private mute settings and avatar permissions. The browser suite mounts the actual components with isolated sample data and blocks external requests. It also tests the real encrypted outbox, unread hook and reaction sync across failure, retry and reload.
 
 Screenshots are written to `test-results/messages` (ignored by Git). Set `MESSAGING_SCREENSHOT_DIR` to another local path to retain review images. The browser suite uses installed Chrome. No real user conversations are modified by these tests.
 
 Production Supabase and multi-device realtime behavior still require a deployment smoke test after applying the SQL. Suggested checks: two test accounts, one group owner and one non-owner; send/read/reload, join/leave, a failed action followed by retry, and an anonymous poll. A full project TypeScript check currently has unrelated pre-existing errors; the messaging changes should add none.
+
+## November 7 production audit and repair
+
+Read-only live probes confirmed `PGRST202` for the new group-creation signature and invitation RPC: the matching migration was absent. The UI now identifies this setup failure and retains its selections, without silently falling back to the old creation endpoint.
+
+Legacy chat attachments were still rendered with `/object/public/post-media/` URLs, while the shared bucket had been made private for Circle content security. Authenticated signing of those same existing files restored loading in the signed-in app. Public, authenticated and stale signed references are now parsed by project origin and stable object path and renewed through Storage RLS. Tokens remain ephemeral; foreign origins and unsupported buckets never receive signing requests. No bucket was made public and no files were moved or re-uploaded.
+
+The collapsed galleries came from media columns having only a maximum width and children whose image sizes depended on that unresolved width. Explicit column widths and a CSS grid now keep loading, failed and successful tiles at useful sizes. Regression screenshots cover two, three, four and six images at 320, 390 and 548 pixels. Header icon contrast, short-screen dialog actions and friend-search spacing are also checked.
+
+Delivery now verifies stored message rows and their server sequence after a write. A lost response reuses the original ID and existing row. Retry exhaustion keeps the exact outbox payload and a readable error; manual retry and reload are tested. Batches preserve offline creation order and are isolated by conversation, so a revoked chat does not block another. Cached per-user deletions are synchronized, and conversation previews exclude deleted content. Visible chats refresh on focus, reconnect and periodically when realtime events are missed.
+
+The additional backend suite uses the actual Supabase JavaScript client over a local HTTP API backed by PGlite and the real SQL migrations, including deliberately permissive legacy policies. It verifies acknowledgements, lost responses, atomic batches, identity and membership guards, private storage scope, group creation and safe migration reapplication. Browser storage tests execute the actual encrypted outbox and sync implementation. Storage rendering tests execute the actual reader and Storage SDK against isolated HTTP responses, including private buckets, expired links, denied access and missing objects. None of these tests write to production conversations.

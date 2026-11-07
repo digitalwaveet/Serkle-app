@@ -94,6 +94,339 @@ const calls = (page: Page) =>
         value: any;
       }>,
   );
+test("failed local sync writes never advance the cursor past uncached messages", async () => {
+  const page = await pageFor("", "/messages/storage");
+  try {
+    await expect(page.getByRole("status")).toHaveText("Storage ready");
+    const rejected = await page.evaluate(async () => {
+      const f = (window as any).messagesFixture,
+        s = (window as any).messagingStorage;
+      f.deltas = [
+        {
+          id: crypto.randomUUID(),
+          conversation_id: f.dm,
+          sender_id: f.friend,
+          content: "A real delta to retain",
+          message_type: "text",
+          created_at: new Date().toISOString(),
+          seq: 1,
+          created_seq: 1,
+        },
+      ];
+      s.failNextCacheWrite();
+      try {
+        await s.sync();
+        return false;
+      } catch {
+        return true;
+      }
+    });
+    assert.equal(rejected, true);
+    let snapshot = await page.evaluate(() =>
+      (window as any).messagingStorage.snapshot(),
+    );
+    assert.equal(snapshot.messages.length, 0);
+    assert.equal(snapshot.conversations.length, 0);
+    await page.evaluate(() => (window as any).messagingStorage.sync());
+    snapshot = await page.evaluate(() =>
+      (window as any).messagingStorage.snapshot(),
+    );
+    assert.equal(snapshot.messages.length, 1);
+    assert.equal(snapshot.conversations[0].last_seen_seq, 1);
+  } finally {
+    await page.context().close();
+  }
+});
+test("an undeployed group API shows a setup error, preserves selections, and does not fall back to unsafe legacy creation", async () => {
+  const page = await pageFor("group-schema-missing");
+  try {
+    await page.setViewportSize({ width: 360, height: 640 });
+    await page.getByRole("button", { name: "New group", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "New group", exact: true });
+    await dialog
+      .getByRole("textbox", { name: "Group name", exact: true })
+      .fill("Weekend makers");
+    await dialog.getByRole("button", { name: /Hana Tesfaye/ }).click();
+    await dialog
+      .getByRole("button", { name: "Create group", exact: true })
+      .click();
+    await expect(dialog.getByRole("alert")).toContainText(
+      "setup is incomplete",
+    );
+    await expect(
+      dialog.getByRole("textbox", { name: "Group name", exact: true }),
+    ).toHaveValue("Weekend makers");
+    await expect(
+      dialog.getByRole("button", { name: "Create group", exact: true }),
+    ).toBeInViewport();
+    const requests = (await calls(page)).filter(
+      (call) => call.name === "create_group_conversation",
+    );
+    assert.equal(requests.length, 1);
+    assert.ok(requests[0].value._request_id);
+  } finally {
+    await page.context().close();
+  }
+});
+test("real outbox retains exhausted failed payloads across reload and confirms delivery only after a successful retry", async () => {
+  const page = await pageFor("", "/messages/storage");
+  try {
+    await expect(page.getByRole("status")).toHaveText("Storage ready");
+    const payload = await page.evaluate(() => ({
+      id: crypto.randomUUID(),
+      conversationId: (window as any).messagesFixture.dm,
+      senderId: (window as any).messagesFixture.me,
+      content: "Retain this exact message",
+    }));
+    await page.evaluate(async (payload) => {
+      const fixture = (window as any).messagesFixture,
+        storage = (window as any).messagingStorage;
+      fixture.setFailure("persist-message-batch", 5);
+      await storage.send(payload);
+      for (let i = 0; i < 5; i++) await storage.flush();
+    }, payload);
+    let snapshot = await page.evaluate(() =>
+      (window as any).messagingStorage.snapshot(),
+    );
+    assert.equal(snapshot.queue.length, 1);
+    assert.equal(snapshot.queue[0].status, "failed");
+    assert.equal(snapshot.queue[0].payload.id, payload.id);
+    assert.equal(snapshot.messages[0].sync_status, "failed");
+    assert.match(snapshot.messages[0].sync_error, /saved/);
+    await page.reload();
+    await expect(page.getByRole("status")).toHaveText("Storage ready");
+    snapshot = await page.evaluate(() =>
+      (window as any).messagingStorage.snapshot(),
+    );
+    assert.equal(snapshot.queue[0].payload.content, payload.content);
+    await page.evaluate(async (id) => {
+      await (window as any).messagingStorage.retry(id);
+      await (window as any).messagingStorage.flush();
+    }, payload.id);
+    snapshot = await page.evaluate(() =>
+      (window as any).messagingStorage.snapshot(),
+    );
+    assert.equal(snapshot.queue.length, 0);
+    assert.equal(snapshot.messages[0].sync_status, "sent");
+    assert.equal(snapshot.messages[0].seq, 1);
+    assert.equal(snapshot.messages[0].sync_error, undefined);
+  } finally {
+    await page.context().close();
+  }
+});
+test("a failing conversation cannot block queued messages to another conversation", async () => {
+  const page = await pageFor("", "/messages/storage");
+  try {
+    await expect(page.getByRole("status")).toHaveText("Storage ready");
+    await page.evaluate(async () => {
+      const f = (window as any).messagesFixture,
+        s = (window as any).messagingStorage;
+      await s.send({
+        id: crypto.randomUUID(),
+        conversationId: f.group,
+        senderId: f.me,
+        content: "Group request",
+      });
+      await s.send({
+        id: crypto.randomUUID(),
+        conversationId: f.dm,
+        senderId: f.me,
+        content: "Direct request",
+      });
+      f.setFailure("persist-message-batch", 1);
+      await s.flush();
+    });
+    const snapshot = await page.evaluate(() =>
+      (window as any).messagingStorage.snapshot(),
+    );
+    assert.equal(
+      snapshot.messages.find((row: any) => row.content === "Group request")
+        .sync_status,
+      "failed",
+    );
+    assert.equal(
+      snapshot.messages.find((row: any) => row.content === "Direct request")
+        .sync_status,
+      "sent",
+    );
+    assert.equal(snapshot.queue.length, 1);
+  } finally {
+    await page.context().close();
+  }
+});
+test("real sync applies per-user deletion records to previously cached messages", async () => {
+  const page = await pageFor("", "/messages/storage");
+  try {
+    await expect(page.getByRole("status")).toHaveText("Storage ready");
+    await page.evaluate(async () => {
+      await (window as any).messagingStorage.seedReaction();
+      (window as any).messagesFixture.deletions = [
+        { message_id: "reaction-message" },
+      ];
+      await (window as any).messagingStorage.sync();
+    });
+    assert.equal(
+      (await page.evaluate(() => (window as any).messagingStorage.snapshot()))
+        .messages.length,
+      0,
+    );
+  } finally {
+    await page.context().close();
+  }
+});
+test("actual SDK signs legacy public and expired URLs, and grouped images retain their width at phone sizes", async () => {
+  for (const width of [320, 390, 548])
+    for (const count of [2, 3, 4, 6]) {
+      const page = await pageFor(
+        "",
+        `/messages/media?count=${count}&state=${count === 3 ? "expired" : "ready"}`,
+        width,
+      );
+      try {
+        await expect(page.getByTestId("message-media-cell")).toHaveCount(count);
+        await expect
+          .poll(() =>
+            page
+              .locator(".msg-media-open img")
+              .evaluateAll((images) =>
+                images.every(
+                  (image) => (image as HTMLImageElement).naturalWidth > 0,
+                ),
+              ),
+          )
+          .toBe(true);
+        const bounds = await page
+          .getByTestId("message-media-cell")
+          .evaluateAll((elements) =>
+            elements.map((element) => ({
+              width: element.getBoundingClientRect().width,
+              height: element.getBoundingClientRect().height,
+            })),
+          );
+        assert.ok(
+          bounds.every((box) => box.width >= 95 && box.height >= 95),
+          JSON.stringify({ width, count, bounds }),
+        );
+        assert.equal(
+          await page
+            .locator(".msg-media-open img")
+            .first()
+            .evaluate((element) =>
+              new URL((element as HTMLImageElement).src).pathname.includes(
+                "/object/sign/",
+              ),
+            ),
+          true,
+        );
+        assert.equal(
+          await page.evaluate(
+            () => document.documentElement.scrollWidth <= innerWidth,
+          ),
+          true,
+        );
+        if (width === 390 && count === 3)
+          await page.screenshot({
+            path: artifact + "/repaired-legacy-gallery.png",
+          });
+      } finally {
+        await page.context().close();
+      }
+    }
+});
+test("actual storage loading, missing-object and permission failures keep full-size readable tiles and can retry", async () => {
+  for (const state of ["pending", "missing", "forbidden", "retry"]) {
+    const page = await pageFor(
+      "",
+      `/messages/media?count=3&state=${state}`,
+      390,
+    );
+    try {
+      const cells = page.getByTestId("message-media-cell");
+      await expect(cells).toHaveCount(3);
+      const bounds = await cells.first().boundingBox();
+      assert.ok(bounds && bounds.width > 100 && bounds.height > 100);
+      if (state === "pending") {
+        await expect
+          .poll(() =>
+            page
+              .locator(".msg-media-open img")
+              .evaluateAll((images) =>
+                images.every(
+                  (image) => (image as HTMLImageElement).naturalWidth > 0,
+                ),
+              ),
+          )
+          .toBe(true);
+      } else {
+        const retry = page.getByRole("button", {
+          name: "Retry attachment 1",
+          exact: true,
+        });
+        await expect(retry).toBeVisible();
+        await retry.click();
+        if (state === "retry")
+          await expect
+            .poll(() =>
+              cells
+                .first()
+                .locator("img")
+                .evaluateAll((images) =>
+                  images.some(
+                    (image) => (image as HTMLImageElement).naturalWidth > 0,
+                  ),
+                ),
+            )
+            .toBe(true);
+        else await expect(retry).toBeVisible();
+      }
+    } finally {
+      await page.context().close();
+    }
+  }
+});
+test("the home arrow is visible against the brand header and group actions stay accessible on short phones", async () => {
+  const page = await pageFor();
+  try {
+    const back = page.getByRole("button", {
+      name: "Back to home",
+      exact: true,
+    });
+    await expect(back).toBeVisible();
+    assert.equal(
+      await back
+        .locator("svg")
+        .evaluate((element) => getComputedStyle(element).color),
+      "rgb(255, 255, 255)",
+    );
+    await back.click();
+    await expect(page.getByTestId("current-path")).toHaveText("/");
+  } finally {
+    await page.context().close();
+  }
+  const short = await pageFor();
+  try {
+    await short.setViewportSize({ width: 360, height: 640 });
+    await short.getByRole("button", { name: "New group", exact: true }).click();
+    const dialog = short.getByRole("dialog", {
+      name: "New group",
+      exact: true,
+    });
+    await expect(
+      dialog.getByRole("button", { name: "Create group", exact: true }),
+    ).toBeInViewport();
+    const search = dialog.getByRole("textbox", {
+      name: "Search friends",
+      exact: true,
+    });
+    assert.ok(
+      await search.evaluate(
+        (element) => parseFloat(getComputedStyle(element).paddingLeft) >= 36,
+      ),
+    );
+  } finally {
+    await short.context().close();
+  }
+});
 const fail = (page: Page, name: string) =>
   page.evaluate(
     (name) => (window as any).messagesFixture.setFailure(name),
@@ -742,9 +1075,14 @@ test("group owner can manage but cannot accidentally leave; member sees confirma
   for (const scenario of ["owner", "member"]) {
     const page = await pageFor(scenario, `/messages/${group}`);
     try {
-      await expect(page.getByRole('textbox',{name:'Write a message',exact:true})).toBeInViewport();
-      const composer=await page.locator('.msg-composer').boundingBox();
-      assert.ok(composer&&composer.y+composer.height<=845,'Group composer remains in the viewport');
+      await expect(
+        page.getByRole("textbox", { name: "Write a message", exact: true }),
+      ).toBeInViewport();
+      const composer = await page.locator(".msg-composer").boundingBox();
+      assert.ok(
+        composer && composer.y + composer.height <= 845,
+        "Group composer remains in the viewport",
+      );
       await page.screenshot({ path: artifact + "/group-b.png" });
       await page
         .getByRole("button", { name: "Open group profile", exact: true })

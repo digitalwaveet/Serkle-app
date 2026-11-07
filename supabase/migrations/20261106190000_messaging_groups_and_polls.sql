@@ -35,6 +35,27 @@ CREATE TABLE IF NOT EXISTS public.chat_group_invites (
 ALTER TABLE public.chat_group_requests ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.chat_group_requests FROM PUBLIC,anon,authenticated;
 
+-- Legacy deployments may return boolean, text, JSON or TABLE from these RPCs.
+-- PostgreSQL cannot replace their return contract; recreate only the named endpoints.
+-- RESTRICT is intentional: no CASCADE, tables, messages or membership data are removed.
+DROP FUNCTION IF EXISTS public.create_group_conversation(uuid,text,uuid[]);
+DROP FUNCTION IF EXISTS public.create_group_conversation(uuid,text,uuid[],uuid);
+DROP FUNCTION IF EXISTS public.add_chat_group_members(uuid,uuid[]);
+DROP FUNCTION IF EXISTS public.set_chat_group_admin(uuid,uuid,boolean);
+DROP FUNCTION IF EXISTS public.remove_group_member(uuid,uuid);
+DROP FUNCTION IF EXISTS public.transfer_chat_group_ownership(uuid,uuid);
+DROP FUNCTION IF EXISTS public.update_chat_group(uuid,text,text,text);
+DROP FUNCTION IF EXISTS public.create_chat_group_invite(uuid);
+DROP FUNCTION IF EXISTS public.get_chat_group_invite(uuid);
+DROP FUNCTION IF EXISTS public.join_chat_group(uuid);
+DROP FUNCTION IF EXISTS public.revoke_chat_group_invite(uuid);
+DROP FUNCTION IF EXISTS public.create_chat_group_poll(uuid,text,text[],boolean,boolean,uuid);
+DROP FUNCTION IF EXISTS public.set_chat_poll_vote(uuid,text,boolean);
+DROP FUNCTION IF EXISTS public.end_chat_group_poll(uuid);
+DROP FUNCTION IF EXISTS public.get_chat_group_poll(uuid);
+DROP FUNCTION IF EXISTS public.get_chat_group_polls(uuid);
+DROP FUNCTION IF EXISTS public.get_chat_poll_voters(uuid);
+
 CREATE OR REPLACE FUNCTION public.chat_is_group(p_conversation_id uuid) RETURNS boolean
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public,pg_temp AS $$
   SELECT COALESCE((SELECT is_group FROM public.conversations WHERE id=p_conversation_id),false);
@@ -386,5 +407,6 @@ DO $$ DECLARE fn record; BEGIN
     EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO authenticated',fn.signature);
   END LOOP;
 END $$;
+NOTIFY pgrst,'reload schema';
 NOTIFY pgrst,'reload schema';
 COMMIT;

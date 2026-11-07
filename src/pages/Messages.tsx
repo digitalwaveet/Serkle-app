@@ -145,7 +145,8 @@ export default function Messages() {
             <div className="msg-inbox-heading">
               <button
                 className="msg-icon text-white -ml-2"
-                aria-label="Back to Serkle"
+                aria-label="Back to home"
+                title="Back to home"
                 onClick={() => navigate("/")}
               >
                 <ArrowLeft aria-hidden="true" />

@@ -55,9 +55,16 @@ export default function CreateGroupModal({
       setName("");
       setFriends([]);
       onClose();
-    } catch {
+    } catch (failure) {
+      const unavailable =
+        !!failure &&
+        typeof failure === "object" &&
+        "code" in failure &&
+        failure.code === "PGRST202";
       setError(
-        "Your group could not be created. Your selections are still here; please try again.",
+        unavailable
+          ? "Group creation is temporarily unavailable because messaging setup is incomplete. Your selections are saved. Please contact the app administrator."
+          : "Your group could not be created. Your selections are still here; please try again.",
       );
     } finally {
       lock.current = false;

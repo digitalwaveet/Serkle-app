@@ -34,6 +34,10 @@ before(async () => {
       "utf8",
     ),
   );
+  // Reproduce an existing production RPC with a different return contract.
+  await db.exec(
+    "CREATE FUNCTION public.remove_group_member(_conversation_id uuid,_user_id uuid) RETURNS boolean LANGUAGE sql AS 'SELECT false';CREATE FUNCTION public.create_chat_group_invite(p_conversation_id uuid) RETURNS text LANGUAGE sql AS 'SELECT ''legacy''::text'",
+  );
   await db.exec(
     await readFile(
       new URL(
@@ -45,6 +49,15 @@ before(async () => {
   );
 });
 after(() => db.close());
+test("legacy boolean and text RPC return types upgrade to the current void and JSON contracts", async () => {
+  const results = await query<{ name: string; result: string }>(
+    "SELECT proname name,pg_get_function_result(oid) result FROM pg_proc WHERE pronamespace='public'::regnamespace AND proname IN ('remove_group_member','create_chat_group_invite') ORDER BY proname",
+  );
+  assert.deepEqual(results, [
+    { name: "create_chat_group_invite", result: "jsonb" },
+    { name: "remove_group_member", result: "void" },
+  ]);
+});
 beforeEach(async () => {
   await db.exec(
     "RESET ROLE;TRUNCATE profiles,conversations,conversation_members,messages,group_admins,group_mutes,group_polls,poll_votes,chat_group_requests,chat_group_invites CASCADE",

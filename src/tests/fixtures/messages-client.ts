@@ -1,5 +1,14 @@
 import { useCallback, useSyncExternalStore } from "react";
 import { useMutation } from "@tanstack/react-query";
+import { createClient } from "@supabase/supabase-js";
+const mediaClient = createClient(location.origin, "isolated-fixture", {
+  auth: {
+    persistSession: false,
+    autoRefreshToken: false,
+    detectSessionInUrl: false,
+  },
+  global: { headers: { Authorization: "Bearer fixture-owner" } },
+});
 const scenario = localStorage.getItem("messages-scenario") || "";
 const me = "00000000-0000-4000-8000-000000000001",
   friend = "00000000-0000-4000-8000-000000000002";
@@ -112,8 +121,11 @@ const shared = [
   message("link1", "A helpful reference https://example.com/creative"),
 ];
 const listeners = new Set<() => void>();
+const storedMessages = new Map<string, any>();
 let revision = 0;
 const fixture = {
+  deletions: [] as { message_id: string }[],
+  deltas: null as any[] | null,
   calls: [] as { name: string; value: any }[],
   failures: {} as Record<string, number>,
   delay: 150,
@@ -425,6 +437,7 @@ export const useVoterInsights = () => ({
 });
 export async function chatRpc(name: string, args: any) {
   await action(name, args);
+  if (name === "sync_messages") return fixture.deltas;
   if (name === "create_chat_group_invite")
     return {
       token: "20000000-0000-4000-8000-000000000001",
@@ -442,10 +455,19 @@ export async function chatRpc(name: string, args: any) {
   return null;
 }
 function query(table: string) {
+  let inserts: any[] | null = null,
+    ids: string[] | null = null;
   const q: any = {
     select: () => q,
     eq: () => q,
-    in: () => q,
+    in: (_column: string, values: string[]) => {
+      ids = values;
+      return q;
+    },
+    upsert: (rows: any | any[]) => {
+      inserts = Array.isArray(rows) ? rows : [rows];
+      return q;
+    },
     ilike: () => q,
     order: () => q,
     limit: () => q,
@@ -458,7 +480,30 @@ function query(table: string) {
         },
         error: null,
       }),
-    then: (resolve: any) => {
+    then: (resolve: any, reject: any) => {
+      if (inserts && table === "messages")
+        return action("persist-message-batch", inserts)
+          .then(
+            () => {
+              for (const row of inserts!) {
+                if (!storedMessages.has(row.id))
+                  storedMessages.set(row.id, {
+                    ...row,
+                    seq: storedMessages.size + 1,
+                    created_seq: storedMessages.size + 1,
+                  });
+              }
+              return { data: null, error: null };
+            },
+            () => ({
+              data: null,
+              error: {
+                code: "NETWORK_ERROR",
+                message: "Sample request failed",
+              },
+            }),
+          )
+          .then(resolve, reject);
       if (fixture.failures["query:" + table] > 0) {
         fixture.failures["query:" + table]--;
         return Promise.resolve({
@@ -467,7 +512,16 @@ function query(table: string) {
         }).then(resolve);
       }
       return Promise.resolve({
-        data: table === "messages" ? messages : [],
+        data:
+          table === "messages"
+            ? ids
+              ? ids.flatMap((id) =>
+                  storedMessages.has(id) ? [storedMessages.get(id)] : [],
+                )
+              : messages
+            : table === "message_deletions"
+              ? fixture.deletions
+              : [],
         error: null,
       }).then(resolve);
     },
@@ -475,8 +529,19 @@ function query(table: string) {
   return q;
 }
 export const supabase = {
+  storage: mediaClient.storage,
   from: query,
   rpc: async (name: string, args: any) => {
+    if (
+      scenario === "group-schema-missing" &&
+      name === "create_group_conversation"
+    ) {
+      await action(name, args);
+      return {
+        data: null,
+        error: { code: "PGRST202", message: "Function signature unavailable" },
+      };
+    }
     try {
       return { data: await chatRpc(name, args), error: null };
     } catch (error) {

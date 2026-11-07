@@ -1,10 +1,17 @@
 import { useEffect, useState } from "react";
-import { useSendMessage } from "@/hooks/useMessages.ts?messaging-actual";
+import {
+  useSendMessage,
+  useRetryMessage,
+} from "@/hooks/useMessages.ts?messaging-actual";
 import { useUnreadCount } from "@/hooks/useUnreadCount.ts?messaging-actual";
 import { chatDb, sanitizeMessage } from "@/lib/db";
-import { syncConversation } from "@/lib/sync.ts?messaging-actual";
+import {
+  syncConversation,
+  processSyncQueue,
+} from "@/lib/sync.ts?messaging-actual";
 export default function StorageFixture() {
   const send = useSendMessage(),
+    retry = useRetryMessage(),
     unread = useUnreadCount(),
     [ready, setReady] = useState(false);
   useEffect(() => {
@@ -17,6 +24,21 @@ export default function StorageFixture() {
     if (!ready) return;
     (window as any).messagingStorage = {
       send: send.sendMessageAsync,
+      flush: processSyncQueue,
+      retry: retry.mutateAsync,
+      failNextCacheWrite() {
+        const original = chatDb.messages.bulkPut.bind(chatDb.messages);
+        let fail = true;
+        chatDb.messages.bulkPut = ((...args: any[]) => {
+          if (fail) {
+            fail = false;
+            return Promise.reject(
+              new Error("Simulated local storage quota failure"),
+            );
+          }
+          return (original as any)(...args);
+        }) as any;
+      },
       unread: () => unread.totalUnreadCount,
       async seedReaction() {
         const { me, dm } = (window as any).messagesFixture;
@@ -103,6 +125,7 @@ export default function StorageFixture() {
         );
       },
       snapshot: async () => ({
+        conversations: await chatDb.conversations.toArray(),
         messages: await chatDb.messages.toArray(),
         queue: await chatDb.sync_queue.toArray(),
       }),

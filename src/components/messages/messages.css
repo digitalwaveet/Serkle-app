@@ -119,6 +119,12 @@
   background: #ffffff18;
   color: white;
 }
+.msg-inbox-header .msg-icon {
+  color: #fff;
+}
+.msg-inbox-header .msg-icon:hover {
+  background: #ffffff24;
+}
 .msg-inbox-header .msg-eyebrow {
   color: #f3dcc8;
 }
@@ -464,6 +470,131 @@
   max-width: min(84%, 560px);
   min-width: 0;
 }
+.msg-ui .msg-media-column {
+  width: 100%;
+  max-width: min(84%, 360px);
+  min-width: 0;
+  flex-shrink: 0;
+}
+.msg-media-column > .msg-message-bubble {
+  padding: 3px;
+}
+.msg-media-mosaic {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 3px;
+  width: 100%;
+  min-width: 0;
+  border-radius: 10px;
+  overflow: hidden;
+}
+.msg-media-mosaic[data-count="1"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+.msg-media-cell {
+  position: relative;
+  min-width: 0;
+  aspect-ratio: 1;
+  overflow: hidden;
+  background: hsl(var(--msg-wash));
+  color: hsl(var(--msg-brand));
+}
+.msg-media-cell {
+  min-height: 130px;
+}
+.msg-media-mosaic[data-count="1"] > .msg-media-cell {
+  aspect-ratio: 4/3;
+}
+.msg-media-mosaic[data-count="2"] > .msg-media-cell {
+  aspect-ratio: 3/4;
+}
+.msg-media-mosaic[data-count="3"] > .msg-media-cell:first-child {
+  grid-row: span 2;
+  aspect-ratio: auto;
+}
+.msg-media-mosaic[data-count="5"] > .msg-media-cell:first-child {
+  grid-column: span 2;
+  aspect-ratio: 16/9;
+}
+.msg-media-open {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  display: block;
+}
+.msg-media-open :is(img, video) {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.msg-media-loading,
+.msg-media-unavailable {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+  padding: 8px;
+}
+.msg-media-loading {
+  pointer-events: none;
+  z-index: 1;
+  background: hsl(var(--msg-wash));
+}
+.msg-media-unavailable {
+  font-size: 12px;
+  line-height: 1.45;
+  overflow: auto;
+}
+.msg-media-unavailable > svg {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+.msg-media-unavailable .msg-button {
+  padding: 3px 9px;
+  min-height: 44px;
+  font-size: 12px;
+}
+.msg-media-play {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  background: #0008;
+  color: white;
+  border-radius: 100%;
+}
+.msg-media-timestamp,
+.msg-media-duration {
+  position: absolute;
+  bottom: 6px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: #000b;
+  color: white;
+  font-size: 11px;
+  pointer-events: none;
+}
+.msg-media-timestamp {
+  right: 6px;
+  z-index: 2;
+}
+.msg-media-duration {
+  left: 6px;
+}
 .msg-message-bubble {
   padding: 11px 13px;
   border-radius: 12px 12px 12px 3px;
@@ -542,6 +673,8 @@
   backdrop-filter: blur(3px);
 }
 .msg-ui.msg-dialog {
+  display: flex;
+  flex-direction: column;
   position: fixed;
   left: 50%;
   top: 50%;
@@ -555,10 +688,11 @@
   border-radius: 20px;
   padding: 0;
   overflow-x: hidden;
-  overflow-y: auto;
+  overflow-y: hidden;
   box-shadow: 0 24px 80px #0003;
 }
 .msg-dialog-heading {
+  flex-shrink: 0;
   padding: 23px 64px 18px 22px;
   border-bottom: 1px solid hsl(var(--msg-line));
 }
@@ -581,15 +715,29 @@
   background: hsl(var(--card));
 }
 .msg-dialog-body {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 20px 22px 24px;
 }
 .msg-dialog-footer {
+  flex-shrink: 0;
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  background: hsl(var(--card));
   display: flex;
   justify-content: flex-end;
   gap: 10px;
   flex-wrap: wrap;
-  padding: 16px 22px 20px;
+  padding: 16px 22px calc(20px + env(safe-area-inset-bottom));
   border-top: 1px solid hsl(var(--msg-line));
+}
+.msg-dialog > form {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
 }
 .msg-dialog :where(input, textarea, select) {
   width: 100%;
@@ -599,6 +747,9 @@
   min-height: 46px;
   color: hsl(var(--foreground));
   background: hsl(var(--msg-canvas));
+}
+.msg-dialog .msg-friend-search input {
+  padding-left: 40px;
 }
 .msg-dialog input[type="checkbox"] {
   width: 18px;

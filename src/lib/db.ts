@@ -1,8 +1,12 @@
-import { Dexie, type Table } from 'dexie';
-import { applyEncryptionMiddleware, NON_INDEXED_FIELDS, clearAllTables } from 'dexie-encrypted';
+import { Dexie, type Table } from "dexie";
+import {
+  applyEncryptionMiddleware,
+  NON_INDEXED_FIELDS,
+  clearAllTables,
+} from "dexie-encrypted";
 
 export interface LocalMessage {
-  id: string; 
+  id: string;
   conversation_id: string;
   sender_id: string;
   content: string;
@@ -16,7 +20,9 @@ export interface LocalMessage {
   updated_at: string;
   seq?: number;
   created_seq?: number;
-  sync_status: 'pending' | 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
+  sync_status: "pending" | "sending" | "sent" | "delivered" | "read" | "failed";
+  sync_error?: string;
+  sync_error_code?: string;
 }
 
 export interface LocalConversationMeta {
@@ -57,28 +63,28 @@ export interface LocalReaction {
 
 /** Call this before any Dexie write to guarantee no null leaks into encrypted fields */
 export function sanitizeMessage(msg: Partial<LocalMessage>): LocalMessage {
-  const ensureString = (val: any, fallback: string = ''): string => {
-    if (typeof val === 'string') return val;
+  const ensureString = (val: any, fallback: string = ""): string => {
+    if (typeof val === "string") return val;
     if (val === null || val === undefined) return fallback;
     return String(val);
   };
 
   return {
-    id:             msg.id!,
+    id: msg.id!,
     conversation_id: msg.conversation_id!,
-    sender_id:      ensureString(msg.sender_id),
-    content:        ensureString(msg.content),
-    message_type:   ensureString(msg.message_type, 'text'),
+    sender_id: ensureString(msg.sender_id),
+    content: ensureString(msg.content),
+    message_type: ensureString(msg.message_type, "text"),
     attachment_url: ensureString(msg.attachment_url),
-    reply_to_id:    ensureString(msg.reply_to_id),
+    reply_to_id: ensureString(msg.reply_to_id),
     forwarded_from_name: ensureString(msg.forwarded_from_name),
-    is_edited:      !!msg.is_edited,
+    is_edited: !!msg.is_edited,
     deleted_for_everyone: !!msg.deleted_for_everyone,
-    created_at:     msg.created_at!,
-    updated_at:     msg.updated_at!,
-    seq:            msg.seq,
-    created_seq:    msg.created_seq,
-    sync_status:    msg.sync_status ?? 'pending',
+    created_at: msg.created_at!,
+    updated_at: msg.updated_at!,
+    seq: msg.seq,
+    created_seq: msg.created_seq,
+    sync_status: msg.sync_status ?? "pending",
   } as LocalMessage;
 }
 
@@ -102,11 +108,19 @@ export interface LocalPinnedConversation {
 
 export interface LocalSyncQueueItem {
   id: string;
-  type: 'message_insert' | 'message_update' | 'message_delete' | 'read_receipt' | 'story_view' | 'story_like' | 'story_unlike' | 'story_message';
+  type:
+    | "message_insert"
+    | "message_update"
+    | "message_delete"
+    | "read_receipt"
+    | "story_view"
+    | "story_like"
+    | "story_unlike"
+    | "story_message";
   payload: any;
   created_at: string;
   retry_count: number;
-  status?: 'pending' | 'processing' | 'failed';
+  status?: "pending" | "processing" | "failed";
 }
 
 export class ChatDatabase extends Dexie {
@@ -122,20 +136,21 @@ export class ChatDatabase extends Dexie {
   private resolveEncryptionKey!: (key: Uint8Array) => void;
 
   constructor() {
-    super('SerkleChatDB_v4');
-    
+    super("SerkleChatDB_v4");
+
     // Schema version 2 - Added profiles table
     // The keys listed here are the indexed fields. Everything else is unindexed payload.
     // @ts-ignore - TS sometimes fails to resolve the Dexie base class methods properly
     this.version(4).stores({
-      messages: 'id, conversation_id, created_at, [conversation_id+created_at], sync_status',
-      conversations: 'id',
-      conversations_meta: 'conversation_id',
-      read_receipts: '[conversation_id+user_id], conversation_id',
-      sync_queue: 'id, type, created_at',
-      message_reactions: 'id, message_id, [message_id+user_id+emoji]',
-      pinned_conversations: 'conversation_id',
-      profiles: 'id, username'
+      messages:
+        "id, conversation_id, created_at, [conversation_id+created_at], sync_status",
+      conversations: "id",
+      conversations_meta: "conversation_id",
+      read_receipts: "[conversation_id+user_id], conversation_id",
+      sync_queue: "id, type, created_at",
+      message_reactions: "id, message_id, [message_id+user_id+emoji]",
+      pinned_conversations: "conversation_id",
+      profiles: "id, username",
     });
 
     // Defer the encryption key so Dexie blocks queries until we provide it from UserContext
@@ -147,21 +162,29 @@ export class ChatDatabase extends Dexie {
     try {
       // @ts-ignore - TS types for dexie-encrypted might clash with Dexie 4.0 Table types
       (applyEncryptionMiddleware as any)(
-        this, 
-        keyPromise, 
+        this,
+        keyPromise,
         {
           messages: {
-            type: 'encrypt',
-            fields: ['content', 'attachment_url', 'sender_id', 'message_type', 'reply_to_id'],
+            type: "encrypt",
+            fields: [
+              "content",
+              "attachment_url",
+              "sender_id",
+              "message_type",
+              "reply_to_id",
+            ],
           },
         } as any,
         async (db) => {
-          console.warn('[Dexie] Encryption key changed or invalid, clearing local tables to prevent crash.');
+          console.warn(
+            "[Dexie] Encryption key changed or invalid, clearing local tables to prevent crash.",
+          );
           await clearAllTables(db);
-        }
+        },
       );
     } catch (e) {
-      console.error('Dexie encryption middleware setup failed', e);
+      console.error("Dexie encryption middleware setup failed", e);
     }
   }
 
@@ -176,33 +199,40 @@ export class ChatDatabase extends Dexie {
         console.log(`Persistent storage granted: ${isPersisted}`);
       }
     } catch (e) {
-      console.error('Failed to request persistent storage', e);
+      console.error("Failed to request persistent storage", e);
     }
 
     try {
       // Derive a 32-byte key from the session token using Web Crypto API
       const encoder = new TextEncoder();
       const data = encoder.encode(sessionToken);
-      const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+      const hashBuffer = await crypto.subtle.digest("SHA-256", data);
       const encryptionKey = new Uint8Array(hashBuffer);
 
       // Self-Healing Clear: Wipe corrupted legacy data if version mismatch
-      const ENCRYPTION_VERSION = 'v6_premium_profile';
-      const storedVersion = localStorage.getItem('SERKLE_DB_ENCRYPTION_VERSION');
+      const ENCRYPTION_VERSION = "v6_premium_profile";
+      const storedVersion = localStorage.getItem(
+        "SERKLE_DB_ENCRYPTION_VERSION",
+      );
       if (storedVersion !== ENCRYPTION_VERSION) {
-        console.warn(`[Dexie] Encryption version mismatch (${storedVersion} -> ${ENCRYPTION_VERSION}). Nuclear reset...`);
-        localStorage.setItem('SERKLE_DB_ENCRYPTION_VERSION', ENCRYPTION_VERSION);
+        console.warn(
+          `[Dexie] Encryption version mismatch (${storedVersion} -> ${ENCRYPTION_VERSION}). Nuclear reset...`,
+        );
+        localStorage.setItem(
+          "SERKLE_DB_ENCRYPTION_VERSION",
+          ENCRYPTION_VERSION,
+        );
         await this.delete(); // Nukes the specific DB name
         window.location.reload(); // Force refresh to re-init with clean DB
-        return; 
+        return;
       }
 
       // Release the promise, allowing Dexie to process deferred queries ONLY after version check
       this.resolveEncryptionKey(encryptionKey);
-      
-      console.log('Chat local database encryption initialized and unblocked.');
+
+      console.log("Chat local database encryption initialized and unblocked.");
     } catch (err) {
-      console.error('Failed to initialize local DB encryption key', err);
+      console.error("Failed to initialize local DB encryption key", err);
     }
   }
 }

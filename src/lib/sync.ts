@@ -1,6 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import { chatDb, LocalMessage, sanitizeMessage } from "./db";
 import { countUnreadMessages } from "./chatUnread";
+import { submitChatMessageBatch, chatDeliveryFailure } from "./chatDelivery";
 
 // Concurrency guards for synchronization
 const syncRegistry = new Map<string, Promise<any>>();
@@ -48,6 +49,7 @@ export const syncConversation = async (conversationId: string) => {
         { data: logData, error: msgError },
         { data: receipts, error: receiptError },
         { data: reactions, error: reactionError },
+        { data: deletions, error: deletionError },
       ] = await Promise.all([
         // @ts-ignore
         (supabase.rpc as any)("sync_messages", {
@@ -64,10 +66,14 @@ export const syncConversation = async (conversationId: string) => {
             "id, message_id, user_id, emoji, created_at, messages!inner(conversation_id)",
           )
           .eq("messages.conversation_id", conversationId) as any,
+        supabase
+          .from("message_deletions")
+          .select("message_id,messages!inner(conversation_id)")
+          .eq("messages.conversation_id", conversationId),
       ]);
 
-      if (msgError || receiptError || reactionError) {
-        throw msgError || receiptError || reactionError;
+      if (msgError || receiptError || reactionError || deletionError) {
+        throw msgError || receiptError || reactionError || deletionError;
       }
 
       // 2. Process Reactions (Strip join metadata)
@@ -129,29 +135,11 @@ export const syncConversation = async (conversationId: string) => {
         chatDb.message_reactions,
         async () => {
           if (messagesToInsert.length > 0) {
-            try {
-              await chatDb.messages.bulkPut(messagesToInsert);
-              const batchMax = Math.max(
-                ...messagesToInsert.map((m) => m.seq || 0),
-              );
-              if (batchMax > safeMaxSeq) safeMaxSeq = batchMax;
-            } catch (bulkErr) {
-              console.warn(
-                "[Sync] Bulk insert failed, falling back to individual inserts:",
-                bulkErr,
-              );
-              for (const m of messagesToInsert) {
-                try {
-                  await chatDb.messages.put(m);
-                  if ((m.seq ?? 0) > safeMaxSeq) safeMaxSeq = m.seq!;
-                } catch (singleErr) {
-                  console.error(
-                    `[Sync] Failed to insert message ${m.id}:`,
-                    singleErr,
-                  );
-                }
-              }
-            }
+            await chatDb.messages.bulkPut(messagesToInsert);
+            const batchMax = Math.max(
+              ...messagesToInsert.map((message) => message.seq || 0),
+            );
+            if (batchMax > safeMaxSeq) safeMaxSeq = batchMax;
           }
 
           // Update high-water mark
@@ -181,6 +169,10 @@ export const syncConversation = async (conversationId: string) => {
             .where("conversation_id")
             .equals(conversationId)
             .primaryKeys();
+          if (deletions?.length)
+            await chatDb.messages.bulkDelete(
+              deletions.map((row) => row.message_id),
+            );
           if (messageIds.length)
             await chatDb.message_reactions
               .where("message_id")
@@ -448,10 +440,24 @@ async function processSyncQueueBatch() {
   );
   const otherItems = queue.filter((item) => item.type !== "message_insert");
 
-  // 2. Process message_insert in batches
-  for (let i = 0; i < messageInserts.length; i += BATCH_SIZE) {
-    const batch = messageInserts.slice(i, i + BATCH_SIZE);
-
+  // Preserve offline send order and isolate a revoked conversation from unrelated chats.
+  const byConversation = new Map<string, typeof messageInserts>();
+  for (const item of messageInserts.sort(
+    (a, b) =>
+      Date.parse(a.created_at) - Date.parse(b.created_at) ||
+      a.id.localeCompare(b.id),
+  )) {
+    const key = item.payload.conversation_id;
+    const items = byConversation.get(key) || [];
+    items.push(item);
+    byConversation.set(key, items);
+  }
+  const batches = [...byConversation.values()].flatMap((items) =>
+    Array.from({ length: Math.ceil(items.length / BATCH_SIZE) }, (_, index) =>
+      items.slice(index * BATCH_SIZE, (index + 1) * BATCH_SIZE),
+    ),
+  );
+  for (const batch of batches) {
     // SANITIZATION: Ensure UUID fields are null instead of "" for Supabase
     const payloads = batch.map((item) => ({
       ...item.payload,
@@ -479,11 +485,7 @@ async function processSyncQueueBatch() {
         })),
       );
 
-      const { error } = await supabase
-        .from("messages")
-        .upsert(payloads, { onConflict: "id", ignoreDuplicates: true } as any);
-
-      if (error) throw error;
+      const accepted = await submitChatMessageBatch(supabase, payloads);
 
       // Atomic local cleanup for the whole batch
       await chatDb.transaction(
@@ -497,6 +499,13 @@ async function processSyncQueueBatch() {
             .toArray();
           for (const msg of msgsToUpdate) {
             msg.sync_status = "sent";
+            const receipt = accepted.find((row) => row.id === msg.id)!;
+            msg.seq = receipt.seq;
+            msg.created_seq = receipt.created_seq;
+            msg.created_at = receipt.created_at;
+            msg.updated_at = receipt.updated_at;
+            delete msg.sync_error;
+            delete msg.sync_error_code;
           }
           await chatDb.messages.bulkPut(msgsToUpdate);
           await chatDb.sync_queue.bulkDelete(batchIds);
@@ -505,6 +514,7 @@ async function processSyncQueueBatch() {
 
       console.log(`[Sync] Successfully batched ${batch.length} messages.`);
     } catch (err: any) {
+      const failure = chatDeliveryFailure(err);
       console.error(
         `[Sync] Failed to process message batch starting with ${batch[0].id}:`,
         err,
@@ -519,19 +529,26 @@ async function processSyncQueueBatch() {
           for (const item of batch) {
             const newRetryCount = (item.retry_count || 0) + 1;
             if (newRetryCount >= MAX_RETRIES) {
-              // Permanent failure: mark message as failed and remove from queue
+              // Stop automatic retries while retaining the exact durable payload for manual retry.
               const existingMsg = await chatDb.messages.get(item.payload.id);
               if (existingMsg) {
                 existingMsg.sync_status = "failed";
+                existingMsg.sync_error = failure.message;
+                existingMsg.sync_error_code = failure.code;
                 await chatDb.messages.put(existingMsg);
               }
-              await chatDb.sync_queue.delete(item.id);
+              await chatDb.sync_queue.update(item.id, {
+                status: "failed",
+                retry_count: newRetryCount,
+              });
             } else {
               const existingMsg = await chatDb.messages.get(item.payload.id);
               if (existingMsg)
                 await chatDb.messages.put({
                   ...existingMsg,
                   sync_status: "failed",
+                  sync_error: failure.message,
+                  sync_error_code: failure.code,
                 });
               // Incremental failure: update queue item
               await chatDb.sync_queue.update(item.id, {
@@ -635,8 +652,13 @@ export async function cleanupOldData() {
   }
 }
 
+let syncListenersRegistered = false;
 export function registerSyncListeners() {
   if (typeof window === "undefined") return;
+  if (syncListenersRegistered) return;
+  syncListenersRegistered = true;
+  // Resume durable pending messages after a reload, even when the browser was already online.
+  processSyncQueue().catch(console.error);
 
   // Trigger sync queue when network comes back online
   window.addEventListener("online", () => {

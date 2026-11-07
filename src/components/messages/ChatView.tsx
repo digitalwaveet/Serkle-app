@@ -1207,7 +1207,7 @@ const ChatView: React.FC<ChatViewProps> = ({
                         </Avatar>
                       )}
                       <div
-                        className={`flex flex-col ${isOwn ? "items-end" : "items-start"} max-w-[75%] lg:max-w-[75%] min-w-0`}
+                        className={`msg-message-column msg-media-column flex flex-col ${isOwn ? "items-end" : "items-start"}`}
                       >
                         {conversation.is_group && !isOwn && (
                           <span className="text-xs font-semibold text-primary mb-1">
@@ -1215,7 +1215,7 @@ const ChatView: React.FC<ChatViewProps> = ({
                           </span>
                         )}
                         <div
-                          className={`rounded-xl shadow-sm overflow-hidden ${
+                          className={`msg-message-bubble w-full overflow-hidden ${isOwn ? "own" : ""} ${
                             isOwn
                               ? "bg-primary rounded-br-md text-white"
                               : "bg-muted rounded-bl-md"
@@ -1284,6 +1284,7 @@ const ChatView: React.FC<ChatViewProps> = ({
                                 </span>
                                 <MessageDeliveryStatus
                                   syncStatus={item.sync_status}
+                                  errorMessage={item.sync_error}
                                   seq={item.seq}
                                   lastReadSeq={
                                     conversation.is_group
@@ -1529,6 +1530,7 @@ const ChatView: React.FC<ChatViewProps> = ({
                         {isOwn && (
                           <MessageDeliveryStatus
                             syncStatus={message.sync_status}
+                            errorMessage={message.sync_error}
                             seq={message.seq}
                             lastReadSeq={
                               conversation.is_group ? 0 : otherUserLastRead

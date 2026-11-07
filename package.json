@@ -29,7 +29,9 @@
     "test:notifications-page-ui": "node --experimental-strip-types --test src/tests/notifications-page.ui.test.ts",
     "test:ask-presentation": "node --experimental-strip-types --test src/tests/ask-presentation.test.ts",
     "test:ask-ui": "node --experimental-strip-types --test src/tests/ask.ui.test.ts",
-    "test:messaging": "node --experimental-strip-types --test src/tests/messaging-presentation.test.ts src/tests/messaging-groups.integration.test.ts",
+    "test:messaging": "node --experimental-strip-types --test src/tests/messaging-presentation.test.ts src/tests/messaging-groups.integration.test.ts src/tests/chat-media-reference.test.ts",
+    "test:messaging-delivery": "node --experimental-strip-types --test src/tests/messaging-delivery.integration.test.ts",
+    "check:messaging-backend": "node scripts/check-messaging-backend.mjs",
     "test:messaging-ui": "node --experimental-strip-types --test src/tests/messaging.ui.test.ts"
   },
   "dependencies": {
