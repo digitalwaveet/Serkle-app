@@ -5,6 +5,9 @@ import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
 import type { MediaItem } from "./MediaGroupMosaic";
 import { useChatMediaUrls } from "@/hooks/useChatMediaUrls";
 import { SerkleLoader } from "@/components/ui/SerkleLoader";
+import { OptimizedImage } from '@/components/ui/OptimizedImage';
+import { downloadOriginalImage } from '@/lib/imageStorage';
+import { toast } from 'sonner';
 
 interface MediaLightboxProps {
   items: MediaItem[];
@@ -20,10 +23,12 @@ const MediaLightbox: React.FC<MediaLightboxProps> = ({
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const touchStart = useRef<{ x: number; y: number } | null>(null);
   const source = items[currentIndex];
-  const media = useChatMediaUrls([source.url]);
+  const media = useChatMediaUrls([source.url], source.type === 'video');
   const item = { ...source, url: media.url(source.url) };
   const [failed, setFailed] = useState(false),
     [attempt, setAttempt] = useState(0);
+  const [downloading, setDownloading] = useState(false);
+  const downloadLock = useRef(false);
   useEffect(() => setFailed(false), [item.url, currentIndex]);
 
   const goNext = useCallback(() => {
@@ -62,14 +67,12 @@ const MediaLightbox: React.FC<MediaLightboxProps> = ({
     touchStart.current = null;
   };
 
-  const handleDownload = () => {
-    const link = document.createElement("a");
-    link.href = item.url;
-    link.download = `media-${currentIndex + 1}`;
-    link.target = "_blank";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const handleDownload = async () => {
+    if (downloadLock.current) return;
+    downloadLock.current = true; setDownloading(true);
+    try { await downloadOriginalImage(source.url); }
+    catch { toast.error('Download unavailable. Please check your connection and try again.'); }
+    finally { downloadLock.current = false; setDownloading(false); }
   };
 
   const content = (
@@ -98,8 +101,9 @@ const MediaLightbox: React.FC<MediaLightboxProps> = ({
         <button
           type="button"
           onClick={handleDownload}
-          disabled={!item.url}
-          aria-label="Download attachment"
+          disabled={downloading}
+          aria-label={downloading ? 'Preparing download' : 'Download original'}
+          title="Download original"
           className="p-2 rounded-full hover:bg-card/10 transition-colors active:scale-90"
         >
           <Download className="h-5 w-5 text-white" />
@@ -108,7 +112,12 @@ const MediaLightbox: React.FC<MediaLightboxProps> = ({
 
       {/* Media */}
       <div className="flex-1 flex items-center justify-center relative overflow-hidden">
-        {!item.url ? (
+        {source.type === 'photo' ? <TransformWrapper key={source.id} initialScale={1} minScale={1} maxScale={5} doubleClick={{ mode: 'toggle', step: 2 }}>
+          <TransformComponent wrapperStyle={{ width: '100%', height: '100%' }} contentStyle={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <OptimizedImage src={source.url} alt={source.caption || 'Shared photo'} size="full" loading="eager"
+              className="max-h-full bg-transparent" imageClassName="max-h-full object-contain" style={{ maxHeight: '100%' }} />
+          </TransformComponent>
+        </TransformWrapper> : !item.url ? (
           media.failed(source.url) ? (
             <button
               type="button"
@@ -131,7 +140,7 @@ const MediaLightbox: React.FC<MediaLightboxProps> = ({
           >
             Media unavailable · Retry
           </button>
-        ) : item.type === "video" ? (
+        ) : (
           <video
             key={`${item.id}-${attempt}`}
             src={item.url}
@@ -141,35 +150,6 @@ const MediaLightbox: React.FC<MediaLightboxProps> = ({
             onError={() => setFailed(true)}
             className="max-w-full max-h-full"
           />
-        ) : (
-          <TransformWrapper
-            key={`${item.id}-${attempt}`}
-            initialScale={1}
-            minScale={1}
-            maxScale={5}
-            doubleClick={{ mode: "toggle", step: 2 }}
-            wheel={{ step: 0.2 }}
-            panning={{ velocityDisabled: true }}
-          >
-            <TransformComponent
-              wrapperStyle={{ width: "100%", height: "100%" }}
-              contentStyle={{
-                width: "100%",
-                height: "100%",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <img
-                src={item.url}
-                alt={source.caption || "Shared photo"}
-                onError={() => setFailed(true)}
-                className="max-w-full max-h-full object-contain"
-                draggable={false}
-              />
-            </TransformComponent>
-          </TransformWrapper>
         )}
 
         {/* Desktop nav arrows */}

@@ -3,6 +3,8 @@ import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
 import { useQueryClient } from '@tanstack/react-query';
 import { prepareFileForUpload } from '@/utils/prepareFileForUpload';
+import { isImageUpload } from '@/lib/imageAsset';
+import { uploadImageWithPreviews } from '@/lib/imageStorage';
 
 export interface CreatePostData {
   content: string;
@@ -53,6 +55,10 @@ export const usePostMutations = () => {
         // Sequential upload and conversion
         for (let i = 0; i < data.media.length; i++) {
           let file = data.media[i];
+          if (isImageUpload(file, file.name)) {
+            mediaUrls.push(await uploadImageWithPreviews('post-media', userId, file, idempotencyKey));
+            continue;
+          }
           
           // Pre-process HEIC/HEIF
           file = await prepareFileForUpload(file);
@@ -76,20 +82,7 @@ export const usePostMutations = () => {
 
       let coverImageUrl: string | undefined;
       if (data.coverImage) {
-        const file = await prepareFileForUpload(data.coverImage);
-        const fileExt = file.name.split('.').pop() || 'jpg';
-        const fileName = `${userId}/cover-${idempotencyKey}.${fileExt}`;
-        const { data: uploadData, error: uploadError } = await supabase.storage
-          .from('post-media')
-          .upload(fileName, file, { upsert: true });
-
-        if (uploadError) throw uploadError;
-
-        const { data: { publicUrl } } = supabase.storage
-          .from('post-media')
-          .getPublicUrl(uploadData.path);
-        
-        coverImageUrl = publicUrl;
+        coverImageUrl = await uploadImageWithPreviews('post-media', userId, data.coverImage, idempotencyKey);
       }
 
       // Insert post with media_urls array and post_type

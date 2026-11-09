@@ -2,6 +2,7 @@ import React, { useState, useCallback, useEffect } from 'react';
 import useEmblaCarousel from 'embla-carousel-react';
 import { ChevronLeft, ChevronRight, FileText } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { OptimizedImage } from '@/components/ui/OptimizedImage';
 
 interface PDFCarouselProps {
   pages: string[]; // Page image URLs
@@ -53,10 +54,11 @@ export const PDFCarousel: React.FC<PDFCarouselProps> = ({
         <div className="flex h-full">
           {pages.map((url, index) => (
             <div key={index} className="relative flex-[0_0_100%] min-w-0 h-full flex items-center justify-center bg-white dark:bg-zinc-950">
-              <img
+              <OptimizedImage
                 src={url}
                 alt={`Page ${index + 1}`}
                 className="max-w-full max-h-full object-contain shadow-2xl"
+                size="full" imageClassName="max-h-full object-contain" style={{ height: '100%', aspectRatio: 'auto' }}
                 loading={index === 0 ? "eager" : "lazy"}
               />
             </div>

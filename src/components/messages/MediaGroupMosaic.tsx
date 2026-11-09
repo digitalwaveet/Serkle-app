@@ -3,6 +3,7 @@ import { ImageOff, Play, RefreshCw } from "lucide-react";
 import { SerkleLoader } from "@/components/ui/SerkleLoader";
 import { useChatMediaUrls } from "@/hooks/useChatMediaUrls";
 import { formatVideoDuration } from "@/lib/videoDuration";
+import { OptimizedImage } from '@/components/ui/OptimizedImage';
 export interface MediaItem {
   id: string;
   url: string;
@@ -48,7 +49,7 @@ function MediaCell({
   index: number;
   onOpen: (index: number) => void;
 }) {
-  const media = useChatMediaUrls([item.url]),
+  const media = useChatMediaUrls([item.url], item.type === 'video'),
     url = media.url(item.url),
     video = useRef<HTMLVideoElement>(null);
   const [ready, setReady] = useState(""),
@@ -60,6 +61,12 @@ function MediaCell({
   useEffect(() => {
     setDuration(null);
   }, [sourceKey]);
+  if (item.type === 'photo') return <div className="msg-media-cell" data-testid="message-media-cell">
+    <OptimizedImage src={item.url} size="thumb" alt={item.caption && item.caption !== '📷 Photo' ? item.caption : `Shared photo ${index + 1}`}
+      className="msg-media-open h-full" imageClassName="object-cover" style={{ aspectRatio: 'auto', height: '100%' }}
+      retryLabel={`Retry attachment ${index + 1}`}
+      onOpen={() => onOpen(index)} openLabel={`Open photo ${index + 1}`} />
+  </div>;
   return (
     <div
       className="msg-media-cell"
@@ -97,23 +104,6 @@ function MediaCell({
             aria-label={`Open ${item.type} ${index + 1}`}
             onClick={() => onOpen(index)}
           >
-            {item.type === "photo" ? (
-              <img
-                key={sourceKey}
-                src={url || undefined}
-                alt={
-                  item.caption && item.caption !== "📷 Photo"
-                    ? item.caption
-                    : `Shared photo ${index + 1}`
-                }
-                loading="lazy"
-                onLoad={() => setReady(sourceKey)}
-                onError={() => {
-                  if (url) setFailed(sourceKey);
-                }}
-              />
-            ) : (
-              <>
                 <video
                   ref={video}
                   key={sourceKey}
@@ -139,8 +129,6 @@ function MediaCell({
                 {duration && (
                   <span className="msg-media-duration">{duration}</span>
                 )}
-              </>
-            )}
           </button>
         </>
       )}

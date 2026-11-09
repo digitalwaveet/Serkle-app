@@ -57,7 +57,7 @@ const MediaPreviewModal: React.FC<MediaPreviewModalProps> = ({
         const file = files[i];
         const job = jobs.current[i];
         if (!job.url)
-          job.url = await uploadChatMedia(conversationId, file, file.name);
+          job.url = await uploadChatMedia(conversationId, file, file.name, job.id);
       }
 
       // All uploads succeeded, now send messages

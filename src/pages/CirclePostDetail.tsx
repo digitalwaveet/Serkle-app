@@ -1,5 +1,7 @@
 import { purchaseCircleAccess, CIRCLE_ACCESS_QUERY_KEYS } from '@/lib/circlePayments';
 import { signProtectedMedia } from '@/lib/protectedMedia';
+import { OptimizedImage } from '@/components/ui/OptimizedImage';
+import { OriginalImageDownload } from '@/components/ui/OriginalImageDownload';
 import { SerkleLoader } from '@/components/ui/SerkleLoader';
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -382,11 +384,13 @@ const CirclePostDetail: React.FC = () => {
           {/* Hero Image */}
           {post?.cover_image_url && post?.post_type !== 'pdf' && (
             <div className="mb-6 relative">
-              <img
+              <OptimizedImage
                 src={post.cover_image_url}
                 alt="Post cover"
                 className="w-full h-64 md:h-80 object-cover rounded-2xl"
+                imageClassName="object-cover" size="full" style={{ aspectRatio: 'auto' }}
               />
+              <div className="absolute bottom-3 right-3"><OriginalImageDownload src={post.cover_image_url} /></div>
               {post?.is_premium && !shouldShowPaywall && (
                 <div className="absolute top-4 right-4 bg-gradient-primary text-primary-foreground px-3 py-1 rounded-full text-sm font-semibold shadow-glow">
                   Premium

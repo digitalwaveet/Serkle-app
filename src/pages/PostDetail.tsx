@@ -1,5 +1,7 @@
 import { purchaseCircleAccess } from '@/lib/circlePayments';
 import { signProtectedMedia } from '@/lib/protectedMedia';
+import { OptimizedImage } from '@/components/ui/OptimizedImage';
+import { OriginalImageDownload } from '@/components/ui/OriginalImageDownload';
 import React, { useState, useEffect } from 'react';
 import { SerkleLoader } from '@/components/ui/SerkleLoader';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -634,15 +636,17 @@ const PostDetail: React.FC = () => {
                             playsInline
                           />
                         ) : (
-                          <img
+                          <OptimizedImage
                             src={url}
                             alt={`${post.media_alt || 'Post image'} ${index + 1}`}
+                            size="full"
                             className={cn(
                               "w-full object-contain max-h-[70vh] bg-black/5 transition-all duration-500",
                               shouldShowPaywall && "blur-xl"
                             )}
                           />
                         )}
+                        {!shouldShowPaywall && !/\.(mp4|webm|mov|ogg|m3u8)(\?|$)/i.test(url) && <div className="absolute bottom-3 right-3"><OriginalImageDownload src={url} /></div>}
                         
                         {shouldShowPaywall && (
                           <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/20 backdrop-blur-[2px] z-10" />
@@ -684,12 +688,14 @@ const PostDetail: React.FC = () => {
                     playsInline
                   />
                 ) : (
-                  <img
+                  <OptimizedImage
                     src={post.cover_image_url || post.media_url}
                     alt={post.media_alt || ""}
+                    size="full"
                     className="w-full object-contain max-h-[70vh] bg-black/5"
                   />
                 )}
+                {!shouldShowPaywall && !/\.(mp4|webm|mov|ogg|m3u8)(\?|$)/i.test(post.cover_image_url || post.media_url || '') && <div className="absolute bottom-3 right-3"><OriginalImageDownload src={post.cover_image_url || post.media_url} /></div>}
               </div>
             </div>
           ) : null}

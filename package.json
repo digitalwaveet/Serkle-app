@@ -32,7 +32,10 @@
     "test:messaging": "node --experimental-strip-types --test src/tests/messaging-presentation.test.ts src/tests/messaging-groups.integration.test.ts src/tests/chat-media-reference.test.ts",
     "test:messaging-delivery": "node --experimental-strip-types --test src/tests/messaging-delivery.integration.test.ts",
     "check:messaging-backend": "node scripts/check-messaging-backend.mjs",
-    "test:messaging-ui": "node --experimental-strip-types --test src/tests/messaging.ui.test.ts"
+    "test:messaging-ui": "node --experimental-strip-types --test src/tests/messaging.ui.test.ts",
+    "test:image-previews": "node --experimental-strip-types --test src/tests/image-previews.integration.test.ts src/tests/image-previews-api.test.ts",
+    "test:image-previews-ui": "node --experimental-strip-types --test src/tests/image-previews.ui.test.ts",
+    "images:process": "node --experimental-strip-types scripts/process-image-previews.ts"
   },
   "dependencies": {
     "@capacitor/android": "^7.4.2",
@@ -43,6 +46,7 @@
     "@capacitor/ios": "^7.4.2",
     "@capacitor/splash-screen": "^7.0.5",
     "@hookform/resolvers": "^3.10.0",
+    "@jsquash/webp": "^1.5.0",
     "@lovable.dev/cloud-auth-js": "^0.0.3",
     "@radix-ui/react-accordion": "^1.2.11",
     "@radix-ui/react-alert-dialog": "^1.1.14",
@@ -111,6 +115,7 @@
     "react-swipeable": "^7.0.2",
     "react-zoom-pan-pinch": "^3.7.0",
     "recharts": "^2.15.4",
+    "sharp": "^0.34.5",
     "sonner": "^1.7.4",
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",
@@ -134,7 +139,6 @@
     "globals": "^15.15.0",
     "lovable-tagger": "^1.1.9",
     "postcss": "^8.5.6",
-    "sharp": "^0.34.5",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.38.0",

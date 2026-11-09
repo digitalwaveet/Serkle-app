@@ -24,3 +24,9 @@ verify_jwt = false
 
 [functions.chapa-transfer]
 verify_jwt = true
+
+# The image gateway verifies the user's JWT with Auth or checks a dedicated
+# maintenance secret. This also supports the newer publishable API keys.
+[functions.image-previews]
+verify_jwt = false
+import_map = "./functions/image-previews/deno.json"

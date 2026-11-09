@@ -1,4 +1,7 @@
 import { SerkleLoader } from '@/components/ui/SerkleLoader';
+import { OptimizedImage } from '@/components/ui/OptimizedImage';
+import { uploadImageWithPreviews } from '@/lib/imageStorage';
+import { imageUploadId } from '@/lib/imageAsset';
 import React, { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useEditor, EditorContent } from '@tiptap/react';
@@ -116,12 +119,7 @@ const CirclePosts: React.FC<CirclePostsProps> = ({ circle, isOwner }) => {
 
       let coverImageUrl = null;
       if (coverImage) {
-        const fileExt = coverImage.name.split('.').pop();
-        const fileName = `${user.id}-${Date.now()}.${fileExt}`;
-        const { data: uploadData, error: uploadError } = await supabase.storage.from('post-media').upload(fileName, coverImage);
-        if (uploadError) throw uploadError;
-        const { data: { publicUrl } } = supabase.storage.from('post-media').getPublicUrl(uploadData.path);
-        coverImageUrl = publicUrl;
+        coverImageUrl = await uploadImageWithPreviews('post-media', user.id, coverImage, imageUploadId(coverImage));
       }
 
       const { error: postError } = await supabase.from('posts').insert({
@@ -433,10 +431,12 @@ const CirclePosts: React.FC<CirclePostsProps> = ({ circle, isOwner }) => {
                 >
                   {/* Full-bleed background image */}
                   {post.cover_image_url && (
-                    <img
+                    <OptimizedImage
                       src={post.cover_image_url}
                       alt="Post cover"
                       className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 hover:scale-105"
+                      imageClassName="object-cover"
+                      style={{ aspectRatio: 'auto' }}
                     />
                   )}
 

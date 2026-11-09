@@ -51,6 +51,7 @@ export default function TelegramAttachmentSheet({
           conversationId,
           current.file,
           current.file.name,
+          current.id,
         );
       await onSendAttachment(
         current.type,

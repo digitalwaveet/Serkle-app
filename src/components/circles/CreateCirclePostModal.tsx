@@ -11,6 +11,8 @@ import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { CustomFilePicker, useFileManager } from '@/components/CustomFilePicker';
 import { useEffect } from 'react';
+import { uploadImageWithPreviews } from '@/lib/imageStorage';
+import { isImageUpload, imageUploadId } from '@/lib/imageAsset';
 
 interface CreateCirclePostModalProps {
   isOpen: boolean;
@@ -68,6 +70,7 @@ export const CreateCirclePostModal: React.FC<CreateCirclePostModalProps> = ({
       if (mediaManager.files.length > 0) {
         const uploadPromises = mediaManager.files.map(async (item, index) => {
           const file = item.file as File;
+          if (isImageUpload(file, file.name)) return uploadImageWithPreviews('post-media', user.id, file, imageUploadId(file));
           const fileExt = file.name.split('.').pop();
           const fileName = `${user.id}/post-${Date.now()}-${index}.${fileExt}`;
           

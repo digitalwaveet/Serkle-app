@@ -17,6 +17,7 @@ import {
 } from "@/lib/messagingPresentation";
 import { SerkleLoader } from "@/components/ui/SerkleLoader";
 import { MessagingState } from "./MessagingState";
+import { OptimizedImage } from '@/components/ui/OptimizedImage';
 export default function SharedChatContent({
   messages,
   onMediaSelect,
@@ -29,7 +30,7 @@ export default function SharedChatContent({
   const content = useMemo(() => categorizeChatContent(messages), [messages]),
     [tab, setTab] = useState<keyof typeof content>("media");
   const media = useChatMediaUrls(
-    messages.map((message) => message.attachment_url),
+    messages.filter(message => message.message_type !== 'photo').map((message) => message.attachment_url),
     true,
   );
   const items = content[tab];
@@ -68,6 +69,12 @@ export default function SharedChatContent({
             const reference = item.attachment_url!,
               url = media.url(reference),
               video = item.message_type === "video";
+            if (!video) return <div key={item.id} className="msg-media-tile">
+              <OptimizedImage src={reference} alt={item.content || 'Shared photo'} size="thumb"
+                className="h-full" imageClassName="object-cover" style={{ height: '100%', minHeight: 0, aspectRatio: 'auto' }}
+                onOpen={onMediaSelect ? () => onMediaSelect(reference, 'photo') : undefined}
+                openLabel={`Open photo from ${messageDate(item.created_at)}`} />
+            </div>;
             return (
               <div key={item.id} className="msg-media-tile">
                 {!url ? (
@@ -81,20 +88,10 @@ export default function SharedChatContent({
                     }
                     disabled={!onMediaSelect}
                   >
-                    {video ? (
-                      <>
                         <video src={url} muted playsInline preload="metadata" />
                         <span className="msg-icon">
                           <Play aria-hidden="true" />
                         </span>
-                      </>
-                    ) : (
-                      <img
-                        src={url}
-                        alt={item.content || "Shared photo"}
-                        loading="lazy"
-                      />
-                    )}
                   </button>
                 )}
               </div>

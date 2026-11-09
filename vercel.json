@@ -1,7 +1,10 @@
 {
+  "functions": {
+    "api/image-previews.ts": { "maxDuration": 60 }
+  },
   "rewrites": [
     {
-      "source": "/((?!\\.well-known(?:/|$)).*)",
+      "source": "/((?!api(?:/|$)|\\.well-known(?:/|$)).*)",
       "destination": "/index.html"
     }
   ],

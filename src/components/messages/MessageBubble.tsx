@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useChatMediaUrls } from "@/hooks/useChatMediaUrls";
 import { SerkleLoader } from "@/components/ui/SerkleLoader";
+import { OptimizedImage } from '@/components/ui/OptimizedImage';
 interface Props {
   content: string;
   messageType: string;
@@ -45,8 +46,10 @@ export default function MessageBubble({
   onInvitationClick,
   onOpenMedia,
 }: Props) {
-  const media = useChatMediaUrls([reference]),
+  const media = useChatMediaUrls([reference], messageType !== 'photo'),
     url = media.url(reference);
+  if (messageType === 'photo' && reference)
+    return <Photo url={reference} caption={content} onOpen={onOpenMedia} />;
   if (reference && !url)
     return media.failed(reference) ? (
       <button type="button" onClick={media.retry} className="msg-button quiet">
@@ -120,43 +123,10 @@ function Photo({
   caption: string;
   onOpen?: () => void;
 }) {
-  const [state, setState] = useState<"loading" | "ready" | "failed">("loading"),
-    [attempt, setAttempt] = useState(0);
   return (
-    <div className="max-w-[300px]">
-      {state === "loading" && <SerkleLoader size="sm" label="Loading photo" />}
-      {state === "failed" ? (
-        <button
-          className="msg-button quiet"
-          onClick={() => {
-            setState("loading");
-            setAttempt((value) => value + 1);
-          }}
-        >
-          Photo unavailable · Retry
-        </button>
-      ) : (
-        <button
-          type="button"
-          className="block w-full rounded-lg overflow-hidden"
-          aria-label="Open shared photo"
-          disabled={!onOpen || state !== "ready"}
-          onClick={onOpen}
-        >
-          <img
-            key={attempt}
-            src={url}
-            alt={
-              caption === "📷 Photo"
-                ? "Shared photo"
-                : caption || "Shared photo"
-            }
-            className="max-h-80 w-full object-contain"
-            onLoad={() => setState("ready")}
-            onError={() => setState("failed")}
-          />
-        </button>
-      )}
+    <div className="w-[min(100%,300px)] max-w-[300px]">
+      <OptimizedImage src={url} alt={caption === '📷 Photo' ? 'Shared photo' : caption || 'Shared photo'}
+        className="rounded-lg max-h-80" imageClassName="max-h-80 object-contain" onOpen={onOpen} openLabel="Open shared photo" />
       {caption && caption !== "📷 Photo" && (
         <p className="px-2 pt-2 pb-1 whitespace-pre-wrap" dir="auto">
           {caption}

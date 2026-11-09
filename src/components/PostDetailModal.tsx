@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { OptimizedImage } from '@/components/ui/OptimizedImage';
+import { OriginalImageDownload } from '@/components/ui/OriginalImageDownload';
 import { X, Heart, MessageCircle, Share, MoreHorizontal } from 'lucide-react';
 import { Post, Comment, MOCK_COMMENTS } from '@/data/mock';
 import { cn } from '@/lib/utils';
@@ -185,12 +187,14 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
                   <CarouselContent>
                     {post.media.urls.map((url, index) => (
                       <CarouselItem key={index}>
-                        <img
+                        <OptimizedImage
                           src={url}
                           alt={`${post.media?.alt || 'Post image'} ${index + 1}`}
                           loading="lazy"
                           className="w-full rounded-2xl aspect-[4/5] object-cover"
+                          size="full"
                         />
+                        <OriginalImageDownload src={url} />
                       </CarouselItem>
                     ))}
                   </CarouselContent>
@@ -218,12 +222,14 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
               </div>
             ) : post.media && post.media.url ? (
               <div className="mb-4">
-                <img
+                <OptimizedImage
                   src={post.media.url}
                   alt={post.media.alt}
                   loading="lazy"
                   className="w-full rounded-2xl aspect-[4/5] object-cover"
+                  size="full"
                 />
+                <OriginalImageDownload src={post.media.url} />
               </div>
             ) : null}
 

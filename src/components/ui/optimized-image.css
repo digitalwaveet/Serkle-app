@@ -1,0 +1,8 @@
+.optimized-image { position: relative; display: block; width: 100%; min-width: 0; min-height: 130px; overflow: hidden; isolation: isolate; background: hsl(var(--muted) / .25); }
+.optimized-image-content { display: block; width: 100%; height: 100%; object-fit: contain; transition: opacity .18s ease; }
+.optimized-image-content.image-pending { opacity: 0; }
+.image-skeleton { position: absolute; inset: 0; min-height: 130px; background: hsl(var(--muted)); overflow: hidden; pointer-events: none; }
+.image-skeleton::after { content: ''; position: absolute; inset: 0; transform: translateX(-100%); background: linear-gradient(90deg,transparent,hsl(var(--background) / .65),transparent); animation: image-skeleton-shimmer 1.5s ease-in-out infinite; }
+.optimized-image-error { min-height: 130px; height: 100%; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: .5rem; padding: 1rem; font-size: .875rem; color: hsl(var(--muted-foreground)); background: hsl(var(--muted)); }
+@keyframes image-skeleton-shimmer { to { transform: translateX(100%); } }
+@media (prefers-reduced-motion: reduce) { .image-skeleton::after { animation: none; transform: none; opacity: .4; } .optimized-image-content { transition: none; } }

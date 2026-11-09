@@ -1,4 +1,6 @@
 import { SerkleLoader } from '@/components/ui/SerkleLoader';
+import { uploadImageWithPreviews } from '@/lib/imageStorage';
+import { imageUploadId } from '@/lib/imageAsset';
 import React, { useState, useEffect } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import { BubbleMenu } from '@tiptap/react/menus';
@@ -95,12 +97,9 @@ export const EditPostModal: React.FC<EditPostModalProps> = ({ isOpen, onClose, p
       let finalCoverUrl = post.cover_image_url;
 
       if (coverImage && coverImage.size > 0) {
-        const fileExt = coverImage.name.split('.').pop();
-        const fileName = `${post.user_id}-${Date.now()}.${fileExt}`;
-        const { data: uploadData, error: uploadError } = await supabase.storage.from('post-media').upload(fileName, coverImage);
-        if (uploadError) throw uploadError;
-        const { data: { publicUrl } } = supabase.storage.from('post-media').getPublicUrl(uploadData.path);
-        finalCoverUrl = publicUrl;
+        const { data: { user: uploader }, error: authError } = await supabase.auth.getUser();
+        if (authError || !uploader) throw new Error('Sign in to update the cover image');
+        finalCoverUrl = await uploadImageWithPreviews('post-media', uploader.id, coverImage, imageUploadId(coverImage));
       } else if (!coverPreview) {
         finalCoverUrl = null;
       }

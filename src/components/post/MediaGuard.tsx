@@ -4,6 +4,7 @@ import { useMediaLoader, MediaType } from '@/hooks/useMediaLoader';
 import { FileText, AlertCircle, RefreshCw, PlayCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import './MediaGuard.css';
+import { OptimizedImage } from '@/components/ui/OptimizedImage';
 
 
 import { usePdfThumbnail } from '@/hooks/usePdfThumbnail';
@@ -20,7 +21,11 @@ interface MediaGuardItemProps {
   onEnded?: () => void;
 }
 
-export const MediaGuardItem: React.FC<MediaGuardItemProps> = ({
+export const MediaGuardItem: React.FC<MediaGuardItemProps> = props => props.type === 'image'
+  ? <OptimizedImage src={props.src} alt={props.alt || 'Post image'} className={cn('rounded-xl', props.aspectRatio || 'aspect-[4/5]', props.className)} imageClassName="object-contain" />
+  : <OtherMediaGuardItem {...props} />;
+
+const OtherMediaGuardItem: React.FC<MediaGuardItemProps> = ({
   src,
   type,
   alt = "Media content",

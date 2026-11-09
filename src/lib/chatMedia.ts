@@ -1,5 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import { chatStorageObject } from "./chatMediaReference";
+import { isImageUpload, imageUploadId } from './imageAsset';
+import { uploadImageWithPreviews, loadImageAsset } from './imageStorage';
 export { privateChatPath } from "./chatMediaReference";
 
 export const CHAT_MEDIA_BUCKET = "chat-media";
@@ -23,6 +25,7 @@ export async function uploadChatMedia(
   conversationId: string,
   file: Blob,
   filename = "attachment",
+  operationId?: string,
 ): Promise<string> {
   if (!UUID.test(conversationId)) throw new Error("Invalid conversation");
   if (file.size > 50 * 1024 * 1024)
@@ -33,6 +36,10 @@ export async function uploadChatMedia(
   } = await supabase.auth.getUser();
   if (authError || !user)
     throw new Error("Sign in again to upload attachments");
+  if (isImageUpload(file, filename)) {
+    return uploadImageWithPreviews(CHAT_MEDIA_BUCKET, `${conversationId}/${user.id}`,
+      file instanceof File ? file : new File([file], filename, { type: file.type }), operationId || imageUploadId(file));
+  }
   const safeName =
     filename.replace(/[^a-zA-Z0-9_.-]/g, "_").slice(-100) || "attachment";
   const path = `${conversationId}/${user.id}/${crypto.randomUUID()}-${safeName}`;
@@ -68,5 +75,6 @@ export async function copyChatMediaToConversation(
   const { path, bucket } = object;
   const { data, error } = await supabase.storage.from(bucket).download(path);
   if (error || !data) throw new Error("Cannot access the original attachment");
-  return uploadChatMedia(conversationId, data, path.split("/").pop());
+  const asset = isImageUpload(data, path) ? await loadImageAsset(reference) : null;
+  return uploadChatMedia(conversationId, data, asset?.original_name || path.split("/").pop());
 }
