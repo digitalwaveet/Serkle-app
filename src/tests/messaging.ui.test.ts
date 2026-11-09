@@ -137,6 +137,46 @@ test("failed local sync writes never advance the cursor past uncached messages",
     await page.context().close();
   }
 });
+test("chat sync stores Unicode messages exactly and advances the cursor after encryption", async () => {
+  const page = await pageFor("", "/messages/storage");
+  const contents = [
+    "See you soon \u2764\uFE0F",
+    "\u4E2D\u6587\uFF01 \u{1F60A}",
+    "Replacement character \uFFFD",
+  ];
+  try {
+    await expect(page.getByRole("status")).toHaveText("Storage ready");
+    const synced = await page.evaluate(async (messages) => {
+      const fixture = (window as any).messagesFixture;
+      const storage = (window as any).messagingStorage;
+      fixture.deltas = messages.map((content, index) => ({
+        id: "unicode-" + index,
+        conversation_id: fixture.dm,
+        sender_id: fixture.friend,
+        content,
+        message_type: "text",
+        created_at: new Date().toISOString(),
+        seq: index + 1,
+        created_seq: index + 1,
+      }));
+      return storage.sync();
+    }, contents);
+    assert.equal(synced, contents.length);
+
+    await page.reload();
+    await expect(page.getByRole("status")).toHaveText("Storage ready");
+    const snapshot = await page.evaluate(() =>
+      (window as any).messagingStorage.snapshot(),
+    );
+    assert.deepEqual(
+      snapshot.messages.map((message: { content: string }) => message.content),
+      contents,
+    );
+    assert.equal(snapshot.conversations[0].last_seen_seq, contents.length);
+  } finally {
+    await page.context().close();
+  }
+});
 test("an undeployed group API shows a setup error, preserves selections, and does not fall back to unsafe legacy creation", async () => {
   const page = await pageFor("group-schema-missing");
   try {
