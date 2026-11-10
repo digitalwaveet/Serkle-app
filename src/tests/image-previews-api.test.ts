@@ -5,7 +5,7 @@ import sharp from 'sharp';
 import handler from '../../api/image-previews.ts';
 import { createImagePreviewHandler } from '../../supabase/functions/image-previews/handler.ts';
 import { createImagePreviewGateway } from '../../server/imagePreviewGateway.ts';
-import { processImageAsset } from '../../server/imageProcessor.ts';
+import { encodeCircleCover, processImageAsset } from '../../server/imageProcessor.ts';
 import { owner, outsider, operation } from './fixtures/image-assets-db.ts';
 
 let http: Server;
@@ -81,6 +81,20 @@ before(async () => {
     if (path.startsWith('/rest/v1/rpc/')) {
       assert.equal(req.headers.apikey, adminKey, 'privileged RPCs belong to the Edge Function');
       const args = JSON.parse(body.toString());
+      if (path.endsWith('claim_circle_cover_preview')) {
+        assert.equal(args._origin, base);
+        return json([{ post_id: id, lease: operation, object_path: asset.original_path, original_bytes: original.length }]);
+      }
+      if (path.endsWith('complete_circle_cover_preview')) {
+        assert.equal(args._post_id, id);
+        assert.equal(args._lease, operation);
+        for (const [dataUrl, width] of [[args._cover, 640], [args._thumb, 24]]) {
+          const metadata = await sharp(Buffer.from(dataUrl.split(',')[1], 'base64')).metadata();
+          assert.equal(metadata.format, 'webp');
+          assert.equal(metadata.width, width);
+        }
+        return json(true);
+      }
       if (path.endsWith('claim_image_asset')) {
         claims++;
         if (claimed) return json(null);
@@ -186,6 +200,8 @@ test('a publishable key or ordinary session cannot start project-wide maintenanc
   const headers = { Authorization: 'Bearer fixture-owner' };
   assert.equal((await edgeRequest({ action: 'claim' }, headers)).status, 400);
   assert.equal((await edgeRequest({ action: 'enqueue-legacy' }, headers)).status, 403);
+  assert.equal((await edgeRequest({ action: 'claim-circle-cover' }, headers)).status, 403);
+  assert.equal((await edgeRequest({ action: 'complete-circle-cover' }, headers)).status, 403);
   assert.equal((await edgeRequest({ action: 'claim' }, { 'x-image-maintenance-key': 'wrong-key' })).status, 401);
   assert.equal(queued, 0);
   assert.equal(claims, 0);
@@ -214,6 +230,16 @@ test('decoder failure records recovery state without returning the signed URL', 
   assert.deepEqual(await response.json(), { error: 'Could not prepare preview. Original retained.' });
   original = previousOriginal;
   asset.original_bytes = original.length;
+});
+
+test('maintenance generates separate WebP previews for an existing Circle cover', async () => {
+  const gateway = createImagePreviewGateway(base, publishable, { 'x-image-maintenance-key': maintenanceKey });
+  const claim = await gateway.claimCircleCover();
+  assert.equal(claim.status, 'claimed');
+  if (claim.status !== 'claimed') throw new Error('Expected a Circle cover job');
+  const image = await gateway.download(claim.job);
+  const { cover, thumb } = await encodeCircleCover(image, claim.job.originalBytes);
+  assert.deepEqual(await gateway.completeCircleCover(claim.job, cover, thumb), { stored: true });
 });
 test('an expired lease and a different owner cannot upload or finalize previews', async () => {
   asset.status = 'processing';

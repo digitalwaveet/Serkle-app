@@ -646,7 +646,7 @@ const PostDetail: React.FC = () => {
                             )}
                           />
                         )}
-                        {!shouldShowPaywall && !/\.(mp4|webm|mov|ogg|m3u8)(\?|$)/i.test(url) && <div className="absolute bottom-3 right-3"><OriginalImageDownload src={url} /></div>}
+                        {!shouldShowPaywall && !/\.(mp4|webm|mov|ogg|m3u8)(\?|$)/i.test(url) && <OriginalImageDownload src={url} />}
                         
                         {shouldShowPaywall && (
                           <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/20 backdrop-blur-[2px] z-10" />
@@ -695,7 +695,7 @@ const PostDetail: React.FC = () => {
                     className="w-full object-contain max-h-[70vh] bg-black/5"
                   />
                 )}
-                {!shouldShowPaywall && !/\.(mp4|webm|mov|ogg|m3u8)(\?|$)/i.test(post.cover_image_url || post.media_url || '') && <div className="absolute bottom-3 right-3"><OriginalImageDownload src={post.cover_image_url || post.media_url} /></div>}
+                {!shouldShowPaywall && !/\.(mp4|webm|mov|ogg|m3u8)(\?|$)/i.test(post.cover_image_url || post.media_url || '') && <OriginalImageDownload src={post.cover_image_url || post.media_url} />}
               </div>
             </div>
           ) : null}

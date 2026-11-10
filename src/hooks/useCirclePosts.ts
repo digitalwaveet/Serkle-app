@@ -1,5 +1,6 @@
 import { useUser } from '@/contexts/UserContext';
 import { signProtectedMedia } from '@/lib/protectedMedia';
+import { getCirclePostPreviews } from '@/lib/circlePostPreview';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -7,6 +8,10 @@ export interface CirclePost {
   id: string;
   content: string;
   cover_image_url: string | null;
+  coverReference: string | null;
+  mediaUrl: string | null;
+  previewText: string | null;
+  previewImage: string | null;
   is_premium: boolean;
   premium_price: number | null;
   has_tips_enabled: boolean;
@@ -44,8 +49,6 @@ export const useCirclePosts = (circleId: string | undefined) => {
     queryFn: async () => {
       if (!circleId) return [];
 
-      const { data: { user } } = await supabase.auth.getUser();
-
       const { data, error } = await supabase.rpc('get_circle_posts_definitive', {
         _circle_id: circleId,
         page_num: 0,
@@ -62,14 +65,25 @@ export const useCirclePosts = (circleId: string | undefined) => {
         .not('pinned_at', 'is', null);
       const pinnedMap = new Map((pinnedRows || []).map((row) => [row.id, row.pinned_at]));
 
-      const signedData = await signProtectedMedia(data || []);
+      const rows = data ?? [];
+      const [signedData, previews] = await Promise.all([
+        signProtectedMedia(rows),
+        getCirclePostPreviews(circleId, rows.map(post => post.post_id)),
+      ]);
+      const previewMap = new Map(previews.map(preview => [preview.post_id, preview]));
+      const coverReferences = new Map(rows.map(post => [post.post_id, post.cover_image_url]));
+      const mediaReferences = new Map(rows.map(post => [post.post_id, post.media_url]));
       const posts = signedData.map((post: any) => ({
         id: post.post_id,
         content: post.content,
         cover_image_url: post.cover_image_url,
+        mediaUrl: mediaReferences.get(post.post_id) ?? null,
+        coverReference: coverReferences.get(post.post_id) ?? null,
+        previewText: previewMap.get(post.post_id)?.preview_text ?? null,
+        previewImage: previewMap.get(post.post_id)?.preview_image ?? null,
         is_premium: post.is_premium || false,
         premium_price: post.premium_price ?? null,
-        has_tips_enabled: post.has_tips_enabled ?? true,
+        has_tips_enabled: previewMap.get(post.post_id)?.has_tips_enabled ?? post.has_tips_enabled ?? false,
         created_at: post.created_at,
         user_id: post.user_id,
         circle_id: post.circle_id!,

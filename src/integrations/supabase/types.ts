@@ -2784,6 +2784,9 @@ export type Database = {
           content: string
           cover_image_url: string | null
           created_at: string | null
+          circle_preview_cover: string | null
+          circle_preview_text: string | null
+          circle_preview_thumb: string | null
           has_tips_enabled: boolean | null
           id: string
           is_premium: boolean | null
@@ -2807,6 +2810,9 @@ export type Database = {
           content: string
           cover_image_url?: string | null
           created_at?: string | null
+          circle_preview_cover?: string | null
+          circle_preview_text?: string | null
+          circle_preview_thumb?: string | null
           has_tips_enabled?: boolean | null
           id?: string
           is_premium?: boolean | null
@@ -2830,6 +2836,9 @@ export type Database = {
           content?: string
           cover_image_url?: string | null
           created_at?: string | null
+          circle_preview_cover?: string | null
+          circle_preview_text?: string | null
+          circle_preview_thumb?: string | null
           has_tips_enabled?: boolean | null
           id?: string
           is_premium?: boolean | null
@@ -4853,6 +4862,57 @@ export type Database = {
           username: string
         }[]
       }
+      get_circle_posts_definitive: {
+        Args: { _circle_id: string; page_num?: number; page_size?: number }
+        Returns: {
+          post_id: string
+          content: string
+          media_url: string
+          media_urls: string[]
+          cover_image_url: string
+          media_alt: string
+          media_color_from: string
+          media_color_to: string
+          tags: string[]
+          is_sponsored: boolean
+          created_at: string
+          user_id: string
+          username: string
+          name: string
+          initials: string
+          avatar_url: string
+          avatar_color: string
+          is_verified: boolean
+          likes_count: number
+          comments_count: number
+          shares_count: number
+          saves_count: number
+          user_has_liked: boolean
+          user_reaction: string
+          user_has_unlocked: boolean
+          user_has_saved: boolean
+          circle_id: string
+          circle_name: string
+          circle_avatar_url: string
+          is_premium: boolean
+          premium_price: number
+          voice_url: string
+          location_text: string
+          post_type: string
+          original_pdf_url: string
+          tip_count: number
+          user_has_tipped: boolean
+        }[]
+      }
+      get_circle_post_previews: {
+        Args: { _circle_id: string; _post_ids: string[]; _detail?: boolean }
+        Returns: {
+          post_id: string
+          preview_text: string | null
+          preview_image: string | null
+          has_tips_enabled: boolean
+        }[]
+      }
       get_feed_posts: {
         Args: { page_num: number; page_size: number }
         Returns: {
@@ -4933,6 +4993,48 @@ export type Database = {
           updated_at: string
           urgency: string
           user_id: string
+        }[]
+      }
+      get_post_details: {
+        Args: { _post_id: string }
+        Returns: {
+          post_id: string
+          content: string
+          media_url: string
+          media_urls: string[]
+          cover_image_url: string
+          media_alt: string
+          media_color_from: string
+          media_color_to: string
+          tags: string[]
+          is_sponsored: boolean
+          created_at: string
+          user_id: string
+          username: string
+          name: string
+          initials: string
+          avatar_url: string
+          avatar_color: string
+          is_verified: boolean
+          likes_count: number
+          comments_count: number
+          shares_count: number
+          saves_count: number
+          user_has_liked: boolean
+          user_reaction: string
+          user_has_unlocked: boolean
+          user_has_saved: boolean
+          circle_id: string
+          circle_name: string
+          circle_avatar_url: string
+          is_premium: boolean
+          premium_price: number
+          voice_url: string
+          location_text: string
+          post_type: string
+          original_pdf_url: string
+          visibility: string
+          viewer_can_interact: boolean
         }[]
       }
       get_or_create_conversation: {

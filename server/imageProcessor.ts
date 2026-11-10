@@ -37,3 +37,20 @@ export async function processImageAsset(storage: ImagePreviewStorage, job: Image
     throw new Error('Preview processing failed. The original is retained.');
   }
 }
+
+export async function encodeCircleCover(data: Blob, originalBytes: number) {
+  if (data.size !== originalBytes) throw new Error('Original unavailable');
+  const bytes = Buffer.from(await data.arrayBuffer());
+  if (!detectImageMime(bytes.subarray(0, 64))) throw new Error('Unsupported image format');
+  const encode = async (width: number, quality: number) => {
+    const output = await sharp(bytes, { limitInputPixels: 50_000_000 })
+      .rotate().resize(width, Math.round(width / 2.24), { fit: 'cover', withoutEnlargement: true })
+      .webp({ quality }).toBuffer();
+    return 'data:image/webp;base64,' + output.toString('base64');
+  };
+  let cover = await encode(640, 66);
+  if (cover.length > 100000) cover = await encode(360, 55);
+  const thumb = await encode(24, 50);
+  if (cover.length > 100000 || thumb.length > 2000) throw new Error('Circle preview too large');
+  return { cover, thumb };
+}

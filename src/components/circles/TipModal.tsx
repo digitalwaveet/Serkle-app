@@ -23,7 +23,7 @@ interface TipModalProps {
   postId: string;
 }
 
-const PRESET_AMOUNTS = [1, 3, 5, 10];
+const PRESET_AMOUNTS = [10, 25, 50];
 
 export const TipModal: React.FC<TipModalProps> = ({
   isOpen,
@@ -141,11 +141,12 @@ export const TipModal: React.FC<TipModalProps> = ({
           {/* Preset amounts */}
           <div className="space-y-3">
             <label className="text-sm font-medium">Quick amounts</label>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               {PRESET_AMOUNTS.map((amount) => (
                 <Button
                   key={amount}
                   variant={selectedAmount === amount ? "default" : "outline"}
+                  aria-pressed={selectedAmount === amount}
                   onClick={() => {
                     setSelectedAmount(amount);
                     setCustomAmount('');
@@ -217,7 +218,7 @@ export const TipModal: React.FC<TipModalProps> = ({
                   Processing...
                 </div>
               ) : (
-                `Tip ${finalAmount} coins`
+                isValidAmount ? `Send ${finalAmount} coins` : 'Send tip'
               )}
             </Button>
           </div>

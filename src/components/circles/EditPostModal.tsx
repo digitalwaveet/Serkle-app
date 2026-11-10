@@ -1,5 +1,6 @@
 import { SerkleLoader } from '@/components/ui/SerkleLoader';
 import { uploadImageWithPreviews } from '@/lib/imageStorage';
+import { makeCirclePreviewImages } from '@/lib/circlePostPreview';
 import { imageUploadId } from '@/lib/imageAsset';
 import React, { useState, useEffect } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
@@ -94,7 +95,7 @@ export const EditPostModal: React.FC<EditPostModalProps> = ({ isOpen, onClose, p
 
     setIsSubmitting(true);
     try {
-      let finalCoverUrl = post.cover_image_url;
+      let finalCoverUrl = post.coverReference;
 
       if (coverImage && coverImage.size > 0) {
         const { data: { user: uploader }, error: authError } = await supabase.auth.getUser();
@@ -104,6 +105,10 @@ export const EditPostModal: React.FC<EditPostModalProps> = ({ isOpen, onClose, p
         finalCoverUrl = null;
       }
 
+      const previews = isPremium && (coverImage?.size || (!post.previewImage && coverPreview))
+        ? await makeCirclePreviewImages(coverImage?.size ? coverImage : coverPreview)
+        : {};
+
       const { error: updateError } = await supabase
         .from('posts')
         .update({
@@ -112,6 +117,7 @@ export const EditPostModal: React.FC<EditPostModalProps> = ({ isOpen, onClose, p
           is_premium: isPremium,
           premium_price: isPremium ? parseInt(premiumPrice) : null,
           has_tips_enabled: hasTipsEnabled,
+          ...previews,
           updated_at: new Date().toISOString(),
         })
         .eq('id', post.id);

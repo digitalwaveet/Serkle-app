@@ -1,5 +1,5 @@
 import type {
-  ImageClaim, ImagePreviewJob, ImagePreviewResult, ImageSize,
+  CircleCoverClaim, CircleCoverJob, ImageClaim, ImagePreviewJob, ImagePreviewResult, ImageSize,
 } from '../supabase/functions/_shared/imagePreviewProtocol.ts';
 
 export class ImageGatewayError extends Error {
@@ -34,7 +34,10 @@ export function createImagePreviewGateway(
   return {
     claim: (assetId?: string) => post<ImageClaim>({ action: 'claim', assetId }),
     enqueueLegacy: () => post<{ queued: number }>({ action: 'enqueue-legacy' }),
-    async download(job: ImagePreviewJob) {
+    claimCircleCover: () => post<CircleCoverClaim>({ action: 'claim-circle-cover' }),
+    completeCircleCover: (job: CircleCoverJob, cover: string, thumb: string) =>
+      post<{ stored: boolean }>({ action: 'complete-circle-cover', postId: job.postId, lease: job.lease, cover, thumb }),
+    async download(job: Pick<ImagePreviewJob, 'originalUrl'>) {
       const original = new URL(job.originalUrl);
       if (original.origin !== endpoint.origin || original.username || original.password ||
           !original.pathname.startsWith('/storage/v1/object/sign/')) {

@@ -34,15 +34,13 @@ export const TipButton: React.FC<TipButtonProps> = ({
   return (
     <>
       <button 
+        type="button"
         onClick={() => setIsModalOpen(true)}
         className={cn(
           "flex items-center gap-2 transition-all duration-200 group",
           variant === 'card' 
             ? cn(
-                "w-full justify-center py-2 text-white",
-                hasTipped 
-                  ? "text-yellow-300" 
-                  : "hover:text-yellow-200"
+                "min-h-11 justify-center rounded-xl bg-primary/10 px-3 text-sm font-semibold text-primary hover:bg-primary/15 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
               )
             : cn(
                 hasTipped 
@@ -70,12 +68,12 @@ export const TipButton: React.FC<TipButtonProps> = ({
             <Heart className="size-2 absolute -top-0.5 -right-0.5 fill-current text-yellow-600 dark:text-yellow-400" />
           )}
         </div>
-        <span className={cn(
-          "text-sm font-medium",
-          variant === 'card' && "text-white"
-        )}>
-          {currentTipCount}
+        <span className="text-sm font-medium">
+          {variant === 'card' ? 'Tip creator' : currentTipCount}
         </span>
+        {variant === 'card' && currentTipCount > 0 && (
+          <span aria-label={currentTipCount + (currentTipCount === 1 ? ' tip' : ' tips')} className="rounded-md bg-primary/10 px-1.5 text-xs">{currentTipCount}</span>
+        )}
         {currentTipCount === 0 && variant !== 'card' && (
           <span className="text-xs opacity-70 hidden sm:block">Tip</span>
         )}

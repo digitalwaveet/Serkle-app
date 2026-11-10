@@ -1,4 +1,4 @@
-import { processImageAsset } from '../server/imageProcessor.ts';
+import { encodeCircleCover, processImageAsset } from '../server/imageProcessor.ts';
 import { createImagePreviewGateway } from '../server/imagePreviewGateway.ts';
 
 const url = process.env.SUPABASE_URL;
@@ -9,8 +9,27 @@ if (!url || !key || !maintenanceKey) {
 }
 const gateway = createImagePreviewGateway(url, key, { 'x-image-maintenance-key': maintenanceKey });
 const backfill = process.argv.includes('--backfill'), watch = process.argv.includes('--watch');
+const circleCovers = process.argv.includes('--circle-covers');
 let processed = 0, failed = 0;
 do {
+  if (circleCovers) {
+    const claim = await gateway.claimCircleCover();
+    if (claim.status === 'idle') {
+      if (!watch) break;
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      continue;
+    }
+    try {
+      if (claim.status !== 'claimed') throw new Error('Circle cover unavailable');
+      const { cover, thumb } = await encodeCircleCover(await gateway.download(claim.job), claim.job.originalBytes);
+      if ((await gateway.completeCircleCover(claim.job, cover, thumb)).stored) processed++;
+    } catch {
+      failed++;
+      process.exitCode = 1;
+    }
+    console.log(JSON.stringify({ processed, failed }));
+    continue;
+  }
   if (backfill) {
     // Register one legacy original at a time so a backfill does not replace a
     // whole gallery with processing skeletons while it waits in the queue.

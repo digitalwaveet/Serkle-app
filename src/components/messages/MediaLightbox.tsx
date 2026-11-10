@@ -6,6 +6,7 @@ import type { MediaItem } from "./MediaGroupMosaic";
 import { useChatMediaUrls } from "@/hooks/useChatMediaUrls";
 import { SerkleLoader } from "@/components/ui/SerkleLoader";
 import { OptimizedImage } from '@/components/ui/OptimizedImage';
+import { OriginalImageDownload } from '@/components/ui/OriginalImageDownload';
 import { downloadOriginalImage } from '@/lib/imageStorage';
 import { toast } from 'sonner';
 
@@ -98,16 +99,18 @@ const MediaLightbox: React.FC<MediaLightboxProps> = ({
           </span>
         )}
 
-        <button
-          type="button"
-          onClick={handleDownload}
-          disabled={downloading}
-          aria-label={downloading ? 'Preparing download' : 'Download original'}
-          title="Download original"
-          className="p-2 rounded-full hover:bg-card/10 transition-colors active:scale-90"
-        >
-          <Download className="h-5 w-5 text-white" />
-        </button>
+        {source.type === 'video' ? (
+          <button
+            type="button"
+            onClick={handleDownload}
+            disabled={downloading}
+            aria-label={downloading ? 'Preparing download' : 'Download original'}
+            title="Download original"
+            className="p-2 rounded-full hover:bg-card/10 transition-colors active:scale-90"
+          >
+            <Download className="h-5 w-5 text-white" />
+          </button>
+        ) : <span className="size-9" aria-hidden="true" />}
       </div>
 
       {/* Media */}
@@ -149,6 +152,14 @@ const MediaLightbox: React.FC<MediaLightboxProps> = ({
             playsInline
             onError={() => setFailed(true)}
             className="max-w-full max-h-full"
+          />
+        )}
+
+        {source.type === 'photo' && (
+          <OriginalImageDownload
+            key={source.id}
+            src={source.url}
+            className="bottom-[max(0.75rem,env(safe-area-inset-bottom))]"
           />
         )}
 

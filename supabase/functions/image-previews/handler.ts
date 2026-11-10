@@ -2,7 +2,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import {
   IMAGE_BYTE_LIMIT, IMAGE_PRESETS, IMAGE_SIZES, isImageId, previewPath,
-  type ImageClaim, type ImageSize,
+  type CircleCoverClaim, type ImageClaim, type ImageSize,
 } from '../_shared/imagePreviewProtocol.ts';
 
 type ReadEnv = (name: string) => string | undefined;
@@ -29,13 +29,13 @@ function maintenanceAuthorized(provided: string, expected?: string) {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-async function readOperation(request: Request) {
-  if (!request.body || Number(request.headers.get('content-length')) > JSON_BYTE_LIMIT) return null;
+async function readOperation(request: Request, limit = JSON_BYTE_LIMIT) {
+  if (!request.body || Number(request.headers.get('content-length')) > limit) return null;
   let bytes = 0;
   const body = request.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
     transform(chunk, controller) {
       bytes += chunk.length;
-      if (bytes > JSON_BYTE_LIMIT) throw new Error('Image operation too large');
+      if (bytes > limit) throw new Error('Image operation too large');
       controller.enqueue(chunk);
     },
   }));
@@ -103,12 +103,38 @@ export function createImagePreviewHandler(env: ReadEnv) {
         assetId: request.headers.get('x-image-asset-id'),
         lease: request.headers.get('x-image-lease'),
         size: request.headers.get('x-image-size'),
-      } : await readOperation(request);
-      if (!body || !['claim', 'upload', 'complete', 'fail', 'enqueue-legacy'].includes(body.action)) {
+      } : await readOperation(request, maintenance ? 110 * 1024 : JSON_BYTE_LIMIT);
+      if (!body || !['claim', 'upload', 'complete', 'fail', 'enqueue-legacy', 'claim-circle-cover', 'complete-circle-cover'].includes(body.action)) {
         return json({ error: 'Invalid image operation' }, 400);
       }
 
       const admin = createClient(url, secret, { auth: authOptions });
+      if (body.action === 'claim-circle-cover' || body.action === 'complete-circle-cover') {
+        if (!maintenance) return json({ error: 'Image maintenance authorization required' }, 403);
+        if (body.action === 'claim-circle-cover') {
+          const { data, error } = await admin.rpc('claim_circle_cover_preview', { _origin: new URL(url).origin });
+          if (error) return json({ error: 'Could not claim a Circle cover' }, 503);
+          const cover = data?.[0];
+          if (!cover) return json({ status: 'idle' } satisfies CircleCoverClaim);
+          const { data: signed, error: signError } = await admin.storage.from('post-media').createSignedUrl(cover.object_path, 300);
+          if (signError || !signed?.signedUrl) return json({ status: 'unavailable' } satisfies CircleCoverClaim);
+          return json({ status: 'claimed', job: {
+            postId: cover.post_id, lease: cover.lease, originalUrl: signed.signedUrl, originalBytes: cover.original_bytes,
+          } } satisfies CircleCoverClaim);
+        }
+
+        const isWebP = (value: unknown, limit: number) =>
+          typeof value === 'string' && value.length <= limit && /^data:image\/webp;base64,[A-Za-z0-9+/]+={0,2}$/.test(value);
+        if (!isImageId(body.postId) || !isImageId(body.lease) || !isWebP(body.cover, 100000) || !isWebP(body.thumb, 2000)) {
+          return json({ error: 'Invalid Circle cover preview' }, 400);
+        }
+        const { data, error } = await admin.rpc('complete_circle_cover_preview', {
+          _post_id: body.postId, _lease: body.lease, _cover: body.cover, _thumb: body.thumb,
+        });
+        if (error) return json({ error: 'Could not save the Circle cover' }, 503);
+        return json({ stored: data === true });
+      }
+
       if (body.action === 'enqueue-legacy') {
         if (!maintenance) return json({ error: 'Image maintenance authorization required' }, 403);
         const { data, error } = await admin.rpc('enqueue_legacy_image_previews', { p_limit: 1 });

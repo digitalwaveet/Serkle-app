@@ -25,6 +25,12 @@ Run `npm run images:process -- --backfill` to process existing stored images a j
 
 ## Processing and format handling
 
+### Premium Circle post previews
+
+Readers who can browse the post receive an automatic teaser. The locked feed uses a 24-pixel WebP thumbnail with a visual blur, while the locked detail view uses a clear cover preview up to 640 pixels wide. The entitlement check still controls the original files and full post.
+
+Apply the Circle preview migrations and redeploy the existing `image-previews` Edge Function. Run `npm run images:process -- --circle-covers` with the existing image maintenance configuration to fill missing previews from author-owned images in private `post-media` storage. Add `--watch` to process future uploads that the browser could not convert. A failed claim becomes eligible again after ten minutes. Posts with no available image use the lock placeholder. The worker uses the publishable key and maintenance secret, with the service credential held inside Supabase.
+
 The original is uploaded before conversion, including HEIC. A hash in the object name and a stable operation ID make retries reuse the same original. The database confirms original ownership and all three uploaded WebP objects before marking the asset ready. Registered originals and client-generated variants cannot be overwritten by authenticated clients. Uploads are limited to 50 MB; decoding is limited to 50 megapixels. Unsupported/failed images retain the original and expose recovery rather than a false ready state.
 
 Canvas WebP output is checked by MIME type. Browsers returning PNG for a WebP request use the bundled WebP WASM encoder. Compression runs in a worker. HEIC conversion only creates a preview source. Animated GIF/PNG/WebP use server processing to preserve their frames. Server processing auto-orients EXIF photos and strips location/EXIF from previews while preserving the untouched original. Recovery fills in missing variants and keeps files already uploaded.

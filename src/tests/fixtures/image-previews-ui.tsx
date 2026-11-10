@@ -25,8 +25,10 @@ function App() {
     <label>Choose image<input aria-label="Choose image" type="file" onChange={e => { if (e.target.files?.[0]) void upload(e.target.files[0]); }} /></label>
     <p role="status">{status}</p>
     {src && <>
-      <section aria-label="Image preview"><OptimizedImage src={src} alt="Uploaded photograph" loading="eager" size={size} className="rounded-xl" /></section>
-      <OriginalImageDownload src={src} />
+      <section aria-label="Image preview" className="relative">
+        <OptimizedImage src={src} alt="Uploaded photograph" loading="eager" size={size} className="rounded-xl" />
+        <OriginalImageDownload src={src} />
+      </section>
       <section aria-label="Gallery" className="mt-4"><MediaGroupMosaic items={[0, 1, 2].map(n => ({ id: String(n), type: 'photo' as const, url: src }))} isOwn timestamp="10:30" onOpenLightbox={() => setSize('full')} /></section>
     </>}
   </main>;

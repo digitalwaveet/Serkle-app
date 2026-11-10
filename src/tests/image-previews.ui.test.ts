@@ -124,8 +124,18 @@ test('fullscreen uses a larger preview; original is fetched only by an explicit 
   await expect(page.getByAltText('Uploaded photograph')).toBeVisible();
   assert.ok(reads.some(path => path.endsWith('_full.webp')));
   assert.ok(reads.every(path => path.includes('.__serkle_preview_')));
+  const preview = page.getByRole('region', { name: 'Image preview' });
+  const button = preview.getByRole('button', { name: 'Download original' });
+  await expect(button).toHaveText('');
+  const previewBounds = await preview.boundingBox();
+  const buttonBounds = await button.boundingBox();
+  assert.ok(previewBounds && buttonBounds);
+  const rightInset = previewBounds.x + previewBounds.width - buttonBounds.x - buttonBounds.width;
+  const bottomInset = previewBounds.y + previewBounds.height - buttonBounds.y - buttonBounds.height;
+  assert.ok(rightInset >= 0 && rightInset <= 16);
+  assert.ok(bottomInset >= 0 && bottomInset <= 16);
   const downloadEvent = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Download original' }).click();
+  await button.click();
   const download = await downloadEvent;
   assert.equal(download.suggestedFilename(), 'Original photo.png');
   assert.deepEqual(await readFile((await download.path())!), original);
@@ -164,17 +174,24 @@ test('WASM fallback produces genuine WebP when the browser encoder returns PNG',
   await page.close();
 });
 test('pending and failed processing metadata never triggers an original-image fallback', async () => {
+  const originalPath = '/storage/v1/object/sign/' + asset.bucket_id + '/' + asset.original_path;
   for (const status of ['processing', 'failed'] as const) {
-    asset.status = status; reads.length = 0;
+    asset.status = status;
     const page = await pageFor();
+    const originalRequests: string[] = [];
+    page.on('request', request => {
+      if (decodeURIComponent(new URL(request.url()).pathname) === originalPath) {
+        originalRequests.push(request.method());
+      }
+    });
     await page.evaluate(src => (window as any).imageFixture.setSrc(src), reference);
     const preview = page.getByRole('region', { name: 'Image preview' });
     if (status === 'processing') await expect(preview.getByTestId('image-skeleton')).toBeVisible();
     else await expect(preview.getByText('Preview could not be prepared')).toBeVisible();
-    assert.equal(reads.length, 0);
     asset.status = 'ready';
     await page.evaluate(() => (window as any).imageFixture.queryClient.invalidateQueries({ queryKey: ['image-preview'] }));
     await expect(page.getByAltText('Uploaded photograph')).toBeVisible();
+    assert.deepEqual(originalRequests, []);
     await page.close();
   }
 });

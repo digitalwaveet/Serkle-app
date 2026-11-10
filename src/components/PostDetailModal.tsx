@@ -187,14 +187,16 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
                   <CarouselContent>
                     {post.media.urls.map((url, index) => (
                       <CarouselItem key={index}>
-                        <OptimizedImage
-                          src={url}
-                          alt={`${post.media?.alt || 'Post image'} ${index + 1}`}
-                          loading="lazy"
-                          className="w-full rounded-2xl aspect-[4/5] object-cover"
-                          size="full"
-                        />
-                        <OriginalImageDownload src={url} />
+                        <div className="relative">
+                          <OptimizedImage
+                            src={url}
+                            alt={`${post.media?.alt || 'Post image'} ${index + 1}`}
+                            loading="lazy"
+                            className="w-full rounded-2xl aspect-[4/5] object-cover"
+                            size="full"
+                          />
+                          <OriginalImageDownload src={url} />
+                        </div>
                       </CarouselItem>
                     ))}
                   </CarouselContent>
@@ -221,7 +223,7 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
                 )}
               </div>
             ) : post.media && post.media.url ? (
-              <div className="mb-4">
+              <div className="relative mb-4">
                 <OptimizedImage
                   src={post.media.url}
                   alt={post.media.alt}

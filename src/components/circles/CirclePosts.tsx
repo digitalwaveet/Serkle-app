@@ -3,24 +3,25 @@ import { OptimizedImage } from '@/components/ui/OptimizedImage';
 import { uploadImageWithPreviews } from '@/lib/imageStorage';
 import { imageUploadId } from '@/lib/imageAsset';
 import React, { useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { formatDistanceToNow } from 'date-fns';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { CircleLockedCover, CirclePremiumBadge } from './CirclePostPreview';
+import { circlePostExcerpt, makeCirclePreviewImages } from '@/lib/circlePostPreview';
 import { useEditor, EditorContent } from '@tiptap/react';
 import { BubbleMenu } from '@tiptap/react/menus';
 import StarterKit from '@tiptap/starter-kit';
 import TiptapUnderline from '@tiptap/extension-underline';
 import TiptapLink from '@tiptap/extension-link';
 import TextAlign from '@tiptap/extension-text-align';
-import { Heart, MessageCircle, Crown, Lock, MoreVertical, Trash2, Image as ImageIcon, Coins, Send, X, Bold, Italic, Underline as UnderlineIcon, List, Heading1, Heading2, Link as LinkIcon, Pencil, AlignLeft, AlignCenter, AlignRight, AlignJustify, Check, Pin, PinOff } from 'lucide-react';
+import { MessageCircle, Crown, MoreVertical, Trash2, Image as ImageIcon, Coins, Send, X, Bold, Italic, Underline as UnderlineIcon, List, Heading1, Heading2, Link as LinkIcon, Pencil, AlignLeft, AlignCenter, AlignRight, AlignJustify, Pin, PinOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { CustomFilePicker, useFileManager } from '@/components/CustomFilePicker';
-import { useEffect } from 'react';
-import { cn } from '@/lib/utils';
 import { TipButton } from './TipButton';
 import { PremiumSettingsModal } from './PremiumSettingsModal';
 import { SubscribeCircleModal } from './SubscribeCircleModal';
 import { EditPostModal } from './EditPostModal';
 import { useCirclePosts } from '@/hooks/useCirclePosts';
-import { useCircleSubscription } from '@/hooks/useCircleSubscription';
 import { useUser } from '@/contexts/UserContext';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
@@ -98,9 +99,6 @@ const CirclePosts: React.FC<CirclePostsProps> = ({ circle, isOwner }) => {
   const [subscribeModalOpen, setSubscribeModalOpen] = useState(false);
   
   const { data: posts = [], isLoading, isError: isPostsError, refetch: retryPosts } = useCirclePosts(circleId);
-  const { data: subscription } = useCircleSubscription(circleId);
-
-  const hasSubscription = !!subscription;
 
   const removeImage = () => {
     composerManager.clearAll();
@@ -122,6 +120,8 @@ const CirclePosts: React.FC<CirclePostsProps> = ({ circle, isOwner }) => {
         coverImageUrl = await uploadImageWithPreviews('post-media', user.id, coverImage, imageUploadId(coverImage));
       }
 
+      const previews = isPremium && coverImage ? await makeCirclePreviewImages(coverImage) : {};
+
       const { error: postError } = await supabase.from('posts').insert({
         user_id: user.id,
         circle_id: circleId,
@@ -130,6 +130,7 @@ const CirclePosts: React.FC<CirclePostsProps> = ({ circle, isOwner }) => {
         is_premium: isPremium,
         premium_price: isPremium ? parseInt(premiumPrice) : null,
         has_tips_enabled: hasTipsEnabled,
+        ...previews,
       });
 
       if (postError) throw postError;
@@ -149,18 +150,6 @@ const CirclePosts: React.FC<CirclePostsProps> = ({ circle, isOwner }) => {
     } finally {
       setIsSubmitting(false);
     }
-  };
-
-  const handleReadMore = (post: any) => {
-    if (hasSubscription || isOwner || post.user_has_unlocked) {
-      navigate(`/circle/${circleId}/post/${post.id}`);
-      return;
-    }
-    if (post.is_premium) {
-      setSubscribeModalOpen(true);
-      return;
-    }
-    navigate(`/circle/${circleId}/post/${post.id}`);
   };
 
   const handleLike = async (postId: string, isLiked: boolean, reactionType: string = 'like') => {
@@ -414,195 +403,117 @@ const CirclePosts: React.FC<CirclePostsProps> = ({ circle, isOwner }) => {
         ) : (
           <div className="px-4 py-8">
             <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-8">
-              {posts.map((post, index) => {
-                const canView = !post.is_premium || post.user_has_unlocked;
+              {posts.map(post => {
+                const locked = post.is_premium && !post.user_has_unlocked;
+                const detailPath = '/circle/' + circleId + '/post/' + post.id;
+                const excerpt = locked ? post.previewText : circlePostExcerpt(post.content ?? '');
+                const cover = !locked && (post.coverReference || (post.post_type === 'photo' ? post.mediaUrl : null));
+
                 return (
-                <div
-                  key={post.id}
-                  className={cn(
-                    "relative w-full max-w-[420px] overflow-hidden bg-neutral-900 text-white mx-auto animate-fade-in hover-scale shadow-elegant rounded-lg",
-                    // Image posts keep the tall immersive layout; text posts collapse to their content
-                    post.cover_image_url && "h-[550px]"
-                  )}
-                  style={{
-                    animationDelay: `${index * 100}ms`,
-                    animationFillMode: 'both'
-                  }}
-                >
-                  {/* Full-bleed background image */}
-                  {post.cover_image_url && (
-                    <OptimizedImage
-                      src={post.cover_image_url}
-                      alt="Post cover"
-                      className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 hover:scale-105"
-                      imageClassName="object-cover"
-                      style={{ aspectRatio: 'auto' }}
-                    />
-                  )}
-
-                  {/* Premium lock overlay for locked posts */}
-                  {!canView && (
-                    <div className="absolute inset-0 bg-black/60 z-10 flex items-center justify-center cursor-pointer" onClick={() => navigate(`/circle/${circleId}/post/${post.id}`)}>
-                      <div className="text-center space-y-4">
-                        <Lock className="w-16 h-16 mx-auto text-white" />
-                        <div>
-                          <h4 className="text-xl font-bold text-white mb-2">Premium Content</h4>
-                          <p className="text-white/80 text-sm">Tap to unlock or subscribe</p>
-                        </div>
+                  <article key={post.id} className="flex w-full min-w-0 max-w-[440px] flex-col gap-3 self-start justify-self-center rounded-[20px] border border-border bg-card p-4 text-card-foreground shadow-soft">
+                    <header className="flex flex-wrap items-center gap-2">
+                      <Avatar className="size-9">
+                        <AvatarImage src={post.author.avatar_url ?? undefined} />
+                        <AvatarFallback className="bg-primary/10 text-sm font-semibold text-primary">{post.author.initials}</AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold">{post.author.name}</p>
+                        <time dateTime={post.created_at} className="block text-xs text-muted-foreground">
+                          {formatDistanceToNow(new Date(post.created_at), { addSuffix: true })}
+                        </time>
                       </div>
-                    </div>
-                  )}
+                      {post.is_premium && <CirclePremiumBadge locked={locked} />}
+                      {isOwner && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="size-9 shrink-0" aria-label="Post options">
+                              <MoreVertical className="size-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => handleTogglePin(post)}>
+                              {post.pinned_at ? <PinOff className="mr-2 size-4" /> : <Pin className="mr-2 size-4" />}
+                              {post.pinned_at ? 'Unpin Post' : 'Pin to Top'}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => {
+                              setSelectedPostForEdit(post);
+                              setIsEditModalOpen(true);
+                            }}>
+                              <Pencil className="mr-2 size-4" /> Edit Post
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleDeletePost(post.id)} className="text-destructive">
+                              <Trash2 className="mr-2 size-4" /> Delete Post
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
+                    </header>
 
-                {/* Pinned chip */}
-                {post.pinned_at && (
-                  <div className="absolute top-4 left-4 z-30">
-                    <span className="rounded-full bg-gradient-secondary text-primary-foreground px-3 py-1 text-xs font-semibold flex items-center gap-1 shadow-glow">
-                      <Pin className="w-3 h-3" />
-                      Pinned
-                    </span>
-                  </div>
-                )}
+                    {post.pinned_at && <span className="inline-flex items-center gap-1 self-start text-xs font-semibold text-primary"><Pin className="size-3" />Pinned</span>}
 
-                {/* Top-right owner actions */}
-                <div className="absolute top-4 right-4 z-30 flex gap-2">
-                  {isOwner && (
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <button className="rounded-full bg-card/20 backdrop-blur-sm p-2 hover:bg-card/30 transition-smooth cursor-pointer hover-scale">
-                          <MoreVertical className="h-4 w-4 text-white" />
-                        </button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => handleTogglePin(post)}>
-                          {post.pinned_at ? (
-                            <>
-                              <PinOff className="size-4 mr-2" />
-                              Unpin Post
-                            </>
-                          ) : (
-                            <>
-                              <Pin className="size-4 mr-2" />
-                              Pin to Top
-                            </>
-                          )}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => {
-                          setSelectedPostForEdit(post);
-                          setIsEditModalOpen(true);
-                        }}>
-                          <Pencil className="size-4 mr-2" />
-                          Edit Post
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleDeletePost(post.id)} className="text-red-600">
-                          <Trash2 className="size-4 mr-2" />
-                          Delete Post
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  )}
-                </div>
-
-                {/* Bottom solid grey blurred overlay that feathers above (image posts only) */}
-                {post.cover_image_url && (
-                  <>
-                    <div className="absolute inset-x-0 bottom-0 h-[180px] bg-gray-900/80 backdrop-blur-md" />
-                    <div className="absolute inset-x-0 bottom-[180px] h-[60px] bg-gradient-to-t from-gray-900/80 to-transparent" />
-                  </>
-                )}
-
-                  {/* Content */}
-                  <div className={post.cover_image_url
-                    ? "absolute inset-x-0 bottom-0 z-20 p-6"
-                    : cn("relative z-20 p-6", (post.pinned_at || isOwner) && "pt-14")
-                  }>
-                    {/* Title + optional Premium pill */}
-                    <div className="mb-3 flex items-start gap-3">
-                      <h3 className="text-xl font-bold text-white leading-tight flex-1">
-                        {circle.name}'s Post
+                    <div className="min-w-0">
+                      <h3 className="text-lg font-semibold leading-tight tracking-tight">
+                        <Link to={detailPath} className="rounded-sm hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring">
+                          {locked ? 'Premium post' : circle.name + '’s post'}
+                        </Link>
                       </h3>
-                      {post.is_premium && (
-                        <span className={cn(
-                          "rounded-full px-3 py-1 text-xs font-semibold flex items-center gap-1 animate-scale-in shadow-glow",
-                          post.user_has_unlocked ? "bg-green-500 text-white" : "bg-gradient-secondary text-primary-foreground"
-                        )}>
-                          {post.user_has_unlocked ? <Check className="w-3 h-3" /> : <Crown className="w-3 h-3" />}
-                          Premium
-                        </span>
-                      )}
+                      {excerpt && <p className="mt-1 line-clamp-3 break-words text-sm leading-relaxed text-muted-foreground">{excerpt}</p>}
                     </div>
 
-                    {/* Description */}
-                    <div className={cn(
-                      "text-white/90 text-sm leading-relaxed mb-4 overflow-hidden prose prose-sm prose-invert max-w-none",
-                      post.cover_image_url ? "line-clamp-2" : "line-clamp-4"
-                    )}>
-                      {canView ? (
-                        post.content.includes('<') ? (
-                          <div dangerouslySetInnerHTML={{ __html: post.content }} />
-                        ) : (
-                          <p>
-                            {post.content.split(' ').map((word: string, i: number) =>
-                              word.startsWith('#') ? <span key={i} className="text-primary-foreground/80 font-medium">{word} </span> : word + ' '
-                            )}
-                          </p>
-                        )
-                      ) : 'Premium content — unlock with coins or subscribe for full access...'}
-                    </div>
-
-                    {/* Row with social buttons including tip button */}
-                    {canView && (
-                      <div className="flex gap-2 mb-4">
-                        <PostReactionButton
-                          isLiked={post.user_has_liked}
-                          likesCount={post.stats.likes_count}
-                          userReaction={post.user_reaction}
-                          onLike={(reactionType) => handleLike(post.id, post.user_has_liked, reactionType)}
-                          onShowLikers={() => {
-                            setActivePostId(post.id);
-                            setShowLikersModal(true);
-                          }}
-                          variant="circle"
-                        />
-                        <button 
-                          onClick={() => navigate(`/circle/${circleId}/post/${post.id}`, { state: { openComments: true } })}
-                          className="flex-1 flex items-center justify-center gap-2 rounded-full bg-card/15 backdrop-blur-sm px-4 py-2 text-sm font-medium text-white hover:bg-card/25 transition-smooth hover-scale"
-                        >
-                          <MessageCircle className="h-4 w-4" />
-                          <span>{post.stats.comments_count}</span>
-                        </button>
-                        {post.has_tips_enabled && (
-                          <div className="flex-1 rounded-full bg-card/15 backdrop-blur-sm hover:bg-card/25 transition-smooth">
-                            <TipButton
-                              postId={post.id}
-                              authorName={post.author.name}
-                              tipCount={post.tip_count}
-                              userHasTipped={post.user_has_tipped}
-                              variant="card"
-                              onTip={(amount) => handleTip(post.id, amount, post.user_id)}
-                            />
-                          </div>
-                        )}
-                      </div>
+                    {locked ? (
+                      <>
+                        <Link to={detailPath} aria-label="Open premium post preview" className="rounded-xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring">
+                          <CircleLockedCover thumbnail={post.previewImage} />
+                        </Link>
+                        <div className="grid gap-2">
+                          {post.premium_price != null && post.premium_price > 0 && (
+                            <Button asChild className="min-h-11 rounded-xl">
+                              <Link to={detailPath}>Unlock for {post.premium_price} coins</Link>
+                            </Button>
+                          )}
+                          {circle.subscription_enabled && (
+                            <Button variant="outline" className="min-h-11 rounded-xl" onClick={() => setSubscribeModalOpen(true)}>
+                              View subscription
+                            </Button>
+                          )}
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        {cover && <OptimizedImage src={cover} alt="Post cover" className="w-full rounded-xl" imageClassName="object-cover" style={{ aspectRatio: '2.24' }} onOpen={() => navigate(detailPath)} openLabel="Open post" />}
+                        <footer className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                          <PostReactionButton
+                            isLiked={post.user_has_liked}
+                            likesCount={post.stats.likes_count}
+                            userReaction={post.user_reaction}
+                            onLike={(reactionType) => handleLike(post.id, post.user_has_liked, reactionType)}
+                            onShowLikers={() => {
+                              setActivePostId(post.id);
+                              setShowLikersModal(true);
+                            }}
+                          />
+                          <Link to={detailPath} state={{ openComments: true }} className="inline-flex min-h-11 items-center gap-1.5 rounded-sm text-sm text-muted-foreground hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring">
+                            <MessageCircle aria-hidden="true" className="size-4" />
+                            {post.stats.comments_count} {post.stats.comments_count === 1 ? 'reply' : 'replies'}
+                          </Link>
+                          {currentUser && currentUser.id !== post.user_id && post.has_tips_enabled && (
+                            <div className="ml-auto">
+                              <TipButton
+                                postId={post.id}
+                                authorName={post.author.name}
+                                tipCount={post.tip_count}
+                                userHasTipped={post.user_has_tipped}
+                                variant="card"
+                                onTip={(amount) => handleTip(post.id, amount, post.user_id)}
+                              />
+                            </div>
+                          )}
+                        </footer>
+                      </>
                     )}
-
-                    {/* Full-width Read more button */}
-                    <button 
-                      onClick={() => navigate(`/circle/${circleId}/post/${post.id}`)}
-                      className="w-full rounded-full py-3 px-6 text-base font-semibold bg-card text-foreground shadow-glow hover:shadow-xl hover:scale-[1.02] transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-white/50"
-                    >
-                      {!canView ? (
-                        <>
-                          <Lock className="w-4 h-4 inline mr-2" />
-                          Unlock or Subscribe
-                        </>
-                      ) : (
-                        'Read more'
-                      )}
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
+                  </article>
+                );
+              })}
             </div>
           </div>
         )}
@@ -636,14 +547,16 @@ const CirclePosts: React.FC<CirclePostsProps> = ({ circle, isOwner }) => {
         }}
       />
 
-      <EditPostModal
+      {isEditModalOpen && <EditPostModal
+        key={selectedPostForEdit?.id}
         isOpen={isEditModalOpen}
         onClose={() => setIsEditModalOpen(false)}
         post={selectedPostForEdit}
         onSave={() => {
           queryClient.invalidateQueries({ queryKey: ['circle-posts', circleId] });
+          queryClient.invalidateQueries({ queryKey: ['circle-post', selectedPostForEdit?.id] });
         }}
-      />
+      />}
       <LikersModal 
         isOpen={showLikersModal} 
         onClose={() => setShowLikersModal(false)} 

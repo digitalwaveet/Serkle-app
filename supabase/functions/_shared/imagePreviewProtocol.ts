@@ -34,3 +34,12 @@ export interface ImagePreviewResult {
 export type ImageClaim =
   | { status: 'claimed'; job: ImagePreviewJob }
   | { status: 'ready' | 'pending' | 'idle' };
+
+export interface CircleCoverJob {
+  postId: string;
+  lease: string;
+  originalUrl: string;
+  originalBytes: number;
+}
+
+export type CircleCoverClaim = { status: 'claimed'; job: CircleCoverJob } | { status: 'idle' | 'unavailable' };

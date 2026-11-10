@@ -38,6 +38,12 @@ before(async () => {
   for (const name of ['20261102150000_circle_entitlements.sql','20261102151000_circle_content_security.sql','20261102152000_circle_post_rpc_entitlements.sql','20261102153000_circle_separate_purchases.sql']) {
     await db.exec(await sqlFile(`../../supabase/migrations/${name}`));
   }
+  // Reproduce a deployment where post visibility exists but the helper does not.
+  await db.exec('DROP FUNCTION public.is_post_audience(uuid,uuid)');
+  const previewMigration = await sqlFile('../../supabase/migrations/20261109120000_circle_post_previews.sql');
+  await db.exec(previewMigration);
+  await db.exec(await sqlFile('../../supabase/migrations/20261109130000_automatic_circle_post_previews.sql'));
+  await db.exec(previewMigration);
   frontend = await createServer({
     configFile: false,
     resolve: { alias: { '@': fileURLToPath(new URL('../', import.meta.url)) } },
@@ -55,7 +61,7 @@ before(async () => {
 });
 after(async () => { await frontend?.close(); await db.close(); });
 beforeEach(async () => {
-  await db.exec('RESET ROLE; TRUNCATE profiles,circles,circle_members,posts,post_stats,circle_videos,circle_resources,circle_subscriptions,post_unlocks,video_unlocks,coin_wallets,coin_transactions,circle_payment_requests,circle_booking_payments,circle_events,circle_event_attendees,circle_services,circle_service_bookings,storage.objects CASCADE');
+  await db.exec('RESET ROLE; TRUNCATE profiles,circles,circle_members,follows,posts,post_stats,circle_videos,circle_resources,circle_subscriptions,post_unlocks,video_unlocks,coin_wallets,coin_transactions,circle_payment_requests,circle_booking_payments,circle_events,circle_event_attendees,circle_services,circle_service_bookings,storage.objects CASCADE');
   await q('INSERT INTO profiles(id,name) VALUES ($1,\'Buyer\'),($2,\'Seller\'),($3,\'Other\')',[buyer,seller,outsider]);
   await q('INSERT INTO circles(id,creator_id) VALUES ($1,$2)',[circle,seller]);
   await q("INSERT INTO posts(id,circle_id,user_id,content,is_premium,premium_price,media_url,media_urls) VALUES ($1,$2,$3,'SECRET PREMIUM TEXT',true,5,'https://example.test/storage/v1/object/public/post-media/secret.mp4',ARRAY['https://example.test/storage/v1/object/public/post-media/secret.mp4'])",[post,circle,seller]);
@@ -96,6 +102,68 @@ test('authorized API payloads and storage use the same entitlement', async () =>
   assert.equal((await q('SELECT get_circle_videos($1) data',[circle]))[0].data[0].user_has_unlocked,true);
   assert.equal((await q('SELECT get_circle_resources($1) data',[circle]))[0].data[0].can_access,true);
   assert.equal((await q('SELECT * FROM storage.objects')).length,3);
+});
+
+test('locked previews are automatic and respect Circle and post visibility', async () => {
+  const [legacy] = await q('SELECT * FROM get_circle_post_previews($1, ARRAY[$2]::uuid[])', [circle, post]);
+  assert.equal(legacy.preview_image, null);
+  assert.equal(legacy.preview_text, 'SECRET PR…');
+
+  await db.exec('RESET ROLE');
+  const thumbnail = 'data:image/webp;base64,AAAA';
+  const cover = 'data:image/webp;base64,BBBB';
+  await q('UPDATE posts SET content=$2, circle_preview_thumb=$3, circle_preview_cover=$4, has_tips_enabled=false WHERE id=$1', [post, '<p>Public <b>teaser</b></p><p>Secret body</p>', thumbnail, cover]);
+  await login();
+  const preview = (detail: boolean) => q('SELECT * FROM get_circle_post_previews($1, ARRAY[$2]::uuid[], $3)', [circle, post, detail]);
+  assert.deepEqual(await preview(false), [{ post_id: post, preview_text: 'Public teaser', preview_image: thumbnail, has_tips_enabled: false }]);
+  assert.equal((await preview(true))[0].preview_image, cover);
+  assert.equal((await q('SELECT * FROM get_post_details($1)', [post]))[0].content, '');
+  assert.equal((await q('SELECT * FROM get_post_details($1)', [post]))[0].media_url, null);
+
+  await db.exec('RESET ROLE');
+  await q("UPDATE posts SET visibility='friends' WHERE id=$1", [post]);
+  await q('INSERT INTO follows(follower_id,following_id) VALUES ($1,$2)', [seller, buyer]);
+  await login(buyer);
+  assert.equal((await preview(true))[0].preview_image, cover);
+  await login(null);
+  assert.deepEqual(await preview(true), []);
+  await login(outsider);
+  assert.deepEqual(await preview(true), []);
+
+  await db.exec('RESET ROLE');
+  await q("UPDATE posts SET visibility='public' WHERE id=$1", [post]);
+  await q('UPDATE circles SET is_private=true WHERE id=$1', [circle]);
+  await login(outsider);
+  assert.deepEqual(await preview(true), []);
+});
+
+test('legacy cover worker only claims author-owned images and rejects outdated leases', async () => {
+  const origin = 'https://example.test';
+  const photo = seller + '/legacy.jpg';
+  const url = origin + '/storage/v1/object/public/post-media/' + photo;
+  await assert.rejects(q('SELECT * FROM claim_circle_cover_preview($1)', [origin]), { code: '42501' });
+  await db.exec('RESET ROLE');
+  await q('UPDATE posts SET cover_image_url=$2 WHERE id=$1', [post, url]);
+  await q(`INSERT INTO storage.objects (bucket_id,name,owner_id,metadata)
+    VALUES ('post-media',$1,$2,'{"mimetype":"image/jpeg","size":123}')`, [photo, outsider]);
+  assert.deepEqual(await q('SELECT * FROM claim_circle_cover_preview($1)', [origin]), []);
+  await q('UPDATE storage.objects SET owner_id=$2 WHERE name=$1', [photo, seller]);
+  assert.deepEqual(await q('SELECT * FROM claim_circle_cover_preview($1)', ['https://another-project.test']), []);
+  const [job] = await q('SELECT * FROM claim_circle_cover_preview($1)', [origin]);
+  assert.equal(job.object_path, photo);
+  assert.deepEqual(await q('SELECT * FROM claim_circle_cover_preview($1)', [origin]), []);
+  await q('UPDATE posts SET cover_image_url=NULL WHERE id=$1', [post]);
+  const finish = (lease: string) => q('SELECT complete_circle_cover_preview($1,$2,$3,$4) AS stored',
+    [post, lease, 'data:image/webp;base64,AAAA', 'data:image/webp;base64,BBBB']);
+  assert.deepEqual(await finish(job.lease), [{ stored: false }]);
+  const oldSignedUrl = origin + '/storage/v1/object/sign/post-media/' + photo + '?token=expired';
+  await q('UPDATE posts SET cover_image_url=$2 WHERE id=$1', [post, oldSignedUrl]);
+  const [retry] = await q('SELECT * FROM claim_circle_cover_preview($1)', [origin]);
+  assert.deepEqual(await finish(retry.lease), [{ stored: true }]);
+  await login(buyer);
+  assert.equal((await q('SELECT * FROM get_circle_post_previews($1,ARRAY[$2]::uuid[],true)', [circle, post]))[0].preview_image,
+    'data:image/webp;base64,AAAA');
+  assert.equal((await q('SELECT * FROM get_post_details($1)', [post]))[0].cover_image_url, null);
 });
 
 test('expiry denies subscription access while retaining a prior one-time purchase', async () => {

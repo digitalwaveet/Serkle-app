@@ -1,6 +1,6 @@
 -- Isolated PostgreSQL fixture: Supabase roles/auth/storage and the existing
 -- columns used by the production migrations. Never connects to the live app.
-CREATE ROLE anon; CREATE ROLE authenticated;
+CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role;
 CREATE SCHEMA auth; CREATE SCHEMA storage;
 CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$ SELECT NULLIF(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
 CREATE TABLE auth.users(id uuid PRIMARY KEY);
@@ -10,8 +10,10 @@ CREATE TABLE circle_members(circle_id uuid, user_id uuid, status text DEFAULT 'a
 CREATE FUNCTION is_circle_member(uuid,uuid) RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER AS $$ SELECT EXISTS(SELECT 1 FROM circle_members WHERE circle_id=$1 AND user_id=$2 AND status='active') $$;
 CREATE FUNCTION is_any_admin(uuid) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT $1 = '00000000-0000-0000-0000-000000000099'::uuid $$;
 CREATE FUNCTION is_post_audience(uuid,uuid) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT $1=$2 $$;
+CREATE TABLE follows(follower_id uuid, following_id uuid);
 CREATE TABLE posts(id uuid PRIMARY KEY, circle_id uuid, user_id uuid, content text, media_url text, media_urls text[], cover_image_url text, voice_url text, original_pdf_url text, is_premium boolean DEFAULT false, premium_price integer, is_sponsored boolean DEFAULT false, visibility text DEFAULT 'public', created_at timestamptz DEFAULT now(), post_type text, location_text text, media_alt text, media_color_from text, media_color_to text, tags text[]);
 CREATE TABLE post_stats(post_id uuid, likes_count integer DEFAULT 0, comments_count integer DEFAULT 0, shares_count integer DEFAULT 0, saves_count integer DEFAULT 0);
+ALTER TABLE posts ADD COLUMN has_tips_enabled boolean;
 CREATE TABLE likes(post_id uuid, user_id uuid, reaction_type text);
 CREATE TABLE saves(post_id uuid, user_id uuid);
 CREATE TABLE circle_tips(post_id uuid, tipper_id uuid);
@@ -29,7 +31,7 @@ CREATE TABLE circle_services(id uuid PRIMARY KEY, circle_id uuid, provider_id uu
 CREATE TABLE circle_service_bookings(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), service_id uuid, user_id uuid, booking_date date, booking_time time, member_name text, member_email text, member_phone text, notes text, payment_status text, status text);
 ALTER TABLE circle_events ENABLE ROW LEVEL SECURITY; CREATE POLICY existing_events_select ON circle_events FOR SELECT USING(true);
 CREATE TABLE storage.buckets(id text PRIMARY KEY, public boolean);
-CREATE TABLE storage.objects(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), bucket_id text, name text);
+CREATE TABLE storage.objects(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), bucket_id text, name text, owner_id text, metadata jsonb);
 INSERT INTO storage.buckets VALUES ('post-media',true),('circle-videos',true),('circle-resources',false);
 ALTER TABLE posts ENABLE ROW LEVEL SECURITY; CREATE POLICY existing_posts_select ON posts FOR SELECT USING (true);
 ALTER TABLE circle_videos ENABLE ROW LEVEL SECURITY; CREATE POLICY existing_videos_select ON circle_videos FOR SELECT USING (true);
