@@ -2,10 +2,15 @@ import React, { useEffect, useId, useRef, useState } from "react";
 import { Send, Glasses } from "lucide-react";
 import MentionTextarea from "@/components/MentionTextarea";
 import EmojiPicker from "@/components/EmojiPicker";
+import { GiftEmojiPicker, GiftEmoji } from "@/components/GiftEmojiPicker";
 import { SerkleLoader } from "@/components/ui/SerkleLoader";
 import { anonymousTextColor } from "@/lib/askPresentation";
 interface Props {
   onSubmit: (text: string) => Promise<void>;
+  onGiftSend?: (gift: GiftEmoji) => void | Promise<void>;
+  isGiftSending?: boolean;
+  recipientId?: string;
+  recipientName?: string;
   placeholder?: string;
   displayName?: string;
   displayAvatar?: string;
@@ -14,6 +19,10 @@ interface Props {
 }
 export function AskReplyComposer({
   onSubmit,
+  onGiftSend,
+  isGiftSending = false,
+  recipientId,
+  recipientName,
   placeholder = "Share your perspective…",
   displayName,
   displayAvatar,
@@ -108,13 +117,23 @@ export function AskReplyComposer({
             }}
           />
           {!pending && (
-            <EmojiPicker
-              variant="compact"
-              onEmojiSelect={(emoji) => {
-                setText((value) => value + emoji);
-                textarea.current?.focus();
-              }}
-            />
+            <>
+              <EmojiPicker
+                variant="compact"
+                onEmojiSelect={(emoji) => {
+                  setText((value) => value + emoji);
+                  textarea.current?.focus();
+                }}
+              />
+              {recipientId && onGiftSend && (
+                <GiftEmojiPicker
+                  onGiftSelect={onGiftSend}
+                  isSending={isGiftSending}
+                  recipientId={recipientId}
+                  recipientName={recipientName}
+                />
+              )}
+            </>
           )}
           <button
             className="ask-reply-send"

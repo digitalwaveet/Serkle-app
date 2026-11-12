@@ -9,6 +9,18 @@ import { supabase } from '@/integrations/supabase/client';
 import { useVideoMutations } from '@/hooks/useVideoMutations';
 import { useUser } from '@/contexts/UserContext';
 import { GiftEmojiPicker, GiftEmoji } from '@/components/GiftEmojiPicker';
+import MiniGiftAnimation from '@/components/post/MiniGiftAnimation';
+import GiftCommentCard from '@/components/post/GiftCommentCard';
+import {
+  formatGiftCommentContent,
+  parseGiftComment,
+  getGiftAnimationTier,
+  savePendingGiftComment,
+  getPendingGiftCommentsForPost,
+  finalizePendingGiftComment,
+  flushPendingGiftCommentKeepalive,
+  PendingGiftCommentRecord,
+} from '@/lib/giftComment';
 import { useCoinWallet } from '@/hooks/useCoinWallet';
 import CommentActionMenu from '@/components/CommentActionMenu';
 import { toast } from 'sonner';
@@ -73,8 +85,13 @@ export const CommentsModal: React.FC<CommentsModalProps> = ({
   const modalRef = useRef<HTMLDivElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const { addComment: addCommentMutation } = useVideoMutations();
-  const { transferCoins } = useCoinWallet(user?.id);
+  const { wallet, transferCoins, invalidate: invalidateWallet } = useCoinWallet(user?.id);
   const [commentAction, setCommentAction] = useState<{ commentId: string; position: { x: number; y: number } } | null>(null);
+  const [activeGiftAnimation, setActiveGiftAnimation] = useState<PendingGiftCommentRecord | null>(null);
+  const [isGiftSending, setIsGiftSending] = useState(false);
+  const giftInFlightRef = useRef(false);
+  const giftFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activeGiftRecordRef = useRef<PendingGiftCommentRecord | null>(null);
   
   const DISMISS_THRESHOLD = 80;
   const SPRING_BACK_THRESHOLD = 40;
@@ -123,6 +140,42 @@ export const CommentsModal: React.FC<CommentsModalProps> = ({
 
         setComments(formattedComments);
         setLocalCommentCount(formattedComments.length);
+
+        // Recover any previously paid video gift comment that was interrupted before publication
+        if (user?.id) {
+          const pendingGifts = getPendingGiftCommentsForPost(videoId, user.id, 'video');
+          for (const pending of pendingGifts) {
+            if (activeGiftRecordRef.current?.requestId === pending.requestId) continue;
+            const finalized = await finalizePendingGiftComment(pending, user.id);
+            if (finalized) {
+              setComments((prev) => {
+                if (prev.some((c) => c.id === finalized.id || c.text.includes(pending.requestId))) {
+                  return prev;
+                }
+                return [
+                  {
+                    id: finalized.id,
+                    userId: user.id,
+                    user: {
+                      name: user.name,
+                      initials: user.initials,
+                      avatarColor: user.avatarColor,
+                      avatarUrl: user.avatar,
+                      verified: user.isVerified,
+                    },
+                    text: finalized.content,
+                    likes: 0,
+                    replies: 0,
+                    timestamp: 'Just now',
+                    isLiked: false,
+                  },
+                  ...prev,
+                ];
+              });
+              setLocalCommentCount((prev) => prev + 1);
+            }
+          }
+        }
       } catch (error) {
         console.error('Error fetching comments:', error);
       } finally {
@@ -307,42 +360,114 @@ export const CommentsModal: React.FC<CommentsModalProps> = ({
     }
   };
 
+  // Flush any in-flight paid gift comment if user closes the tab/app mid-animation
+  useEffect(() => {
+    const flushActiveGift = () => {
+      if (activeGiftRecordRef.current) {
+        flushPendingGiftCommentKeepalive(activeGiftRecordRef.current, user?.id);
+      }
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden' && activeGiftRecordRef.current) {
+        flushPendingGiftCommentKeepalive(activeGiftRecordRef.current, user?.id);
+      }
+    };
+
+    window.addEventListener('pagehide', flushActiveGift);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.removeEventListener('pagehide', flushActiveGift);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (giftFallbackTimerRef.current) {
+        clearTimeout(giftFallbackTimerRef.current);
+      }
+      if (activeGiftRecordRef.current) {
+        void finalizePendingGiftComment(activeGiftRecordRef.current, user?.id);
+      }
+    };
+  }, [user?.id]);
+
   const handleSendGift = async (gift: GiftEmoji) => {
-    if (!user || !videoOwnerId) return;
-    
+    if (!user || !videoOwnerId || !videoId) return;
+    if (giftInFlightRef.current || isGiftSending) return;
+
+    const quantity = gift.quantity ?? 1;
+    const totalValue = gift.value * quantity;
+    const currentBalance = wallet?.balance ?? 0;
+
+    if (currentBalance < totalValue) {
+      toast.error(`Not enough coins. You need ${totalValue} coins but have ${currentBalance}.`);
+      return;
+    }
+
+    giftInFlightRef.current = true;
+    setIsGiftSending(true);
+    const requestId =
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `gift-video-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
     try {
-      // Transfer coins to video owner
-      await transferCoins.mutateAsync({
+      // 1. Server-authoritative coin transfer with idempotency key
+      const txResult = await transferCoins.mutateAsync({
         receiverId: videoOwnerId,
-        amount: gift.value,
+        amount: totalValue,
         typeSent: 'tip_sent',
         typeReceived: 'tip_received',
+        referenceId: videoId,
         description: `Gift ${gift.emoji} ${gift.label} on video`,
+        requestId,
       });
 
-      // Post gift as a comment
-      const giftComment = `${gift.emoji} sent a ${gift.label} gift (${gift.value} 🪙)`;
-      
-      const optimisticComment: Comment = {
-        id: `temp-gift-${Date.now()}`,
-        user: {
-          name: user.name,
-          initials: user.initials,
-          avatarColor: user.avatarColor,
-          avatarUrl: user.avatar,
-        },
-        text: giftComment,
-        likes: 0,
-        replies: 0,
-        timestamp: 'now',
-        isLiked: false,
-      };
-      setComments(prev => [...prev, optimisticComment]);
-      setLocalCommentCount(prev => prev + 1);
+      const transactionId = String((txResult as any)?.requestId || requestId);
+      const content = formatGiftCommentContent({
+        giftId: gift.id || gift.label.toLowerCase(),
+        name: gift.label,
+        emoji: gift.emoji,
+        image: gift.image,
+        quantity,
+        value: totalValue,
+        senderId: user.id,
+        senderName: user.name,
+        transactionId,
+      });
 
-      await addCommentMutation(videoId, giftComment);
+      const pendingRecord: PendingGiftCommentRecord = {
+        requestId,
+        transactionId,
+        postId: videoId,
+        targetType: 'video',
+        userId: user.id,
+        userName: user.name,
+        giftId: gift.id || gift.label.toLowerCase(),
+        giftName: gift.label,
+        giftEmoji: gift.emoji,
+        giftImage: gift.image,
+        quantity,
+        coinValue: totalValue,
+        content,
+        createdAt: Date.now(),
+      };
+
+      // 2. Persist durable pending gift comment immediately after confirmed payment
+      savePendingGiftComment(pendingRecord);
+      activeGiftRecordRef.current = pendingRecord;
+
+      // 3. Fallback timeout in case animation callback is interrupted
+      const tier = getGiftAnimationTier(totalValue);
+      if (giftFallbackTimerRef.current) clearTimeout(giftFallbackTimerRef.current);
+      giftFallbackTimerRef.current = setTimeout(() => {
+        if (activeGiftRecordRef.current?.requestId === requestId) {
+          void finalizePendingGiftComment(pendingRecord, user.id);
+        }
+      }, tier.durationMs + 450);
+
+      // 4. Play the gift celebration animation before publishing the comment
+      setActiveGiftAnimation(pendingRecord);
     } catch (error) {
       console.error('Error sending gift:', error);
+      giftInFlightRef.current = false;
+      setIsGiftSending(false);
     }
   };
 
@@ -729,13 +854,21 @@ export const CommentsModal: React.FC<CommentsModalProps> = ({
                          </div>
                        )}
                        <span className="text-timestamp text-muted-foreground ml-1">
-                         {comment.timestamp}
+                         · {parseGiftComment(comment.text) && (comment.timestamp === '0m' || comment.timestamp === 'now') ? 'Just now' : comment.timestamp}
                        </span>
                     </div>
                     
-                     <p className="text-comment-text text-foreground mb-2 leading-relaxed">
-                       <RichTextRenderer text={comment.text} />
-                     </p>
+                     {(() => {
+                       const giftMeta = parseGiftComment(comment.text);
+                       if (giftMeta) {
+                         return <GiftCommentCard metadata={giftMeta} className="mb-2" />;
+                       }
+                       return (
+                         <p className="text-comment-text text-foreground mb-2 leading-relaxed">
+                           <RichTextRenderer text={comment.text} />
+                         </p>
+                       );
+                     })()}
 
                     {/* Comment actions */}
                     <div className="flex items-center gap-4">
@@ -838,9 +971,17 @@ export const CommentsModal: React.FC<CommentsModalProps> = ({
                            {reply.timestamp}
                          </span>
                       </div>
-                       <p className="text-comment-text text-foreground mb-1 leading-relaxed">
-                         {reply.text}
-                       </p>
+                       {(() => {
+                         const replyGiftMeta = parseGiftComment(reply.text);
+                         if (replyGiftMeta) {
+                           return <GiftCommentCard metadata={replyGiftMeta} className="mb-1.5" />;
+                         }
+                         return (
+                           <p className="text-comment-text text-foreground mb-1 leading-relaxed">
+                             {reply.text}
+                           </p>
+                         );
+                       })()}
                       <div className="flex items-center gap-4">
                         <button
                           onClick={() => handleLikeComment(reply.id)}
@@ -899,6 +1040,8 @@ export const CommentsModal: React.FC<CommentsModalProps> = ({
               {videoOwnerId && (
                 <GiftEmojiPicker
                   onGiftSelect={handleSendGift}
+                  isSending={isGiftSending}
+                  recipientId={videoOwnerId}
                   recipientName={videoOwnerName}
                 />
               )}
@@ -915,6 +1058,83 @@ export const CommentsModal: React.FC<CommentsModalProps> = ({
           </div>
         </div>
       </div>
+      {/* Mini Animated Gift Celebration — centered above the comment input area */}
+      {activeGiftAnimation && (
+        <MiniGiftAnimation
+          giftId={activeGiftAnimation.giftId}
+          name={activeGiftAnimation.giftName}
+          emoji={activeGiftAnimation.giftEmoji}
+          image={activeGiftAnimation.giftImage}
+          quantity={activeGiftAnimation.quantity}
+          coinValue={activeGiftAnimation.coinValue}
+          onComplete={async () => {
+            const record = activeGiftRecordRef.current || activeGiftAnimation;
+            if (giftFallbackTimerRef.current) {
+              clearTimeout(giftFallbackTimerRef.current);
+              giftFallbackTimerRef.current = null;
+            }
+            activeGiftRecordRef.current = null;
+            setActiveGiftAnimation(null);
+
+            if (!record || !user) {
+              giftInFlightRef.current = false;
+              setIsGiftSending(false);
+              return;
+            }
+
+            try {
+              const finalized = await finalizePendingGiftComment(record, user.id);
+              const contentText =
+                finalized?.content ||
+                record.content ||
+                formatGiftCommentContent({
+                  giftId: record.giftId,
+                  name: record.giftName,
+                  emoji: record.giftEmoji,
+                  image: record.giftImage,
+                  quantity: record.quantity,
+                  value: record.coinValue,
+                  senderId: record.userId,
+                  senderName: record.userName,
+                  transactionId: record.transactionId || record.requestId,
+                });
+
+              setComments((prev) => {
+                const txKey = record.transactionId || record.requestId;
+                if (
+                  (finalized?.id && prev.some((c) => c.id === finalized.id)) ||
+                  prev.some((c) => c.text.includes(txKey))
+                ) {
+                  return prev;
+                }
+                const giftCommentItem: Comment = {
+                  id: finalized?.id || `gift-${record.requestId}`,
+                  userId: user.id,
+                  user: {
+                    name: user.name,
+                    initials: user.initials,
+                    avatarColor: user.avatarColor,
+                    avatarUrl: user.avatar,
+                    verified: user.isVerified,
+                  },
+                  text: contentText,
+                  likes: 0,
+                  replies: 0,
+                  timestamp: 'Just now',
+                  isLiked: false,
+                };
+                return [giftCommentItem, ...prev];
+              });
+              setLocalCommentCount((prev) => prev + 1);
+              invalidateWallet();
+            } finally {
+              giftInFlightRef.current = false;
+              setIsGiftSending(false);
+            }
+          }}
+        />
+      )}
+
       {/* Comment Action Menu */}
       <CommentActionMenu
         isOpen={!!commentAction}

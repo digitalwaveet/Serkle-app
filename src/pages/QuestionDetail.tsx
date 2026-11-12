@@ -1,10 +1,23 @@
 import { SerkleLoader } from "@/components/ui/SerkleLoader";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { AskReplyComposer } from "@/components/ask/AskReplyComposer";
+import { GiftEmoji } from "@/components/GiftEmojiPicker";
+import MiniGiftAnimation from "@/components/post/MiniGiftAnimation";
+import GiftCommentCard from "@/components/post/GiftCommentCard";
+import {
+  formatGiftCommentContent,
+  parseGiftComment,
+  getGiftAnimationTier,
+  savePendingGiftComment,
+  finalizePendingGiftComment,
+  flushPendingGiftCommentKeepalive,
+  PendingGiftCommentRecord,
+} from "@/lib/giftComment";
+import { useCoinWallet } from "@/hooks/useCoinWallet";
 import { AskConfirmDialog } from "@/components/ask/AskConfirmDialog";
 import { AskLoading, AskState } from "@/components/ask/AskState";
 import { formatAskCount, formatAskNumber } from "@/lib/askPresentation";
@@ -107,6 +120,17 @@ export default function QuestionDetail() {
 
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [currentUserProfile, setCurrentUserProfile] = useState<any>(null);
+  const { wallet, transferCoins, invalidate: invalidateWallet } = useCoinWallet(
+    currentUser?.id,
+  );
+  const [activeGiftAnimation, setActiveGiftAnimation] =
+    useState<PendingGiftCommentRecord | null>(null);
+  const [isGiftSending, setIsGiftSending] = useState(false);
+  const giftInFlightRef = useRef(false);
+  const giftFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const activeGiftRecordRef = useRef<PendingGiftCommentRecord | null>(null);
   const [answerVoteCounts, setAnswerVoteCounts] = useState<
     Record<string, number>
   >({});
@@ -1583,7 +1607,15 @@ export default function QuestionDetail() {
                     </div>
                   </div>
                 ) : (
-                  <p className="text-sm leading-relaxed">{answer.answer}</p>
+                  (() => {
+                    const giftMeta = parseGiftComment(answer.answer || "");
+                    if (giftMeta) {
+                      return <GiftCommentCard metadata={giftMeta} />;
+                    }
+                    return (
+                      <p className="text-sm leading-relaxed">{answer.answer}</p>
+                    );
+                  })()
                 )}
 
                 <div className="flex items-center gap-2">
@@ -1645,10 +1677,150 @@ export default function QuestionDetail() {
         description="This cannot be undone."
         onConfirm={performDelete}
       />
+      {/* Mini Animated Gift Celebration */}
+      {activeGiftAnimation && (
+        <MiniGiftAnimation
+          giftId={activeGiftAnimation.giftId}
+          name={activeGiftAnimation.giftName}
+          emoji={activeGiftAnimation.giftEmoji}
+          image={activeGiftAnimation.giftImage}
+          quantity={activeGiftAnimation.quantity}
+          coinValue={activeGiftAnimation.coinValue}
+          onComplete={async () => {
+            const record = activeGiftRecordRef.current || activeGiftAnimation;
+            if (giftFallbackTimerRef.current) {
+              clearTimeout(giftFallbackTimerRef.current);
+              giftFallbackTimerRef.current = null;
+            }
+            activeGiftRecordRef.current = null;
+            setActiveGiftAnimation(null);
+
+            if (!record || !currentUser) {
+              giftInFlightRef.current = false;
+              setIsGiftSending(false);
+              return;
+            }
+
+            try {
+              await finalizePendingGiftComment(record, currentUser.id);
+              queryClient.invalidateQueries({
+                queryKey: ["answers", question.id],
+              });
+              invalidateWallet();
+            } finally {
+              giftInFlightRef.current = false;
+              setIsGiftSending(false);
+            }
+          }}
+        />
+      )}
+
       {/* Persistent Comment Composer */}
       <AskReplyComposer
         key={question.id}
         onSubmit={handleSubmitAnswer}
+        recipientId={
+          !questionIsAnonymous && question.user_id ? question.user_id : undefined
+        }
+        recipientName={
+          !questionIsAnonymous ? authorDisplayName : undefined
+        }
+        isGiftSending={isGiftSending}
+        onGiftSend={async (gift: GiftEmoji) => {
+          if (
+            questionIsAnonymous ||
+            !question.user_id ||
+            !currentUser ||
+            giftInFlightRef.current ||
+            isGiftSending
+          ) {
+            return;
+          }
+
+          const quantity = gift.quantity ?? 1;
+          const totalValue = gift.value * quantity;
+          const currentBalance = wallet?.balance ?? 0;
+
+          if (currentBalance < totalValue) {
+            toast({
+              title: "Insufficient coins",
+              description: `You need ${totalValue} coins but have ${currentBalance}.`,
+              variant: "destructive",
+            });
+            return;
+          }
+
+          giftInFlightRef.current = true;
+          setIsGiftSending(true);
+          const requestId =
+            typeof crypto !== "undefined" &&
+            typeof crypto.randomUUID === "function"
+              ? crypto.randomUUID()
+              : `gift-ask-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+          try {
+            const txResult = await transferCoins.mutateAsync({
+              receiverId: question.user_id,
+              amount: totalValue,
+              typeSent: "tip_sent",
+              typeReceived: "tip_received",
+              referenceId: question.id,
+              description: `Gift ${gift.emoji} ${gift.label} on question`,
+              requestId,
+            });
+
+            const transactionId = String(
+              (txResult as any)?.requestId || requestId,
+            );
+            const content = formatGiftCommentContent({
+              giftId: gift.id || gift.label.toLowerCase(),
+              name: gift.label,
+              emoji: gift.emoji,
+              image: gift.image,
+              quantity,
+              value: totalValue,
+              senderId: currentUser.id,
+              senderName: currentUserProfile?.name || "User",
+              transactionId,
+            });
+
+            const pendingRecord: PendingGiftCommentRecord = {
+              requestId,
+              transactionId,
+              postId: question.id,
+              targetType: "question",
+              userId: currentUser.id,
+              userName: currentUserProfile?.name || "User",
+              giftId: gift.id || gift.label.toLowerCase(),
+              giftName: gift.label,
+              giftEmoji: gift.emoji,
+              giftImage: gift.image,
+              quantity,
+              coinValue: totalValue,
+              content,
+              createdAt: Date.now(),
+            };
+
+            savePendingGiftComment(pendingRecord);
+            activeGiftRecordRef.current = pendingRecord;
+
+            const tier = getGiftAnimationTier(totalValue);
+            if (giftFallbackTimerRef.current) {
+              clearTimeout(giftFallbackTimerRef.current);
+            }
+            giftFallbackTimerRef.current = setTimeout(() => {
+              if (activeGiftRecordRef.current?.requestId === requestId) {
+                void finalizePendingGiftComment(pendingRecord, currentUser.id);
+              }
+            }, tier.durationMs + 450);
+
+            setActiveGiftAnimation(pendingRecord);
+          } catch (error) {
+            console.error("Error sending gift:", error);
+            giftInFlightRef.current = false;
+            setIsGiftSending(false);
+          }
+        }}
         placeholder="Share your advice..."
         displayName={displayName}
         displayAvatar={displayAvatar}

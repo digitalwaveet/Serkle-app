@@ -188,12 +188,14 @@ const CirclePostComments: React.FC<{
       const txResult = await transferCoins.mutateAsync({
         receiverId: recipientId,
         amount: gift.value,
-        postId,
+        typeSent: 'tip_sent',
+        typeReceived: 'tip_received',
+        referenceId: postId,
         description: `Sent ${gift.emoji} ${gift.label} gift on comment`,
         requestId,
       });
 
-      const transactionId = txResult?.transaction_id || txResult?.requestId || requestId;
+      const transactionId = String((txResult as any)?.requestId || requestId);
       const content = formatGiftCommentContent({
         giftId: gift.id,
         name: gift.label,
@@ -207,9 +209,12 @@ const CirclePostComments: React.FC<{
       });
 
       const pendingRecord: PendingGiftCommentRecord = {
+        requestId,
         transactionId,
         postId,
+        targetType: 'post',
         userId: user.id,
+        userName: user.name,
         giftId: gift.id,
         giftName: gift.label,
         giftEmoji: gift.emoji,

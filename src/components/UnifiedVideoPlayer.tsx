@@ -10,6 +10,7 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import PublicProfileModal from '@/components/PublicProfileModal';
 import { VideoShareMenu } from '@/components/VideoShareMenu';
+import { CommentsModal } from '@/components/CommentsModal';
 import { useVideoViewTracker } from '@/hooks/useVideoViewTracker';
 import { formatCount } from '@/utils/formatters';
 
@@ -34,6 +35,7 @@ export const UnifiedVideoPlayer = memo<UnifiedVideoPlayerProps>(({
   const [followState, setFollowState] = useState<'visible' | 'checked' | 'hidden'>('visible');
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showShareMenu, setShowShareMenu] = useState(false);
+  const [showCommentsModal, setShowCommentsModal] = useState(false);
   const { triggerHaptic } = useHapticFeedback();
   const { toggleLike, toggleSave } = useVideoMutations();
   const { toggleFollow, checkFollowStatus } = useFollowMutations();
@@ -266,7 +268,10 @@ export const UnifiedVideoPlayer = memo<UnifiedVideoPlayerProps>(({
         </button>
 
         <button 
-          onClick={handleAction}
+          onClick={() => {
+            handleAction();
+            setShowCommentsModal(true);
+          }}
           className="group flex flex-col items-center gap-1 transition-all duration-200 active:bg-transparent"
         >
           <div className="w-14 h-14 rounded-full bg-card/15 backdrop-blur-md border border-white/20 flex items-center justify-center group-active:scale-95 hover:bg-card/25 transition-all duration-200 shadow-lg active:bg-card/15">
@@ -331,6 +336,16 @@ export const UnifiedVideoPlayer = memo<UnifiedVideoPlayerProps>(({
         onClose={() => setShowShareMenu(false)}
         videoId={video.id}
         videoUrl={video.url}
+      />
+
+      <CommentsModal
+        isOpen={showCommentsModal}
+        onClose={() => setShowCommentsModal(false)}
+        videoId={video.id}
+        videoTitle={video.title || video.description || ''}
+        totalComments={video.stats.comments}
+        videoOwnerId={video.user.id}
+        videoOwnerName={video.user.name}
       />
     </div>
   );
