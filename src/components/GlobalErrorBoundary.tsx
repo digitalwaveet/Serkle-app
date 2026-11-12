@@ -1,4 +1,6 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
+import { isRouteLoadError, recoverStaleApp, reloadAppPage } from '@/utils/routeRecovery';
+import { isFilePickerActive } from '@/utils/cacheManager';
 
 interface Props {
   children: ReactNode;
@@ -24,13 +26,24 @@ class GlobalErrorBoundary extends Component<Props, State> {
     this.setState({ errorInfo });
     // TODO: Send to error tracking service (Sentry, etc.)
     console.error('[GlobalErrorBoundary] Uncaught error:', error, errorInfo);
+    if (import.meta.env.PROD && isRouteLoadError(error) && !isFilePickerActive()) {
+      void recoverStaleApp();
+    }
   }
 
   handleReset = () => {
+    if (isRouteLoadError(this.state.error)) {
+      reloadAppPage();
+      return;
+    }
     this.setState({ hasError: false, error: null, errorInfo: null });
   };
 
   handleGoHome = () => {
+    if (isRouteLoadError(this.state.error)) {
+      reloadAppPage('/');
+      return;
+    }
     this.setState({ hasError: false, error: null, errorInfo: null });
     window.location.href = '/';
   };
@@ -38,7 +51,10 @@ class GlobalErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.hasError) {
       return (
-        <div className="min-h-screen flex items-center justify-center bg-background p-6">
+        <div
+          data-serkle-error-boundary="true"
+          className="min-h-screen flex items-center justify-center bg-background p-6"
+        >
           <div className="max-w-md w-full text-center space-y-6">
             {/* Error Icon */}
             <div className="mx-auto w-20 h-20 rounded-full bg-destructive/10 flex items-center justify-center">
@@ -64,8 +80,9 @@ class GlobalErrorBoundary extends Component<Props, State> {
                 Something went wrong
               </h1>
               <p className="text-muted-foreground text-sm leading-relaxed">
-                We're sorry, but something unexpected happened. Please try again
-                or go back to the home page.
+                {isRouteLoadError(this.state.error)
+                  ? 'Serkle couldn’t load this page. Try again to fetch the latest version.'
+                  : "Something unexpected happened. Please try again or go back to the home page."}
               </p>
             </div>
 

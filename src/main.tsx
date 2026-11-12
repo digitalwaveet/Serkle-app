@@ -4,6 +4,7 @@ import './index.css'
 import { setFilePickerActive } from './utils/cacheManager'
 import { initTheme } from './hooks/useDarkMode'
 import { registerSW } from 'virtual:pwa-register'
+import { clearRouteRecoveryMarker, recoverStaleApp } from './utils/routeRecovery'
 
 if (import.meta.env.DEV) {
   // A development service worker can keep serving stale lazy chunks after
@@ -30,9 +31,20 @@ if (import.meta.env.DEV) {
     if (navigator.serviceWorker.controller) window.location.reload();
   }).catch((error) => console.warn('[PWA] Could not clear the development worker', error));
 } else {
+  navigator.serviceWorker?.addEventListener('message', (event) => {
+    if (event.data?.type === 'SERKLE_CLIENT_STATUS') {
+      const hasError = !!document.querySelector('[data-serkle-error-boundary]');
+      event.ports[0]?.postMessage({ healthy: !hasError });
+    }
+  });
+  window.addEventListener('vite:preloadError', () => {
+    void recoverStaleApp();
+  });
   // Do not wait for remote images/fonts to finish loading before registration.
   registerSW({ immediate: true, onRegisterError(error) { console.error('[PWA] Registration failed', error); } });
 }
+
+clearRouteRecoveryMarker();
 
 // Apply saved theme before first render to prevent flash-of-light-mode
 initTheme();

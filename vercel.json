@@ -4,7 +4,7 @@
   },
   "rewrites": [
     {
-      "source": "/((?!api(?:/|$)|\\.well-known(?:/|$)).*)",
+      "source": "/((?!api(?:/|$)|assets(?:/|$)|\\.well-known(?:/|$)).*)",
       "destination": "/index.html"
     }
   ],
@@ -48,6 +48,15 @@
         {
           "key": "X-DNS-Prefetch-Control",
           "value": "on"
+        }
+      ]
+    },
+    {
+      "source": "/sw.js",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=0, must-revalidate"
         }
       ]
     },
