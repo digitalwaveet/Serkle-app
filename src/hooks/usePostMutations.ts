@@ -172,7 +172,7 @@ export const usePostMutations = () => {
       queryClient.invalidateQueries({ queryKey: ['post-detail', postId] });
       queryClient.invalidateQueries({ queryKey: ['circle-posts'] });
       queryClient.invalidateQueries({ queryKey: ['circle-post', postId] });
-
+      return true;
     } catch (error) {
       console.error('Error toggling like/reaction:', error);
       toast({
@@ -180,6 +180,7 @@ export const usePostMutations = () => {
         description: "Failed to update reaction. Please try again.",
         variant: "destructive",
       });
+      return false;
     } finally {
       setIsLiking(false);
     }
@@ -207,6 +208,7 @@ export const usePostMutations = () => {
 
         if (error) throw error;
       }
+      return true;
     } catch (error) {
       console.error('Error toggling save:', error);
       toast({
@@ -214,6 +216,7 @@ export const usePostMutations = () => {
         description: "Failed to update save. Please try again.",
         variant: "destructive",
       });
+      return false;
     }
   };
 

@@ -2,7 +2,7 @@ import { purchaseCircleAccess } from '@/lib/circlePayments';
 import { signProtectedMedia } from '@/lib/protectedMedia';
 import { OptimizedImage } from '@/components/ui/OptimizedImage';
 import { OriginalImageDownload } from '@/components/ui/OriginalImageDownload';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { SerkleLoader } from '@/components/ui/SerkleLoader';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Heart, MessageCircle, Share2, MoreHorizontal, BadgeCheck, Send, Loader2, MapPin, Mic, Pencil, Trash2, Bookmark, Flag, BookmarkCheck, Image, Lock, Crown, Coins } from 'lucide-react';
@@ -25,6 +25,7 @@ import { PremiumUnlockBanner } from '@/components/premium/PremiumUnlockBanner';
 import { PremiumContentSkeleton } from '@/components/premium/PremiumContentSkeleton';
 import { useNavigation } from '@/contexts/NavigationContext';
 import PostReactionButton from '@/components/post/PostReactionButton';
+import ShareIcon from '@/components/post/ShareIcon';
 import LikersModal from '@/components/LikersModal';
 import { PDFCarousel } from '@/components/post/PDFCarousel';
 
@@ -83,6 +84,9 @@ const PostDetail: React.FC = () => {
   const [liked, setLiked] = useState(false);
   const [likesCount, setLikesCount] = useState(0);
   const [saved, setSaved] = useState(false);
+  const [saveAnim, setSaveAnim] = useState<'idle' | 'save' | 'unsave'>('idle');
+  const [commentsOpen, setCommentsOpen] = useState(true);
+  const [voicePlaying, setVoicePlaying] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState('');
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
@@ -98,7 +102,20 @@ const PostDetail: React.FC = () => {
   const [isReportDialogOpen, setIsReportDialogOpen] = useState(false);
   const [showLikersModal, setShowLikersModal] = useState(false);
 
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const likeInFlightRef = useRef<boolean>(false);
+  const saveInFlightRef = useRef<boolean>(false);
+  const shareInFlightRef = useRef<boolean>(false);
+  const voiceAudioRef = useRef<HTMLAudioElement | null>(null);
+  const commentsSectionRef = useRef<HTMLElement | null>(null);
+
   const { data: subscription } = useCircleSubscription(post?.circle_id);
+
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, []);
 
   // Track detail carousel slide changes
   useEffect(() => {
@@ -307,7 +324,7 @@ const PostDetail: React.FC = () => {
       if (error) throw error;
       toast.success('Comment deleted');
     } catch {
-        setComments(prev => [...prev, comment]);
+      setComments(prev => [...prev, comment]);
       toast.error('Failed to delete comment');
     }
   };
@@ -382,26 +399,51 @@ const PostDetail: React.FC = () => {
     }
   };
 
+  const triggerSaveAnim = (nextSaved: boolean) => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    setSaveAnim(nextSaved ? 'save' : 'unsave');
+    saveTimerRef.current = setTimeout(() => setSaveAnim('idle'), nextSaved ? 260 : 180);
+  };
+
   const handleSavePost = async () => {
-    if (!user || !postId) return;
-    if (saved) {
-      await supabase.from('saves').delete().eq('post_id', postId).eq('user_id', user.id);
-      setSaved(false);
-      toast.success('Post unsaved');
-    } else {
-      await supabase.from('saves').insert({ post_id: postId, user_id: user.id });
-      setSaved(true);
-      toast.success('Post saved');
+    if (!user || !postId || saveInFlightRef.current) return;
+    saveInFlightRef.current = true;
+    const nextSaved = !saved;
+    setSaved(nextSaved);
+    triggerSaveAnim(nextSaved);
+    try {
+      if (!nextSaved) {
+        const { error } = await supabase.from('saves').delete().eq('post_id', postId).eq('user_id', user.id);
+        if (error) throw error;
+        toast.success('Post unsaved');
+      } else {
+        const { error } = await supabase.from('saves').insert({ post_id: postId, user_id: user.id });
+        if (error) throw error;
+        toast.success('Post saved');
+      }
+      triggerHaptic('light');
+    } catch {
+      setSaved(!nextSaved);
+      toast.error('Failed to update save');
+    } finally {
+      saveInFlightRef.current = false;
     }
-    triggerHaptic('light');
   };
 
   const handleSharePost = async () => {
-    if (navigator.share) {
-      await navigator.share({ title: post.name, text: post.content, url: window.location.href });
-    } else {
-      await navigator.clipboard.writeText(window.location.href);
-      toast.success('Link copied');
+    if (shareInFlightRef.current) return;
+    shareInFlightRef.current = true;
+    try {
+      if (navigator.share) {
+        try {
+          await navigator.share({ title: post.name, text: post.content, url: window.location.href });
+        } catch { }
+      } else {
+        await navigator.clipboard.writeText(window.location.href);
+        toast.success('Link copied');
+      }
+    } finally {
+      shareInFlightRef.current = false;
     }
   };
 
@@ -418,19 +460,31 @@ const PostDetail: React.FC = () => {
   };
 
   const handleLikePost = async (reactionType: string = 'like') => {
-    if (!user) return;
+    if (!user || likeInFlightRef.current) return;
+    likeInFlightRef.current = true;
     const isRemoving = liked && (reactionType === 'like' || !reactionType);
     const wasLiked = liked;
+    const prevCount = likesCount;
+    const prevReaction = userReaction;
     const willBeLiked = !isRemoving;
 
     setLiked(willBeLiked);
     if (!wasLiked && willBeLiked) setLikesCount(prev => prev + 1);
-    else if (wasLiked && !willBeLiked) setLikesCount(prev => prev - 1);
-    
+    else if (wasLiked && !willBeLiked) setLikesCount(prev => Math.max(0, prev - 1));
+
     setUserReaction(willBeLiked ? reactionType : undefined);
-    
+
     triggerHaptic('light');
-    await toggleLike(postId!, user.id, wasLiked, reactionType);
+    try {
+      const ok = await toggleLike(postId!, user.id, wasLiked, reactionType);
+      if (ok === false) {
+        setLiked(wasLiked);
+        setLikesCount(prevCount);
+        setUserReaction(prevReaction);
+      }
+    } finally {
+      likeInFlightRef.current = false;
+    }
   };
 
   return (
@@ -504,7 +558,7 @@ const PostDetail: React.FC = () => {
                   </>
                 )}
                 <DropdownMenuItem onClick={handleSharePost}>
-                  <Share2 className="size-4 mr-2" /> Share
+                  <ShareIcon className="size-4 mr-2" /> Share
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={handleSavePost}>
                   {saved ? <BookmarkCheck className="size-4 mr-2" /> : <Bookmark className="size-4 mr-2" />}
@@ -543,9 +597,9 @@ const PostDetail: React.FC = () => {
                 !isRichText(getDisplayContent()) && "whitespace-pre-wrap"
               )}>
                 {isRichText(getDisplayContent()) ? (
-                  <div 
+                  <div
                     className="prose prose-base dark:prose-invert max-w-none text-foreground"
-                    dangerouslySetInnerHTML={{ __html: getDisplayContent() }} 
+                    dangerouslySetInnerHTML={{ __html: getDisplayContent() }}
                   />
                 ) : (
                   <p dir="auto">
@@ -553,15 +607,16 @@ const PostDetail: React.FC = () => {
                       word.startsWith('#') ? <span key={i} className="text-primary font-medium">{word} </span> : word + ' '
                     )}
                   </p>
-                )}                {shouldShowPaywall && (
+                )}
+                {shouldShowPaywall && (
                   <div className="relative mt-8 sticky-paywall-container">
                     <div className="relative overflow-hidden rounded-2xl border border-white/10 shadow-2xl bg-muted/5">
                       {/* Blurred scrolling actual content */}
                       <div className="pt-8 px-8 pb-[100vh] blur-[32px] opacity-20 select-none pointer-events-none grayscale">
                         {isRichText(post.content) ? (
-                          <div 
+                          <div
                             className="prose prose-base dark:prose-invert max-w-none text-foreground"
-                            dangerouslySetInnerHTML={{ __html: post.content }} 
+                            dangerouslySetInnerHTML={{ __html: post.content }}
                           />
                         ) : (
                           <p className="whitespace-pre-wrap text-foreground">{post.content}</p>
@@ -574,7 +629,7 @@ const PostDetail: React.FC = () => {
                         <div className="sticky top-0 h-screen flex flex-col items-center justify-center px-6 pointer-events-auto transition-all duration-700 ease-out translate-y-0">
                           {/* Subdued vignette background that appears when modal is sticky */}
                           <div className="absolute inset-0 bg-background/20 backdrop-blur-[2px] opacity-0 group-hover/paywall:opacity-100 transition-opacity duration-1000" />
-                          
+
                           <div className="relative w-full max-w-md bg-background/80 backdrop-blur-3xl rounded-[2.5rem] border border-white/20 shadow-[0_32px_128px_-16px_rgba(0,0,0,0.5)] p-1 overflow-hidden group animate-in zoom-in-95 fade-in duration-700">
                             <div className="absolute inset-0 bg-gradient-to-br from-primary/20 via-transparent to-secondary/10 animate-pulse" />
                             <div className="relative p-6 text-left">
@@ -597,10 +652,9 @@ const PostDetail: React.FC = () => {
               </div>
             )}
 
-
             {post.tags && !isEditing && (
               <div className="flex flex-wrap gap-2">
-                {post.tags.map((tag) => (
+                {post.tags.map((tag: string) => (
                   <span
                     key={tag}
                     className="px-2 py-1 rounded-full text-xs font-medium bg-gradient-subtle text-primary border border-primary/20"
@@ -647,7 +701,7 @@ const PostDetail: React.FC = () => {
                           />
                         )}
                         {!shouldShowPaywall && !/\.(mp4|webm|mov|ogg|m3u8)(\?|$)/i.test(url) && <OriginalImageDownload src={url} />}
-                        
+
                         {shouldShowPaywall && (
                           <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/20 backdrop-blur-[2px] z-10" />
                         )}
@@ -667,8 +721,8 @@ const PostDetail: React.FC = () => {
                       <div
                         key={idx}
                         className={`h-1.5 rounded-full transition-all duration-300 ${idx === detailCurrentSlide
-                            ? 'bg-primary w-4'
-                            : 'bg-card/60 w-1.5'
+                          ? 'bg-primary w-4'
+                          : 'bg-card/60 w-1.5'
                           }`}
                       />
                     ))}
@@ -702,14 +756,47 @@ const PostDetail: React.FC = () => {
 
           {/* Voice Note */}
           {post.voice_url && (
-            <div className="px-4 py-2 flex items-center gap-2">
-              <Mic className="size-4 text-primary shrink-0" />
-              <audio controls src={post.voice_url} className="h-8 flex-1" preload="metadata" />
+            <div className="px-3 py-2 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={async () => {
+                  const audio = voiceAudioRef.current;
+                  if (!audio) return;
+                  if (audio.paused) {
+                    if (audio.ended) audio.currentTime = 0;
+                    try {
+                      await audio.play();
+                    } catch {
+                      setVoicePlaying(false);
+                    }
+                  } else {
+                    audio.pause();
+                  }
+                }}
+                aria-label={voicePlaying ? 'Pause voice note' : 'Play voice note'}
+                aria-pressed={voicePlaying}
+                className={cn(
+                  "engagement-btn engagement-btn--icon-only shrink-0",
+                  voicePlaying && "engagement-btn--mic-active"
+                )}
+              >
+                <Mic strokeWidth={1.85} className="engagement-icon" />
+              </button>
+              <audio
+                ref={voiceAudioRef}
+                controls
+                src={post.voice_url}
+                className="h-8 flex-1"
+                preload="metadata"
+                onPlay={() => setVoicePlaying(true)}
+                onPause={() => setVoicePlaying(false)}
+                onEnded={() => setVoicePlaying(false)}
+              />
             </div>
           )}
 
           {/* Post Actions */}
-          <div className="px-4 py-3 flex items-center gap-6 border-t border-border/40">
+          <div className="px-3 py-2 flex items-center gap-2 border-t border-border/40">
             <PostReactionButton
               isLiked={liked}
               likesCount={likesCount}
@@ -718,20 +805,73 @@ const PostDetail: React.FC = () => {
               onShowLikers={() => setShowLikersModal(true)}
             />
 
-            <button className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-primary transition-colors">
-              <MessageCircle className="size-5" />
-              <span>{formatCount(comments.length)}</span>
+            <button
+              type="button"
+              onClick={() => {
+                setCommentsOpen((prev) => {
+                  const next = !prev;
+                  if (next) {
+                    requestAnimationFrame(() => {
+                      commentsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    });
+                  }
+                  return next;
+                });
+              }}
+              aria-label="Comments"
+              aria-expanded={commentsOpen}
+              className={cn(
+                "engagement-btn",
+                commentsOpen && "engagement-btn--comment-active"
+              )}
+            >
+              <MessageCircle strokeWidth={1.85} className="engagement-icon" />
+              <span className="engagement-count">{formatCount(comments.length)}</span>
             </button>
 
-            <button onClick={handleSharePost} className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-secondary transition-colors">
-              <Share2 className="size-5" />
-              <span>{formatCount(post.post_stats?.shares_count || 0)}</span>
+            <button
+              type="button"
+              onClick={handleSharePost}
+              aria-label="Share"
+              className="engagement-btn"
+            >
+              <ShareIcon strokeWidth={1.85} className="engagement-icon" />
+              <span className="engagement-count">{formatCount(post.post_stats?.shares_count || 0)}</span>
             </button>
+
+            <div className="ml-auto flex items-center">
+              <button
+                type="button"
+                onClick={handleSavePost}
+                aria-label={saved ? 'Unsave post' : 'Save post'}
+                aria-pressed={saved}
+                className={cn(
+                  "engagement-btn engagement-btn--icon-only",
+                  saved && "engagement-btn--saved"
+                )}
+              >
+                <Bookmark
+                  strokeWidth={1.85}
+                  className={cn(
+                    "engagement-icon",
+                    saved ? "engagement-bookmark--saved" : "engagement-bookmark--unsaved",
+                    saveAnim === 'save' && "engagement-bookmark--anim-save",
+                    saveAnim === 'unsave' && "engagement-bookmark--anim-unsave"
+                  )}
+                />
+              </button>
+            </div>
           </div>
         </article>
 
         {/* Comments Section */}
-        <section className="flex-1 bg-background">
+        <section
+          ref={commentsSectionRef}
+          className={cn(
+            "flex-1 bg-background engagement-comment-panel",
+            !commentsOpen && "hidden"
+          )}
+        >
           <div className="px-4 py-3 border-b border-border/40">
             <h2 className="font-semibold text-foreground">
               {formatCount(comments.filter(c => !c.parentId).length)} Comments
@@ -778,15 +918,26 @@ const PostDetail: React.FC = () => {
 
                       <div className="flex items-center gap-4">
                         <button
-                          onClick={() => handleLikeComment(comment.id)}
-                          className="flex items-center gap-1 text-xs font-medium hover:text-red-500 transition-colors"
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleLikeComment(comment.id);
+                          }}
+                          className="flex items-center gap-1 text-xs font-medium hover:text-[#F43774] active:scale-[0.93] transition-all duration-150"
                         >
-                          <Heart className={`size-3 ${comment.isLiked ? 'fill-red-500 text-red-500' : 'text-muted-foreground'}`} />
-                          {comment.likes > 0 && <span>{comment.likes}</span>}
+                          <Heart
+                            strokeWidth={1.85}
+                            className={`size-3.5 transition-colors duration-200 ${comment.isLiked ? 'fill-[#F43774] text-[#F43774]' : 'text-[#71829A]'}`}
+                          />
+                          {comment.likes > 0 && <span className={comment.isLiked ? 'text-[#F43774]' : 'text-[#71829A]'}>{comment.likes}</span>}
                         </button>
 
                         <button
-                          onClick={() => setReplyingTo(replyingTo === comment.id ? null : comment.id)}
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setReplyingTo(replyingTo === comment.id ? null : comment.id);
+                          }}
                           className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
                         >
                           Reply
@@ -801,7 +952,7 @@ const PostDetail: React.FC = () => {
 
                 {/* Reply input */}
                 {replyingTo === comment.id && (
-                  <div className="px-4 py-2 ml-11 border-b border-border/30">
+                  <div className="px-4 py-2 ml-11 border-b border-border/30 engagement-comment-panel">
                     <div className="flex items-end gap-2">
                       <input
                         value={replyText}
@@ -858,11 +1009,18 @@ const PostDetail: React.FC = () => {
                         </div>
                         <p className="text-xs text-foreground mb-1">{reply.text}</p>
                         <button
-                          onClick={() => handleLikeComment(reply.id)}
-                          className="flex items-center gap-1 text-xs font-medium hover:text-red-500 transition-colors"
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleLikeComment(reply.id);
+                          }}
+                          className="flex items-center gap-1 text-xs font-medium hover:text-[#F43774] active:scale-[0.93] transition-all duration-150"
                         >
-                          <Heart className={`size-3 ${reply.isLiked ? 'fill-red-500 text-red-500' : 'text-muted-foreground'}`} />
-                          {reply.likes > 0 && <span>{reply.likes}</span>}
+                          <Heart
+                            strokeWidth={1.85}
+                            className={`size-3.5 transition-colors duration-200 ${reply.isLiked ? 'fill-[#F43774] text-[#F43774]' : 'text-[#71829A]'}`}
+                          />
+                          {reply.likes > 0 && <span className={reply.isLiked ? 'text-[#F43774]' : 'text-[#71829A]'}>{reply.likes}</span>}
                         </button>
                       </div>
                     </div>
@@ -914,11 +1072,11 @@ const PostDetail: React.FC = () => {
         onDelete={() => commentAction && handleDeleteComment(commentAction.commentId)}
       />
       <LikersModal isOpen={showLikersModal} onClose={() => setShowLikersModal(false)} postId={postId!} />
-      <ReportDialog 
-        isOpen={isReportDialogOpen} 
-        onClose={() => setIsReportDialogOpen(false)} 
-        onSubmit={handleReportPost} 
-        itemType="post" 
+      <ReportDialog
+        isOpen={isReportDialogOpen}
+        onClose={() => setIsReportDialogOpen(false)}
+        onSubmit={handleReportPost}
+        itemType="post"
       />
     </div>
   );

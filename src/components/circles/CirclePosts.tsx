@@ -492,8 +492,8 @@ const CirclePosts: React.FC<CirclePostsProps> = ({ circle, isOwner }) => {
                               setShowLikersModal(true);
                             }}
                           />
-                          <Link to={detailPath} state={{ openComments: true }} className="inline-flex min-h-11 items-center gap-1.5 rounded-sm text-sm text-muted-foreground hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring">
-                            <MessageCircle aria-hidden="true" className="size-4" />
+                          <Link to={detailPath} state={{ openComments: true }} className="engagement-btn">
+                            <MessageCircle aria-hidden="true" strokeWidth={1.85} className="engagement-icon" />
                             {post.stats.comments_count} {post.stats.comments_count === 1 ? 'reply' : 'replies'}
                           </Link>
                           {currentUser && currentUser.id !== post.user_id && post.has_tips_enabled && (

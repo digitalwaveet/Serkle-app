@@ -15,6 +15,7 @@ import { cn } from '@/lib/utils';
 import PublicProfileModal from '@/components/PublicProfileModal';
 import LikersModal from '@/components/LikersModal';
 import PostReactionButton from './post/PostReactionButton';
+import ShareIcon from './post/ShareIcon';
 import { PremiumContentSkeleton } from '@/components/premium/PremiumContentSkeleton';
 import SharePostToStoryModal from '@/components/story/SharePostToStoryModal';
 import { Carousel, CarouselContent, CarouselItem, CarouselApi } from '@/components/ui/carousel';
@@ -94,7 +95,7 @@ const VoiceNotePlayer: React.FC<{ src: string }> = ({ src }) => {
   };
 
   return (
-    <div className={`flex min-w-0 items-center overflow-hidden transition-[width] duration-200 ${playing ? 'w-[116px] sm:w-[140px]' : 'w-8'}`}>
+    <div className={`flex min-w-0 items-center overflow-visible transition-[width] duration-200 ${playing ? 'w-[136px] sm:w-[156px]' : 'w-11'}`}>
       <audio
         ref={audioRef}
         src={src}
@@ -108,11 +109,15 @@ const VoiceNotePlayer: React.FC<{ src: string }> = ({ src }) => {
       <button
         type="button"
         onClick={togglePlayback}
-        className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        className={cn(
+          "engagement-btn engagement-btn--icon-only shrink-0",
+          playing && "engagement-btn--mic-active"
+        )}
         aria-label={playing ? 'Pause voice note' : 'Play voice note'}
+        aria-pressed={playing}
         title={playing ? 'Pause voice note' : 'Play voice note'}
       >
-        {playing ? <Pause className="size-4 fill-current" /> : <Mic className="size-4" />}
+        <Mic strokeWidth={1.85} className="engagement-icon" />
       </button>
       <div className={`flex min-w-0 flex-1 items-center gap-1.5 pl-1 transition-opacity duration-150 ${playing ? 'opacity-100' : 'pointer-events-none opacity-0'}`}>
         <input
@@ -143,15 +148,42 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
   const [likesCount, setLikesCount] = useState(post.stats.likes);
   const [expanded, setExpanded] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveAnim, setSaveAnim] = useState<'idle' | 'save' | 'unsave'>('idle');
   const [sharesCount, setSharesCount] = useState(post.stats.shares);
   const [followState, setFollowState] = useState<'visible' | 'checked' | 'hidden'>('visible');
   const [showProfileModal, setShowProfileModal] = useState(false);
+
+  const prevSavedRef = useRef<boolean>(saved);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const likeInFlightRef = useRef<boolean>(false);
+  const saveInFlightRef = useRef<boolean>(false);
+  const shareInFlightRef = useRef<boolean>(false);
 
   // Sync state with props when post changes (important for real-time updates after refetch)
   useEffect(() => {
     setLiked(post.userHasLiked || false);
     setLikesCount(post.stats.likes);
   }, [post.userHasLiked, post.stats.likes]);
+
+  // Animate bookmark on save (260ms) / unsave (180ms) transitions
+  useEffect(() => {
+    if (prevSavedRef.current === saved) return;
+    prevSavedRef.current = saved;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    if (saved) {
+      setSaveAnim('save');
+      saveTimerRef.current = setTimeout(() => setSaveAnim('idle'), 260);
+    } else {
+      setSaveAnim('unsave');
+      saveTimerRef.current = setTimeout(() => setSaveAnim('idle'), 180);
+    }
+  }, [saved]);
+
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, []);
   const [showLikersModal, setShowLikersModal] = useState(false);
   const [showShareToStory, setShowShareToStory] = useState(false);
   const [carouselApi, setCarouselApi] = useState<CarouselApi>();
@@ -202,6 +234,8 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
       toast({ title: "Please login to like posts" });
       return;
     }
+    if (likeInFlightRef.current) return;
+    likeInFlightRef.current = true;
     
     // Toggle logic if no type provided or if same type clicked
     const isRemoving = liked && (reactionType === 'like' || !reactionType);
@@ -210,37 +244,61 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
     // If unliking, it might be undefined or 'like'.
     
     const wasLiked = liked;
+    const prevCount = likesCount;
     const willBeLiked = !isRemoving;
     
     // Optimistic UI
     if (!wasLiked && willBeLiked) {
       setLikesCount(prev => prev + 1);
     } else if (wasLiked && !willBeLiked) {
-      setLikesCount(prev => prev - 1);
+      setLikesCount(prev => Math.max(0, prev - 1));
     }
     
     setLiked(willBeLiked);
     
-    await toggleLike(String(post.id), user.id, wasLiked, reactionType);
+    try {
+      const ok = await toggleLike(String(post.id), user.id, wasLiked, reactionType);
+      if (ok === false) {
+        setLiked(wasLiked);
+        setLikesCount(prevCount);
+      }
+    } finally {
+      likeInFlightRef.current = false;
+    }
   };
 
   const handleSave = async () => {
-    if (!user) return;
-    setSaved(!saved);
-    await toggleSave(String(post.id), user.id, saved);
+    if (!user || saveInFlightRef.current) return;
+    saveInFlightRef.current = true;
+    const wasSaved = saved;
+    setSaved(!wasSaved);
+    try {
+      const ok = await toggleSave(String(post.id), user.id, wasSaved);
+      if (ok === false) {
+        setSaved(wasSaved);
+      }
+    } finally {
+      saveInFlightRef.current = false;
+    }
   };
 
   const handleShare = async () => {
-    setSharesCount(prev => prev + 1);
-    await incrementShare(String(post.id));
-    const postUrl = window.location.origin + `/post/${post.id}`;
-    if (navigator.share) {
-      try { await navigator.share({ url: postUrl }); } catch {}
-    } else {
-      try {
-        await navigator.clipboard.writeText(postUrl);
-        toast({ title: "Link copied" });
-      } catch {}
+    if (shareInFlightRef.current) return;
+    shareInFlightRef.current = true;
+    try {
+      setSharesCount(prev => prev + 1);
+      await incrementShare(String(post.id));
+      const postUrl = window.location.origin + `/post/${post.id}`;
+      if (navigator.share) {
+        try { await navigator.share({ url: postUrl }); } catch {}
+      } else {
+        try {
+          await navigator.clipboard.writeText(postUrl);
+          toast({ title: "Link copied" });
+        } catch {}
+      }
+    } finally {
+      shareInFlightRef.current = false;
     }
   };
 
@@ -425,7 +483,7 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={handleShare}><Share2 className="size-4 mr-2" />Share</DropdownMenuItem>
+            <DropdownMenuItem onClick={handleShare}><ShareIcon className="size-4 mr-2" />Share</DropdownMenuItem>
             <DropdownMenuItem onClick={() => setShowShareToStory(true)}><BookImage className="size-4 mr-2" />Share to Story</DropdownMenuItem>
             <DropdownMenuItem onClick={handleSave}><Bookmark className="size-4 mr-2" />{saved ? 'Unsave' : 'Save'}</DropdownMenuItem>
             {user?.id !== post.user.id && (
@@ -556,8 +614,8 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
 
       {/* ── INTERACTION ROW ── */}
       {canInteract ? (
-        <div className="px-3 pt-3 pb-1 flex items-center">
-          <div className="flex items-center gap-4">
+        <div className="px-3 pt-2 pb-1 flex items-center">
+          <div className="flex items-center gap-1.5 sm:gap-2.5">
             {/* Like */}
             <PostReactionButton
               isLiked={liked}
@@ -567,21 +625,48 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
               onShowLikers={() => setShowLikersModal(true)}
             />
             {/* Comment */}
-            <button onClick={handleOpenPost} className="flex items-center gap-1.5 group" aria-label="Comments">
-              <MessageCircle className="size-[22px] text-muted-foreground group-hover:text-foreground transition-colors" />
-              <span className="text-[13px] font-semibold text-muted-foreground">{formatCount(post.stats.comments)}</span>
+            <button
+              type="button"
+              onClick={handleOpenPost}
+              className="engagement-btn"
+              aria-label="Comments"
+            >
+              <MessageCircle strokeWidth={1.85} className="engagement-icon" />
+              <span className="engagement-count">{formatCount(post.stats.comments)}</span>
             </button>
             {/* Share */}
-            <button onClick={handleShare} className="flex items-center gap-1.5 group" aria-label="Share">
-              <Share2 className="size-[22px] text-muted-foreground group-hover:text-foreground transition-colors" />
-              <span className="text-[13px] font-semibold text-muted-foreground">{formatCount(sharesCount)}</span>
+            <button
+              type="button"
+              onClick={handleShare}
+              className="engagement-btn"
+              aria-label="Share"
+            >
+              <ShareIcon strokeWidth={1.85} className="engagement-icon" />
+              <span className="engagement-count">{formatCount(sharesCount)}</span>
             </button>
           </div>
           {/* Voice note and bookmark — kept together at the right edge */}
           <div className="ml-auto flex min-w-0 items-center gap-1">
             {post.voiceUrl && <VoiceNotePlayer src={post.voiceUrl} />}
-            <button onClick={handleSave} className="flex size-8 shrink-0 items-center justify-center" aria-label={saved ? 'Unsave' : 'Save'}>
-              <Bookmark className={`size-[22px] transition-all duration-300 ${saved ? 'fill-primary text-primary' : 'text-muted-foreground hover:text-foreground'}`} />
+            <button
+              type="button"
+              onClick={handleSave}
+              className={cn(
+                "engagement-btn engagement-btn--icon-only shrink-0",
+                saved && "engagement-btn--saved"
+              )}
+              aria-label={saved ? 'Unsave' : 'Save'}
+              aria-pressed={saved}
+            >
+              <Bookmark
+                strokeWidth={1.85}
+                className={cn(
+                  "engagement-icon",
+                  saved ? "engagement-bookmark--saved" : "engagement-bookmark--unsaved",
+                  saveAnim === 'save' && "engagement-bookmark--anim-save",
+                  saveAnim === 'unsave' && "engagement-bookmark--anim-unsave"
+                )}
+              />
             </button>
           </div>
         </div>

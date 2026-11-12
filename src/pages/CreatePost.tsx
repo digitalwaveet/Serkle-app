@@ -538,15 +538,17 @@ const CreatePost: React.FC<{ shareId?: string }> = ({ shareId }) => {
             </button>
             
             <button
+              type="button"
               onClick={recording ? stopRecording : startRecording}
               disabled={!!voiceBlob && !recording}
+              aria-pressed={recording}
               className="w-full flex items-center p-4 rounded-3xl bg-muted/30 hover:bg-muted/50 border border-border/50 transition-all group active:scale-[0.98] duration-200 disabled:opacity-50"
             >
-              <div className={`p-3 rounded-2xl mr-3 group-hover:scale-110 transition-all duration-300 shadow-sm ${recording ? 'bg-destructive/10 text-destructive animate-pulse shadow-destructive/10' : voiceBlob ? 'bg-primary/20 text-primary shadow-primary/10' : 'bg-muted text-muted-foreground shadow-black/5'}`}>
-                {recording ? <Square className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+              <div className={`engagement-btn engagement-btn--icon-only mr-3 shadow-sm ${recording ? 'engagement-btn--mic-active bg-[#4F69C4]/10' : voiceBlob ? 'bg-primary/20 text-primary shadow-primary/10' : 'bg-muted text-[#71829A] shadow-black/5'}`}>
+                <Mic strokeWidth={1.85} className="engagement-icon" />
               </div>
               <div className="text-left">
-                <p className={`text-sm font-black tracking-tight ${recording ? 'text-destructive' : voiceBlob ? 'text-primary' : 'text-foreground'}`}>
+                <p className={`text-sm font-black tracking-tight ${recording ? 'text-[#4F69C4]' : voiceBlob ? 'text-primary' : 'text-foreground'}`}>
                   {recording ? 'Recording...' : voiceBlob ? 'Voice Attached' : 'Voice Memo'}
                 </p>
                 <p className="text-[10px] text-muted-foreground/70 font-bold uppercase tracking-tighter">

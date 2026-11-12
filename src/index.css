@@ -1154,3 +1154,416 @@ body.modal-overlay-open {
     background-position: 50% 50%, 50% 50%, 50% 50%;
   }
 }
+
+/* ─── Animated Engagement Buttons (Like, Comment, Share, Mic, Save) ─── */
+.engagement-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 10px;
+  border-radius: 14px;
+  color: #71829A;
+  background-color: transparent;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition:
+    transform 140ms ease-out,
+    color 200ms ease-out,
+    background-color 200ms ease-out;
+}
+
+.engagement-btn--icon-only {
+  padding: 0;
+  width: 44px;
+  height: 44px;
+}
+
+.engagement-btn:hover {
+  background-color: #F3F6FA;
+  color: #4F69C4;
+}
+
+[data-theme="dark"] .engagement-btn:hover {
+  background-color: rgba(243, 246, 250, 0.08);
+}
+
+.engagement-btn--like:hover {
+  background-color: #FFF0F5;
+  color: #F43774;
+}
+
+[data-theme="dark"] .engagement-btn--like:hover {
+  background-color: rgba(244, 55, 116, 0.14);
+}
+
+.engagement-btn:active,
+.engagement-btn--pressed {
+  transform: scale(0.93);
+}
+
+.engagement-btn:focus-visible {
+  outline: 2px solid rgba(79, 105, 196, 0.55) !important;
+  outline-offset: 2px !important;
+}
+
+.engagement-icon {
+  width: 22px;
+  height: 22px;
+  stroke-width: 1.85px;
+  flex-shrink: 0;
+  transition:
+    color 200ms ease-out,
+    fill 200ms ease-out,
+    stroke 200ms ease-out,
+    transform 140ms ease-out;
+}
+
+/* Phase 1 (0–130ms): scale 1.0 -> 0.69, begin solid pink
+   Phase 2 (130–260ms): scale 1.42, rotate -9deg, fill #F43774
+   Phase 3 (260–420ms): scale 0.93, rotate +4deg
+   Phase 4 (420–540ms): scale 1.0, rotate 0deg */
+@keyframes engagementHeartLike {
+  0% {
+    transform: scale(1) rotate(0deg);
+    fill: rgba(244, 55, 116, 0.35);
+    color: #F43774;
+    stroke: #F43774;
+  }
+  24.07% {
+    transform: scale(0.69) rotate(-3deg);
+    fill: #F43774;
+    color: #F43774;
+    stroke: #F43774;
+  }
+  48.15% {
+    transform: scale(1.42) rotate(-9deg);
+    fill: #F43774;
+    color: #F43774;
+    stroke: #F43774;
+  }
+  77.78% {
+    transform: scale(0.93) rotate(4deg);
+    fill: #F43774;
+    color: #F43774;
+    stroke: #F43774;
+  }
+  100% {
+    transform: scale(1) rotate(0deg);
+    fill: #F43774;
+    color: #F43774;
+    stroke: #F43774;
+  }
+}
+
+/* Unlike (200ms): scale briefly to 0.9 and return to 1.0 */
+@keyframes engagementHeartUnlike {
+  0% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(0.9);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.engagement-heart--liked {
+  color: #F43774;
+  fill: #F43774;
+  stroke: #F43774;
+}
+
+.engagement-heart--unliked {
+  color: #71829A;
+  fill: transparent;
+  stroke: #71829A;
+}
+
+.engagement-btn--like:hover .engagement-heart--unliked {
+  color: #F43774;
+  stroke: #F43774;
+}
+
+.engagement-heart--anim-like {
+  animation: engagementHeartLike 540ms cubic-bezier(0.2, 0.7, 0.25, 1) forwards;
+}
+
+.engagement-heart--anim-unlike {
+  animation: engagementHeartUnlike 200ms ease-out forwards;
+}
+
+/* 8-Particle Burst (680ms, cubic-bezier(.15,.65,.35,1)) */
+.engagement-particles {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: visible;
+  z-index: 10;
+}
+
+.engagement-particle {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--p-size, 7px);
+  height: var(--p-size, 7px);
+  color: var(--p-color, #F43774);
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.2);
+  animation: engagementParticleBurst 680ms cubic-bezier(0.15, 0.65, 0.35, 1) forwards;
+}
+
+.engagement-particle--dot {
+  border-radius: 9999px;
+  background-color: var(--p-color, #F43774);
+}
+
+@keyframes engagementParticleBurst {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) translate3d(0, 0, 0) scale(0.2);
+  }
+  19% {
+    opacity: 0;
+    transform: translate(-50%, -50%) translate3d(0, 0, 0) scale(0.35);
+  }
+  38% {
+    opacity: 1;
+    transform: translate(-50%, -50%) translate3d(calc(var(--tx) * 0.55), calc(var(--ty) * 0.55), 0) scale(1.05);
+  }
+  72% {
+    opacity: 0.85;
+    transform: translate(-50%, -50%) translate3d(calc(var(--tx) * 0.92), calc(var(--ty) * 0.92), 0) scale(0.92);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) translate3d(var(--tx), var(--ty), 0) scale(0.3);
+  }
+}
+
+/* Like Count Animation (380ms ease-out): translateY(5px) -> translateY(-4px) -> 0, opacity 0.25 -> 1 */
+@keyframes engagementCountChange {
+  0% {
+    opacity: 0.25;
+    transform: translateY(5px);
+  }
+  55% {
+    opacity: 1;
+    transform: translateY(-4px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.engagement-count {
+  display: inline-block;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  color: #71829A;
+  font-variant-numeric: tabular-nums;
+  transition: color 200ms ease-out;
+}
+
+.engagement-btn:hover .engagement-count {
+  color: inherit;
+}
+
+.engagement-count--liked {
+  color: #F43774;
+}
+
+.engagement-count-btn {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 6px 0 2px;
+  border-radius: 10px;
+  color: #71829A;
+  transition: color 200ms ease-out, transform 140ms ease-out;
+}
+
+.engagement-count-btn:hover {
+  color: #4F69C4;
+}
+
+.engagement-count-btn--liked,
+.engagement-count-btn--liked:hover {
+  color: #F43774;
+}
+
+.engagement-count-btn:focus-visible {
+  outline: 2px solid rgba(79, 105, 196, 0.55) !important;
+  outline-offset: 2px !important;
+}
+
+.engagement-count--anim {
+  animation: engagementCountChange 380ms ease-out forwards;
+}
+
+/* Comment Active State & Panel Reveal (240ms fade + translateY(-8px) -> 0) */
+.engagement-btn--comment-active,
+.engagement-btn--comment-active:hover {
+  color: #4F69C4;
+}
+
+.engagement-btn--comment-active .engagement-icon,
+.engagement-btn--comment-active .engagement-count {
+  color: #4F69C4;
+}
+
+@keyframes engagementCommentPanelIn {
+  0% {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.engagement-comment-panel {
+  animation: engagementCommentPanelIn 240ms ease-out forwards;
+}
+
+/* Save Button (260ms save bounce 0.9 -> 1.15 -> 1.0, active #405EC9 + fill #DCE5FF; 180ms unsave) */
+@keyframes engagementSaveBounce {
+  0% {
+    transform: scale(1);
+  }
+  30% {
+    transform: scale(0.9);
+  }
+  70% {
+    transform: scale(1.15);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes engagementUnsaveSmooth {
+  0% {
+    transform: scale(0.94);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.engagement-btn--saved,
+.engagement-btn--saved:hover {
+  color: #405EC9;
+}
+
+.engagement-bookmark--saved {
+  color: #405EC9;
+  stroke: #405EC9;
+  fill: #DCE5FF;
+  transition:
+    color 200ms ease-out,
+    stroke 200ms ease-out,
+    fill 200ms ease-out;
+}
+
+.engagement-bookmark--unsaved {
+  color: #71829A;
+  stroke: currentColor;
+  fill: transparent;
+  transition:
+    color 180ms ease-out,
+    stroke 180ms ease-out,
+    fill 180ms ease-out;
+}
+
+.engagement-bookmark--anim-save {
+  animation: engagementSaveBounce 260ms ease-out forwards;
+}
+
+.engagement-bookmark--anim-unsave {
+  animation: engagementUnsaveSmooth 180ms ease-out forwards;
+}
+
+/* Microphone Button (Active recording/listening: #4F69C4, 1,200ms pulse 1.0 -> 1.12 + soft glow) */
+@keyframes engagementMicPulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.12);
+  }
+}
+
+@keyframes engagementMicGlowPulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.45;
+  }
+  50% {
+    transform: scale(1.12);
+    opacity: 0.9;
+  }
+}
+
+.engagement-btn--mic-active,
+.engagement-btn--mic-active:hover {
+  color: #4F69C4;
+  background-color: rgba(79, 105, 196, 0.08);
+}
+
+.engagement-btn--mic-active::before {
+  content: '';
+  position: absolute;
+  inset: 4px;
+  border-radius: 9999px;
+  background: radial-gradient(circle, rgba(79, 105, 196, 0.24) 0%, rgba(79, 105, 196, 0.08) 70%, transparent 100%);
+  box-shadow: 0 0 12px rgba(79, 105, 196, 0.28);
+  pointer-events: none;
+  animation: engagementMicGlowPulse 1200ms ease-in-out infinite;
+}
+
+.engagement-btn--mic-active .engagement-icon {
+  color: #4F69C4;
+  stroke: #4F69C4;
+  animation: engagementMicPulse 1200ms ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .engagement-btn,
+  .engagement-icon,
+  .engagement-count,
+  .engagement-count-btn,
+  .engagement-bookmark--saved,
+  .engagement-bookmark--unsaved {
+    transition-duration: 0.01ms !important;
+  }
+
+  .engagement-btn:active,
+  .engagement-btn--pressed {
+    transform: none !important;
+  }
+
+  .engagement-heart--anim-like,
+  .engagement-heart--anim-unlike,
+  .engagement-count--anim,
+  .engagement-comment-panel,
+  .engagement-bookmark--anim-save,
+  .engagement-bookmark--anim-unsave,
+  .engagement-btn--mic-active::before,
+  .engagement-btn--mic-active .engagement-icon {
+    animation: none !important;
+  }
+
+  .engagement-particles {
+    display: none !important;
+  }
+}

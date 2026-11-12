@@ -1,11 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { OptimizedImage } from '@/components/ui/OptimizedImage';
 import { OriginalImageDownload } from '@/components/ui/OriginalImageDownload';
-import { X, Heart, MessageCircle, Share, MoreHorizontal } from 'lucide-react';
+import { X, Heart, MessageCircle, Share2, Bookmark, Mic, MoreHorizontal } from 'lucide-react';
 import { Post, Comment, MOCK_COMMENTS } from '@/data/mock';
 import { cn } from '@/lib/utils';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
 import { Carousel, CarouselContent, CarouselItem, CarouselApi } from '@/components/ui/carousel';
+import PostReactionButton from './post/PostReactionButton';
+import ShareIcon from './post/ShareIcon';
 
 interface PostDetailModalProps {
   post: Post;
@@ -67,6 +69,54 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
   const comments = MOCK_COMMENTS[post.id] || [];
   const [carouselApi, setCarouselApi] = useState<CarouselApi>();
   const [currentSlide, setCurrentSlide] = useState(0);
+  const [liked, setLiked] = useState(post.userHasLiked || false);
+  const [likesCount, setLikesCount] = useState(post.stats.likes);
+  const [saved, setSaved] = useState(false);
+  const [saveAnim, setSaveAnim] = useState<'idle' | 'save' | 'unsave'>('idle');
+  const [sharesCount, setSharesCount] = useState(post.stats.shares);
+  const [commentsOpen, setCommentsOpen] = useState(true);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    setLiked(post.userHasLiked || false);
+    setLikesCount(post.stats.likes);
+    setSharesCount(post.stats.shares);
+  }, [post.id, post.userHasLiked, post.stats.likes, post.stats.shares]);
+
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, []);
+
+  const handleToggleLike = () => {
+    const next = !liked;
+    setLiked(next);
+    setLikesCount((prev) => (next ? prev + 1 : Math.max(0, prev - 1)));
+  };
+
+  const handleToggleSave = () => {
+    const next = !saved;
+    setSaved(next);
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    if (next) {
+      setSaveAnim('save');
+      saveTimerRef.current = setTimeout(() => setSaveAnim('idle'), 260);
+    } else {
+      setSaveAnim('unsave');
+      saveTimerRef.current = setTimeout(() => setSaveAnim('idle'), 180);
+    }
+  };
+
+  const handleShare = async () => {
+    setSharesCount((prev) => prev + 1);
+    const postUrl = window.location.origin + `/post/${post.id}`;
+    if (navigator.share) {
+      try { await navigator.share({ url: postUrl }); } catch {}
+    } else if (navigator.clipboard) {
+      try { await navigator.clipboard.writeText(postUrl); } catch {}
+    }
+  };
 
   useEffect(() => {
     if (!carouselApi) return;
@@ -236,52 +286,83 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
             ) : null}
 
             {/* Stats */}
-            <div className="flex items-center justify-between py-3 border-b border-border mb-4">
-              <div className="flex items-center gap-6">
-                <button 
-                  aria-label={`Like post by ${post.user.name}`}
-                  className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  <Heart className="size-5" />
-                  <span className="text-action-label">{post.stats.likes}</span>
-                </button>
+            <div className="flex items-center justify-between py-2 border-b border-border mb-4">
+              <div className="flex items-center gap-2">
+                <PostReactionButton
+                  isLiked={liked}
+                  likesCount={likesCount}
+                  userReaction={post.userReaction}
+                  onLike={handleToggleLike}
+                  onShowLikers={() => {}}
+                />
                 
-                <button 
+                <button
+                  type="button"
+                  onClick={() => setCommentsOpen((prev) => !prev)}
                   aria-label={`Comment on post by ${post.user.name}`}
-                  className="flex items-center gap-2 text-muted-foreground hover:text-primary transition-colors"
+                  aria-expanded={commentsOpen}
+                  className={cn(
+                    "engagement-btn",
+                    commentsOpen && "engagement-btn--comment-active"
+                  )}
                 >
-                  <MessageCircle className="size-5" />
-                  <span className="text-action-label">{post.stats.comments}</span>
+                  <MessageCircle strokeWidth={1.85} className="engagement-icon" />
+                  <span className="engagement-count">{post.stats.comments}</span>
                 </button>
                 
-                <button 
+                <button
+                  type="button"
+                  onClick={handleShare}
                   aria-label={`Share post by ${post.user.name}`}
-                  className="flex items-center gap-2 text-muted-foreground hover:text-secondary transition-colors"
+                  className="engagement-btn"
                 >
-                  <Share className="size-5" />
-                  <span className="text-action-label">{post.stats.shares}</span>
+                  <ShareIcon strokeWidth={1.85} className="engagement-icon" />
+                  <span className="engagement-count">{sharesCount}</span>
                 </button>
               </div>
+
+              <button
+                type="button"
+                onClick={handleToggleSave}
+                aria-label={saved ? 'Unsave post' : 'Save post'}
+                aria-pressed={saved}
+                className={cn(
+                  "engagement-btn engagement-btn--icon-only",
+                  saved && "engagement-btn--saved"
+                )}
+              >
+                <Bookmark
+                  strokeWidth={1.85}
+                  className={cn(
+                    "engagement-icon",
+                    saved ? "engagement-bookmark--saved" : "engagement-bookmark--unsaved",
+                    saveAnim === 'save' && "engagement-bookmark--anim-save",
+                    saveAnim === 'unsave' && "engagement-bookmark--anim-unsave"
+                  )}
+                />
+              </button>
             </div>
 
             {/* Comments section */}
-            <div>
-              <h3 className="font-semibold text-lg mb-4">
-                Comments ({comments.length})
-              </h3>
-              
-              {comments.length > 0 ? (
-                <div className="space-y-1">
-                  {comments.map((comment) => (
-                    <CommentItem key={comment.id} comment={comment} />
-                  ))}
-                </div>
-              ) : (
-                <p className="text-muted-foreground text-center py-8">
-                  No comments yet. Be the first to comment!
-                </p>
-              )}
-            </div>
+            {commentsOpen && (
+              <div className="engagement-comment-panel">
+                <h3 className="font-semibold text-lg mb-4">
+                  Comments ({comments.length})
+                </h3>
+                
+                {comments.length > 0 ? (
+                  <div className="space-y-1">
+                    {comments.map((comment) => (
+                      <CommentItem key={comment.id} comment={comment} />
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-muted-foreground text-center py-8">
+                    No comments yet. Be the first to comment!
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>

@@ -22,11 +22,12 @@ import { useUser } from '@/contexts/UserContext';
 import { Input } from '@/components/ui/input';
 import EmojiPicker from '@/components/EmojiPicker';
 import PostReactionButton from '@/components/post/PostReactionButton';
+import ShareIcon from '@/components/post/ShareIcon';
 import LikersModal from '@/components/LikersModal';
 import { PDFCarousel } from '@/components/post/PDFCarousel';
 
 // Comments component for circle posts
-const CirclePostComments: React.FC<{ postId: string; commentsCount: number }> = ({ postId, commentsCount }) => {
+const CirclePostComments: React.FC<{ postId: string; commentsCount: number; isOpen: boolean }> = ({ postId, commentsCount, isOpen }) => {
   const [newComment, setNewComment] = useState('');
   const { user } = useUser();
   const { toast } = useToast();
@@ -73,7 +74,13 @@ const CirclePostComments: React.FC<{ postId: string; commentsCount: number }> = 
   };
 
   return (
-    <div id="circle-post-comments" className="mt-12 scroll-mt-20 border-t border-border pt-8">
+    <div
+      id="circle-post-comments"
+      className={cn(
+        "mt-12 scroll-mt-20 border-t border-border pt-8 engagement-comment-panel",
+        !isOpen && "hidden"
+      )}
+    >
       <h2 className="text-2xl font-bold text-foreground mb-6">
         Comments ({commentsCount})
       </h2>
@@ -151,12 +158,24 @@ const CirclePostDetail: React.FC = () => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [isBookmarked, setIsBookmarked] = useState(false);
+  const [saveAnim, setSaveAnim] = useState<'idle' | 'save' | 'unsave'>('idle');
+  const [commentsOpen, setCommentsOpen] = useState(true);
   const [isUnlocking, setIsUnlocking] = useState(false);
   const unlocking = useRef(false);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const likeInFlightRef = useRef(false);
   const [subscriptionOpen, setSubscriptionOpen] = useState(false);
   const { user } = useUser();
   const { wallet } = useCoinWallet(user?.id);
   const [showLikersModal, setShowLikersModal] = useState(false);
+  const [optimisticLiked, setOptimisticLiked] = useState<boolean | null>(null);
+  const [optimisticLikesCount, setOptimisticLikesCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, []);
 
   // Fetch circle details
   const { data: circle } = useQuery({
@@ -230,11 +249,19 @@ const CirclePostDetail: React.FC = () => {
     enabled: !!postId,
   });
 
+  useEffect(() => {
+    if (post) {
+      setOptimisticLiked(post.user_has_liked);
+      setOptimisticLikesCount(post.stats?.likes_count ?? 0);
+    }
+  }, [post?.user_has_liked, post?.stats?.likes_count]);
+
   const isOwner = !!user && (user.id === circle?.creator_id || user.id === post?.user_id);
   const shouldShowPaywall = !!post?.is_premium && !post.user_has_unlocked;
 
   useEffect(() => {
     if (post?.post_id && !shouldShowPaywall && !isAccessError && state?.openComments) {
+      setCommentsOpen(true);
       document.getElementById('circle-post-comments')?.scrollIntoView();
     }
   }, [post?.post_id, shouldShowPaywall, isAccessError, state]);
@@ -283,32 +310,63 @@ const CirclePostDetail: React.FC = () => {
     }
   };
 
-  const handleLike = async (reactionType: string = 'like') => {
-    try {
-      if (!user) {
-        toast({ title: "Please log in to like posts", variant: "destructive" });
-        return;
-      }
+  const currentLiked = optimisticLiked ?? post.user_has_liked;
+  const currentLikesCount = optimisticLikesCount ?? (post.stats?.likes_count || 0);
 
-      const isRemoving = post.user_has_liked && (reactionType === 'like' || !reactionType);
-      
+  const handleLike = async (reactionType: string = 'like') => {
+    if (likeInFlightRef.current) return;
+    if (!user) {
+      toast({ title: "Please log in to like posts", variant: "destructive" });
+      return;
+    }
+    likeInFlightRef.current = true;
+
+    const wasLiked = currentLiked;
+    const prevCount = currentLikesCount;
+    const isRemoving = wasLiked && (reactionType === 'like' || !reactionType);
+    const willBeLiked = !isRemoving;
+
+    setOptimisticLiked(willBeLiked);
+    if (!wasLiked && willBeLiked) setOptimisticLikesCount(prevCount + 1);
+    else if (wasLiked && !willBeLiked) setOptimisticLikesCount(Math.max(0, prevCount - 1));
+
+    try {
       if (isRemoving) {
-        await supabase.from('likes').delete().eq('post_id', postId).eq('user_id', user.id);
+        const { error } = await supabase.from('likes').delete().eq('post_id', postId).eq('user_id', user.id);
+        if (error) throw error;
       } else {
         // Use upsert to prevent 409 Conflict and ensure post owner persistence
         // @ts-ignore
-        await supabase.from('likes').upsert({
+        const { error } = await supabase.from('likes').upsert({
           post_id: postId,
           user_id: user.id,
           reaction_type: reactionType
         }, { onConflict: 'post_id,user_id' });
+        if (error) throw error;
       }
 
       queryClient.invalidateQueries({ queryKey: ['circle-post', postId] });
       // Also invalidate the circle feed to ensure consistency
       queryClient.invalidateQueries({ queryKey: ['circle-posts', circleId] });
     } catch (error: any) {
+      setOptimisticLiked(wasLiked);
+      setOptimisticLikesCount(prevCount);
       toast({ title: "Failed to like post", description: error.message, variant: "destructive" });
+    } finally {
+      likeInFlightRef.current = false;
+    }
+  };
+
+  const handleToggleBookmark = () => {
+    const next = !isBookmarked;
+    setIsBookmarked(next);
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    if (next) {
+      setSaveAnim('save');
+      saveTimerRef.current = setTimeout(() => setSaveAnim('idle'), 260);
+    } else {
+      setSaveAnim('unsave');
+      saveTimerRef.current = setTimeout(() => setSaveAnim('idle'), 180);
     }
   };
 
@@ -399,36 +457,80 @@ const CirclePostDetail: React.FC = () => {
                   })}
                 </p>
               </div>
-              <button 
-                onClick={() => setIsBookmarked(!isBookmarked)}
+              <button
+                type="button"
+                onClick={handleToggleBookmark}
+                aria-label={isBookmarked ? 'Unsave post' : 'Save post'}
+                aria-pressed={isBookmarked}
                 className={cn(
-                  "p-2 rounded-full transition-colors",
-                  isBookmarked ? "bg-primary text-primary-foreground" : "hover:bg-muted"
+                  "engagement-btn engagement-btn--icon-only",
+                  isBookmarked && "engagement-btn--saved"
                 )}
               >
-                <Bookmark className="size-5" />
+                <Bookmark
+                  strokeWidth={1.85}
+                  className={cn(
+                    "engagement-icon",
+                    isBookmarked ? "engagement-bookmark--saved" : "engagement-bookmark--unsaved",
+                    saveAnim === 'save' && "engagement-bookmark--anim-save",
+                    saveAnim === 'unsave' && "engagement-bookmark--anim-unsave"
+                  )}
+                />
               </button>
             </div>
 
             {/* Interaction buttons */}
             {!shouldShowPaywall && (
-            <div className="flex flex-wrap items-center gap-5 border-y border-border py-3">
+            <div className="flex flex-wrap items-center gap-2 border-y border-border py-2">
               <PostReactionButton
-                isLiked={post.user_has_liked}
-                likesCount={post.stats?.likes_count || 0}
+                isLiked={currentLiked}
+                likesCount={currentLikesCount}
                 userReaction={post.user_reaction}
                 onLike={handleLike}
                 onShowLikers={() => setShowLikersModal(true)}
               />
               
-              <button className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors">
-                <MessageCircle className="size-5" />
-                <span className="text-sm">{post.stats?.comments_count || 0}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setCommentsOpen((prev) => {
+                    const next = !prev;
+                    if (next) {
+                      requestAnimationFrame(() => {
+                        document.getElementById('circle-post-comments')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                      });
+                    }
+                    return next;
+                  });
+                }}
+                aria-label="Comments"
+                aria-expanded={commentsOpen}
+                className={cn(
+                  "engagement-btn",
+                  commentsOpen && "engagement-btn--comment-active"
+                )}
+              >
+                <MessageCircle strokeWidth={1.85} className="engagement-icon" />
+                <span className="engagement-count">{post.stats?.comments_count || 0}</span>
               </button>
               
-              <button className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors">
-                <Share2 className="size-5" />
-                <span className="text-sm">{post.stats?.shares_count || 0}</span>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (navigator.share) {
+                    try { await navigator.share({ url: window.location.href }); } catch {}
+                  } else if (navigator.clipboard) {
+                    try {
+                      await navigator.clipboard.writeText(window.location.href);
+                      toast({ title: 'Link copied' });
+                    } catch {}
+                  }
+                }}
+                aria-label="Share"
+                className="engagement-btn"
+              >
+                <ShareIcon strokeWidth={1.85} className="engagement-icon" />
+                <span className="engagement-count">{post.stats?.shares_count || 0}</span>
               </button>
 
               {user && user.id !== post.user_id && post.preview?.has_tips_enabled && (
@@ -490,10 +592,15 @@ const CirclePostDetail: React.FC = () => {
 
           {/* Comments Section */}
           {!shouldShowPaywall && (
-            <CirclePostComments postId={postId!} commentsCount={post.stats?.comments_count || 0} />
+            <CirclePostComments postId={postId!} commentsCount={post.stats?.comments_count || 0} isOpen={commentsOpen} />
           )}
         </article>
       </main>
+      <LikersModal
+        isOpen={showLikersModal}
+        onClose={() => setShowLikersModal(false)}
+        postId={postId || ''}
+      />
       {circle?.subscription_enabled && circleId && (
         <SubscribeCircleModal
           isOpen={subscriptionOpen}
