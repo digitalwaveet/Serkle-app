@@ -206,6 +206,7 @@ export function useCoinWallet(userId?: string) {
       typeReceived,
       referenceId,
       description,
+      requestId: explicitRequestId,
     }: {
       receiverId: string;
       amount: number;
@@ -213,12 +214,15 @@ export function useCoinWallet(userId?: string) {
       typeReceived: string;
       referenceId?: string;
       description?: string;
+      requestId?: string;
     }) => {
       if (!userId || typeSent !== 'tip_sent' || typeReceived !== 'tip_received' || !Number.isSafeInteger(amount) || amount<1) throw new Error('A tip must use a supported transfer type and a positive whole-coin amount');
-      const fingerprint=await withdrawalFingerprint(amount,0,receiverId,`${referenceId || ''}:${description || ''}`);
+      if (userId === receiverId) throw new Error('You cannot send a gift or tip to your own post.');
+      const fingerprint=await withdrawalFingerprint(amount,0,receiverId,`${referenceId || ''}:${description || ''}:${explicitRequestId || ''}`);
       const key=`wallet-tip:${userId}:${fingerprint}`;
-      let requestId=readChapaStorage(key);
+      let requestId = explicitRequestId || readChapaStorage(key);
       if(!requestId) {requestId=crypto.randomUUID();writeChapaStorage(key,requestId);}
+      else writeChapaStorage(key,requestId);
       const { data, error } = await supabase.rpc('wallet_transfer_tip' as any, {
         _request_id: requestId,
         _receiver_id: receiverId,
@@ -232,7 +236,7 @@ export function useCoinWallet(userId?: string) {
       // keep their key, so the next click replays the same server operation.
       if(readChapaStorage(key)===requestId) clearChapaStorage(key);
       if (!(data as any)?.success) throw new Error('Insufficient coin balance');
-      return data;
+      return { ...(data as Record<string, unknown>), requestId };
     },
     onSuccess: () => invalidate(),
     onError: (err: any) => {

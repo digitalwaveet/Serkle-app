@@ -10,7 +10,8 @@ import MentionTextarea from '@/components/MentionTextarea';
 
 interface PersistentCommentComposerProps {
   onSubmit: (comment: string) => void;
-  onGiftSend?: (gift: GiftEmoji) => void;
+  onGiftSend?: (gift: GiftEmoji) => void | Promise<void>;
+  isGiftSending?: boolean;
   placeholder?: string;
   displayName?: string;
   displayAvatar?: string;
@@ -22,6 +23,7 @@ interface PersistentCommentComposerProps {
 export const PersistentCommentComposer: React.FC<PersistentCommentComposerProps> = ({
   onSubmit,
   onGiftSend,
+  isGiftSending = false,
   placeholder = "Add a comment...",
   displayName,
   displayAvatar,
@@ -116,6 +118,8 @@ export const PersistentCommentComposer: React.FC<PersistentCommentComposerProps>
                 {recipientId && (
                   <GiftEmojiPicker
                     onGiftSelect={(gift) => onGiftSend?.(gift)}
+                    isSending={isGiftSending}
+                    recipientId={recipientId}
                     recipientName={recipientName}
                   />
                 )}

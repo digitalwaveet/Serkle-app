@@ -21,17 +21,42 @@ import { useCoinWallet } from '@/hooks/useCoinWallet';
 import { useUser } from '@/contexts/UserContext';
 import { Input } from '@/components/ui/input';
 import EmojiPicker from '@/components/EmojiPicker';
+import { GiftEmojiPicker, GiftEmoji } from '@/components/GiftEmojiPicker';
+import MiniGiftAnimation from '@/components/post/MiniGiftAnimation';
+import GiftCommentCard from '@/components/post/GiftCommentCard';
+import {
+  formatGiftCommentContent,
+  parseGiftComment,
+  getGiftAnimationTier,
+  savePendingGiftComment,
+  getPendingGiftCommentsForPost,
+  finalizePendingGiftComment,
+  flushPendingGiftCommentKeepalive,
+  PendingGiftCommentRecord,
+} from '@/lib/giftComment';
 import PostReactionButton from '@/components/post/PostReactionButton';
 import ShareIcon from '@/components/post/ShareIcon';
 import LikersModal from '@/components/LikersModal';
 import { PDFCarousel } from '@/components/post/PDFCarousel';
 
 // Comments component for circle posts
-const CirclePostComments: React.FC<{ postId: string; commentsCount: number; isOpen: boolean }> = ({ postId, commentsCount, isOpen }) => {
+const CirclePostComments: React.FC<{
+  postId: string;
+  commentsCount: number;
+  isOpen: boolean;
+  recipientId?: string;
+  recipientName?: string;
+}> = ({ postId, commentsCount, isOpen, recipientId, recipientName }) => {
   const [newComment, setNewComment] = useState('');
+  const [activeGiftAnimation, setActiveGiftAnimation] = useState<PendingGiftCommentRecord | null>(null);
+  const [isGiftSending, setIsGiftSending] = useState(false);
+  const giftInFlightRef = useRef(false);
+  const giftFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activeGiftRecordRef = useRef<PendingGiftCommentRecord | null>(null);
   const { user } = useUser();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { transferCoins } = useCoinWallet(user?.id);
 
   const { data: comments = [], isLoading } = useQuery({
     queryKey: ['circle-post-comments', postId],
@@ -42,6 +67,87 @@ const CirclePostComments: React.FC<{ postId: string; commentsCount: number; isOp
     },
     enabled: !!postId,
   });
+
+  // Real-time subscription for new circle post comments
+  useEffect(() => {
+    if (!postId) return;
+    const channel = supabase
+      .channel(`circle-comments-realtime-${postId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'comments',
+          filter: `post_id=eq.${postId}`,
+        },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ['circle-post-comments', postId] });
+          queryClient.invalidateQueries({ queryKey: ['circle-post', postId] });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [postId, queryClient]);
+
+  // Recover any unfinalized paid gift comments for this circle post
+  useEffect(() => {
+    if (!postId || !user) return;
+    const pendingList = getPendingGiftCommentsForPost(postId);
+    if (pendingList.length === 0) return;
+
+    let cancelled = false;
+    (async () => {
+      for (const pending of pendingList) {
+        if (cancelled) break;
+        if (activeGiftRecordRef.current?.transactionId === pending.transactionId) continue;
+        const result = await finalizePendingGiftComment(pending, user.id);
+        if (result && !cancelled) {
+          queryClient.invalidateQueries({ queryKey: ['circle-post-comments', postId] });
+          queryClient.invalidateQueries({ queryKey: ['circle-post', postId] });
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [postId, user?.id, queryClient]);
+
+  // Flush active pending gift comment if user closes the tab mid-animation
+  useEffect(() => {
+    const flushActiveGift = () => {
+      const record = activeGiftRecordRef.current;
+      if (!record || !user) return;
+      supabase.auth.getSession().then(({ data }) => {
+        const token = data.session?.access_token;
+        if (token) {
+          flushPendingGiftCommentKeepalive(record, user.id, token);
+        } else {
+          finalizePendingGiftComment(record, user.id);
+        }
+      });
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden' && activeGiftRecordRef.current) {
+        flushActiveGift();
+      }
+    };
+
+    window.addEventListener('pagehide', flushActiveGift);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.removeEventListener('pagehide', flushActiveGift);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (giftFallbackTimerRef.current) {
+        clearTimeout(giftFallbackTimerRef.current);
+      }
+    };
+  }, [user?.id]);
 
   const addComment = useMutation({
     mutationFn: async (content: string) => {
@@ -63,6 +169,85 @@ const CirclePostComments: React.FC<{ postId: string; commentsCount: number; isOp
     },
   });
 
+  const handleGiftSelect = async (gift: GiftEmoji): Promise<void> => {
+    if (!user || !postId || !recipientId) {
+      toast({ title: 'Sign in required', description: 'Please sign in to send gifts', variant: 'destructive' });
+      return;
+    }
+    if (giftInFlightRef.current || isGiftSending) return;
+
+    giftInFlightRef.current = true;
+    setIsGiftSending(true);
+
+    const requestId =
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `gift-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+    try {
+      const txResult = await transferCoins.mutateAsync({
+        receiverId: recipientId,
+        amount: gift.value,
+        postId,
+        description: `Sent ${gift.emoji} ${gift.label} gift on comment`,
+        requestId,
+      });
+
+      const transactionId = txResult?.transaction_id || txResult?.requestId || requestId;
+      const content = formatGiftCommentContent({
+        giftId: gift.id,
+        name: gift.label,
+        emoji: gift.emoji,
+        image: gift.image,
+        quantity: gift.quantity || 1,
+        value: gift.value,
+        senderId: user.id,
+        senderName: user.name,
+        transactionId,
+      });
+
+      const pendingRecord: PendingGiftCommentRecord = {
+        transactionId,
+        postId,
+        userId: user.id,
+        giftId: gift.id,
+        giftName: gift.label,
+        giftEmoji: gift.emoji,
+        giftImage: gift.image,
+        quantity: gift.quantity || 1,
+        coinValue: gift.value,
+        content,
+        createdAt: Date.now(),
+      };
+
+      savePendingGiftComment(pendingRecord);
+      activeGiftRecordRef.current = pendingRecord;
+      setActiveGiftAnimation(pendingRecord);
+
+      const { durationMs } = getGiftAnimationTier(gift.value);
+      if (giftFallbackTimerRef.current) clearTimeout(giftFallbackTimerRef.current);
+      giftFallbackTimerRef.current = setTimeout(async () => {
+        if (activeGiftRecordRef.current?.transactionId === pendingRecord.transactionId) {
+          await finalizePendingGiftComment(pendingRecord, user.id);
+          queryClient.invalidateQueries({ queryKey: ['circle-post-comments', postId] });
+          queryClient.invalidateQueries({ queryKey: ['circle-post', postId] });
+          activeGiftRecordRef.current = null;
+          setActiveGiftAnimation(null);
+          giftInFlightRef.current = false;
+          setIsGiftSending(false);
+        }
+      }, durationMs + 450);
+    } catch (error: any) {
+      giftInFlightRef.current = false;
+      setIsGiftSending(false);
+      toast({
+        title: 'Failed to send gift',
+        description: error?.message || 'Unable to process gift transaction',
+        variant: 'destructive',
+      });
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newComment.trim()) return;
@@ -77,7 +262,7 @@ const CirclePostComments: React.FC<{ postId: string; commentsCount: number; isOp
     <div
       id="circle-post-comments"
       className={cn(
-        "mt-12 scroll-mt-20 border-t border-border pt-8 engagement-comment-panel",
+        "mt-12 scroll-mt-20 border-t border-border pt-8 engagement-comment-panel relative",
         !isOpen && "hidden"
       )}
     >
@@ -106,6 +291,14 @@ const CirclePostComments: React.FC<{ postId: string; commentsCount: number; isOp
           onEmojiSelect={(emoji) => setNewComment(prev => prev + emoji)}
           variant="compact"
         />
+        {recipientId && user?.id !== recipientId && (
+          <GiftEmojiPicker
+            onGiftSelect={handleGiftSelect}
+            recipientId={recipientId}
+            recipientName={recipientName}
+            isSending={isGiftSending}
+          />
+        )}
         <Button
           type="submit"
           size="icon"
@@ -125,26 +318,67 @@ const CirclePostComments: React.FC<{ postId: string; commentsCount: number; isOp
         </p>
       ) : (
         <div className="space-y-4">
-          {comments.map((comment: any) => (
-            <div key={comment.comment_id} className="flex gap-3">
-              <Avatar className="size-8 flex-shrink-0">
-                <AvatarImage src={comment.avatar_url} />
-                <AvatarFallback className="text-xs" style={{ backgroundColor: comment.avatar_color }}>
-                  {comment.initials}
-                </AvatarFallback>
-              </Avatar>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="font-semibold text-sm text-foreground">{comment.name}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {new Date(comment.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                  </span>
+          {comments.map((comment: any) => {
+            const giftMeta = parseGiftComment(comment.content);
+            const isRecent = Date.now() - new Date(comment.created_at).getTime() < 60_000;
+            const timeLabel = isRecent
+              ? 'Just now'
+              : new Date(comment.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            return (
+              <div key={comment.comment_id} className="flex gap-3">
+                <Avatar className="size-8 flex-shrink-0">
+                  <AvatarImage src={comment.avatar_url} />
+                  <AvatarFallback className="text-xs" style={{ backgroundColor: comment.avatar_color }}>
+                    {comment.initials}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <span className="font-semibold text-sm text-foreground">{comment.name}</span>
+                    <span className="text-xs text-muted-foreground">· {timeLabel}</span>
+                  </div>
+                  {giftMeta ? (
+                    <GiftCommentCard metadata={giftMeta} className="mt-1" />
+                  ) : (
+                    <p className="text-sm text-foreground whitespace-pre-wrap break-words">{comment.content}</p>
+                  )}
                 </div>
-                <p className="text-sm text-foreground whitespace-pre-wrap break-words">{comment.content}</p>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
+      )}
+
+      {activeGiftAnimation && (
+        <MiniGiftAnimation
+          giftId={activeGiftAnimation.giftId}
+          name={activeGiftAnimation.giftName}
+          emoji={activeGiftAnimation.giftEmoji}
+          image={activeGiftAnimation.giftImage}
+          quantity={activeGiftAnimation.quantity}
+          coinValue={activeGiftAnimation.coinValue}
+          onComplete={async () => {
+            const record = activeGiftRecordRef.current || activeGiftAnimation;
+            if (giftFallbackTimerRef.current) {
+              clearTimeout(giftFallbackTimerRef.current);
+              giftFallbackTimerRef.current = null;
+            }
+            activeGiftRecordRef.current = null;
+            setActiveGiftAnimation(null);
+
+            if (record && user) {
+              await finalizePendingGiftComment(record, user.id);
+              queryClient.invalidateQueries({ queryKey: ['circle-post-comments', postId] });
+              queryClient.invalidateQueries({ queryKey: ['circle-post', postId] });
+              toast({
+                title: `${record.giftEmoji} ${record.giftName} gift sent!`,
+                description: `You sent ${record.coinValue.toLocaleString()} coins to ${recipientName || 'creator'}`,
+              });
+            }
+            giftInFlightRef.current = false;
+            setIsGiftSending(false);
+          }}
+        />
       )}
     </div>
   );
@@ -592,7 +826,13 @@ const CirclePostDetail: React.FC = () => {
 
           {/* Comments Section */}
           {!shouldShowPaywall && (
-            <CirclePostComments postId={postId!} commentsCount={post.stats?.comments_count || 0} isOpen={commentsOpen} />
+            <CirclePostComments
+              postId={postId!}
+              commentsCount={post.stats?.comments_count || 0}
+              isOpen={commentsOpen}
+              recipientId={post.user_id}
+              recipientName={post.author?.name}
+            />
           )}
         </article>
       </main>

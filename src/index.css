@@ -1567,3 +1567,291 @@ body.modal-overlay-open {
     display: none !important;
   }
 }
+
+/* ============================================================================
+   Mini Animated Gift System — Compact Celebration & Gift Comment Card
+   - Container: 160 × 140px, centered above comment composer, pointer-events: none
+   - Colors: cyan (#53D7FF), purple (#7864EA), and white (#FFFFFF)
+   - Tiered durations:
+     * 1–99 coins: Simple icon pop (500ms)
+     * 100–499 coins: Bounce and glow (900ms)
+     * 500–999 coins: Diamond-style sparkle burst (1,400ms)
+     * 1,000+ coins: Enhanced mini celebration (1,800ms)
+   ============================================================================ */
+
+/*
+  Diamond / 500–999 Coin Sequence (1,400ms total):
+  - 0–150ms (0% – 10.71%): Appears, scaling from 0.5 to 1.0
+  - 150–350ms (10.71% – 25%): Bounces to 1.2 scale with a quick bright glow
+  - 350–750ms (25% – 53.57%): Floats upward 18px, gently rotates, releases sparkles
+  - 750–1,100ms (53.57% – 78.57%): Moves toward comment list while shrinking
+  - 1,100–1,400ms (78.57% – 100%): Disappears and gift comment becomes visible
+*/
+@keyframes miniGiftDiamondSequence {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 6px, 0) scale(0.5) rotate(0deg);
+  }
+  10.71% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1) rotate(0deg);
+  }
+  25% {
+    opacity: 1;
+    transform: translate3d(0, -2px, 0) scale(1.2) rotate(-5deg);
+  }
+  39% {
+    opacity: 1;
+    transform: translate3d(0, -11px, 0) scale(1.1) rotate(6deg);
+  }
+  53.57% {
+    opacity: 1;
+    transform: translate3d(0, -18px, 0) scale(1.04) rotate(-3deg);
+  }
+  78.57% {
+    opacity: 0.72;
+    transform: translate3d(0, -40px, 0) scale(0.45) rotate(0deg);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(0, -54px, 0) scale(0.18) rotate(0deg);
+  }
+}
+
+/* 1–99 coins: Simple icon pop (500ms) */
+@keyframes miniGiftPopSequence {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 4px, 0) scale(0.5);
+  }
+  35% {
+    opacity: 1;
+    transform: translate3d(0, -4px, 0) scale(1.14);
+  }
+  65% {
+    opacity: 1;
+    transform: translate3d(0, -10px, 0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(0, -28px, 0) scale(0.4);
+  }
+}
+
+/* 100–499 coins: Bounce and glow (900ms) */
+@keyframes miniGiftGlowSequence {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 6px, 0) scale(0.5);
+  }
+  20% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1.18) rotate(-4deg);
+  }
+  55% {
+    opacity: 1;
+    transform: translate3d(0, -14px, 0) scale(1.04) rotate(4deg);
+  }
+  80% {
+    opacity: 0.75;
+    transform: translate3d(0, -32px, 0) scale(0.5);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(0, -44px, 0) scale(0.22);
+  }
+}
+
+/* 1,000+ coins: Enhanced mini celebration (1,800ms) */
+@keyframes miniGiftCelebrationSequence {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 8px, 0) scale(0.5) rotate(0deg);
+  }
+  10% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1.02) rotate(0deg);
+  }
+  24% {
+    opacity: 1;
+    transform: translate3d(0, -4px, 0) scale(1.26) rotate(-7deg);
+  }
+  42% {
+    opacity: 1;
+    transform: translate3d(0, -14px, 0) scale(1.14) rotate(7deg);
+  }
+  60% {
+    opacity: 1;
+    transform: translate3d(0, -20px, 0) scale(1.06) rotate(-4deg);
+  }
+  82% {
+    opacity: 0.72;
+    transform: translate3d(0, -44px, 0) scale(0.44) rotate(0deg);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(0, -58px, 0) scale(0.16) rotate(0deg);
+  }
+}
+
+@keyframes miniGiftAuraGlow {
+  0% {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  18% {
+    opacity: 0.95;
+    transform: scale(1.18);
+  }
+  54% {
+    opacity: 0.75;
+    transform: translateY(-14px) scale(1.05);
+  }
+  82% {
+    opacity: 0.25;
+    transform: translateY(-34px) scale(0.6);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-46px) scale(0.35);
+  }
+}
+
+/* Sparkle particles released around 25%–55% (350–750ms of 1,400ms) */
+@keyframes miniGiftSparkleBurst {
+  0%,
+  20% {
+    opacity: 0;
+    transform: translate(-50%, -50%) translate3d(0, 0, 0) scale(0.2) rotate(0deg);
+  }
+  34% {
+    opacity: 1;
+    transform: translate(-50%, -50%) translate3d(calc(var(--gx) * 0.6), calc(var(--gy) * 0.6 - 8px), 0) scale(1.15) rotate(25deg);
+  }
+  58% {
+    opacity: 0.9;
+    transform: translate(-50%, -50%) translate3d(var(--gx), calc(var(--gy) - 18px), 0) scale(0.95) rotate(65deg);
+  }
+  82%,
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) translate3d(calc(var(--gx) * 1.15), calc(var(--gy) - 28px), 0) scale(0.2) rotate(90deg);
+  }
+}
+
+@keyframes miniGiftLabelPill {
+  0% {
+    opacity: 0;
+    transform: translateY(6px) scale(0.9);
+  }
+  16% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  65% {
+    opacity: 1;
+    transform: translateY(-6px) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-20px) scale(0.85);
+  }
+}
+
+.mini-gift-stage {
+  position: fixed;
+  left: 50%;
+  bottom: 84px;
+  transform: translateX(-50%);
+  width: 160px;
+  height: 140px;
+  z-index: 45;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.mini-gift-aura {
+  position: absolute;
+  width: 124px;
+  height: 124px;
+  border-radius: 9999px;
+  background: radial-gradient(
+    circle,
+    rgba(83, 215, 255, 0.42) 0%,
+    rgba(120, 100, 234, 0.34) 48%,
+    rgba(120, 100, 234, 0) 74%
+  );
+  filter: blur(8px);
+  will-change: transform, opacity;
+  animation: miniGiftAuraGlow var(--gift-duration, 1400ms) cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.mini-gift-graphic {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  filter: drop-shadow(0 0 14px rgba(83, 215, 255, 0.65)) drop-shadow(0 4px 12px rgba(120, 100, 234, 0.45));
+  will-change: transform, opacity;
+}
+
+.mini-gift-graphic--pop {
+  animation: miniGiftPopSequence var(--gift-duration, 500ms) cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.mini-gift-graphic--glow {
+  animation: miniGiftGlowSequence var(--gift-duration, 900ms) cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.mini-gift-graphic--diamond {
+  animation: miniGiftDiamondSequence var(--gift-duration, 1400ms) cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.mini-gift-graphic--celebration {
+  animation: miniGiftCelebrationSequence var(--gift-duration, 1800ms) cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.mini-gift-sparkle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  pointer-events: none;
+  will-change: transform, opacity;
+  animation: miniGiftSparkleBurst var(--gift-duration, 1400ms) cubic-bezier(0.18, 0.76, 0.32, 1) forwards;
+}
+
+.mini-gift-pill {
+  margin-top: 6px;
+  padding: 3px 10px;
+  border-radius: 9999px;
+  background: linear-gradient(135deg, rgba(18, 22, 38, 0.86), rgba(44, 36, 88, 0.88));
+  border: 1px solid rgba(83, 215, 255, 0.45);
+  box-shadow: 0 4px 14px rgba(83, 215, 255, 0.22);
+  color: #FFFFFF;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  will-change: transform, opacity;
+  animation: miniGiftLabelPill var(--gift-duration, 1400ms) cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mini-gift-aura,
+  .mini-gift-graphic--pop,
+  .mini-gift-graphic--glow,
+  .mini-gift-graphic--diamond,
+  .mini-gift-graphic--celebration,
+  .mini-gift-pill {
+    animation: none !important;
+  }
+
+  .mini-gift-sparkle {
+    display: none !important;
+  }
+}
