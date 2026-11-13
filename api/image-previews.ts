@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { encodeCircleCover, processImageAsset } from '../server/imageProcessor';
-import { createImagePreviewGateway, ImageGatewayError } from '../server/imagePreviewGateway';
-import { isImageId } from '../supabase/functions/_shared/imagePreviewProtocol';
+import { encodeCircleCover, processImageAsset } from '../server/imageProcessor.js';
+import { createImagePreviewGateway, ImageGatewayError } from '../server/imagePreviewGateway.js';
+import { isImageId } from '../supabase/functions/_shared/imagePreviewProtocol.js';
 
 export default async function handler(req: IncomingMessage & { body?: { assetId?: string; circlePostId?: string } }, res: ServerResponse) {
   res.setHeader('Content-Type', 'application/json');

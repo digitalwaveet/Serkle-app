@@ -1,6 +1,6 @@
 import type {
   CircleCoverClaim, CircleCoverJob, ImageClaim, ImagePreviewJob, ImagePreviewResult, ImageSize,
-} from '../supabase/functions/_shared/imagePreviewProtocol';
+} from '../supabase/functions/_shared/imagePreviewProtocol.js';
 
 export class ImageGatewayError extends Error {
   status: number;
