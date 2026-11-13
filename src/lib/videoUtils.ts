@@ -1,55 +1,80 @@
+import { extractVideoDuration } from './videoDuration';
+
 /**
  * Generates a thumbnail image from a video file at a specific time.
  */
-export const generateVideoThumbnail = (
+export const generateVideoThumbnail = async (
   file: File,
   timeInSeconds: number = 1
 ): Promise<{ blob: Blob; url: string }> => {
+  const duration = await extractVideoDuration(file, { timeoutMs: 15000 });
+  const targetTime = duration === null
+    ? 0
+    : Math.min(Math.max(0, timeInSeconds), Math.max(0, duration - 0.05));
+
   return new Promise((resolve, reject) => {
     const video = document.createElement('video');
-    video.preload = 'metadata';
-    video.muted = true;
-    video.playsInline = true;
-    video.src = URL.createObjectURL(file);
+    const sourceUrl = URL.createObjectURL(file);
+    let settled = false;
+    let captureStarted = false;
+    const timeout = setTimeout(() => fail(new Error('Timed out while preparing the cover image')), 20000);
 
-    video.onloadedmetadata = () => {
-      // Seek to the requested time
-      video.currentTime = Math.min(timeInSeconds, video.duration);
+    const cleanup = () => {
+      clearTimeout(timeout);
+      video.onloadedmetadata = null;
+      video.onloadeddata = null;
+      video.onseeked = null;
+      video.onerror = null;
+      try { video.removeAttribute('src'); video.load(); } catch { /* cleanup only */ }
+      URL.revokeObjectURL(sourceUrl);
     };
-
-    video.onseeked = () => {
+    const fail = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    };
+    const capture = () => {
+      if (settled || captureStarted || video.videoWidth <= 0 || video.videoHeight <= 0) return;
+      captureStarted = true;
       try {
         const canvas = document.createElement('canvas');
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
-        
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          reject(new Error('Could not get canvas context'));
-          return;
-        }
-        
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        
-        canvas.toBlob((blob) => {
-          if (blob) {
-            const url = URL.createObjectURL(blob);
-            resolve({ blob, url });
-          } else {
-            reject(new Error('Could not generate blob from canvas'));
-          }
-        }, 'image/jpeg', 0.8);
-        
-        // Cleanup tracking
-        URL.revokeObjectURL(video.src);
-      } catch (err) {
-        reject(err);
+        const context = canvas.getContext('2d');
+        if (!context) return fail(new Error('Could not prepare the cover canvas'));
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob(blob => {
+          if (!blob) return fail(new Error('Could not generate the cover image'));
+          if (settled) return;
+          settled = true;
+          cleanup();
+          resolve({ blob, url: URL.createObjectURL(blob) });
+        }, 'image/jpeg', 0.82);
+      } catch (error) {
+        fail(error instanceof Error ? error : new Error('Could not capture the video frame'));
       }
     };
 
-    video.onerror = () => {
-      reject(new Error('Error loading video file'));
+    video.preload = 'auto';
+    video.muted = true;
+    video.playsInline = true;
+    video.src = sourceUrl;
+
+    video.onloadedmetadata = () => {
+      if (targetTime > 0) {
+        try { video.currentTime = targetTime; } catch { /* loadeddata fallback */ }
+      }
     };
+    video.onloadeddata = () => {
+      if (targetTime <= 0.05 || Math.abs(video.currentTime - targetTime) < 0.05) capture();
+      else {
+        try { video.currentTime = targetTime; } catch { capture(); }
+      }
+    };
+    video.onseeked = capture;
+    video.onerror = () => fail(new Error('Error loading video file'));
+    video.load();
   });
 };
 

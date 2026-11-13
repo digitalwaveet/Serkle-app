@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { SerkleLoader } from '@/components/ui/SerkleLoader';
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Check, ChevronRight, FileVideo2, Image, Play, Sparkles, Upload, X } from "lucide-react";
+import { AlertCircle, ArrowLeft, Check, ChevronRight, FileVideo2, Image, Play, Sparkles, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
-import { useVideoMutations } from "@/hooks/useVideoMutations";
+import { useVideoMutations, type VideoUploadStage } from "@/hooks/useVideoMutations";
 import { generateVideoThumbnail } from "@/lib/videoUtils";
 import VideoThumbnailModal from "@/components/VideoThumbnailModal";
 import { CustomFilePicker, useFileManager } from "@/components/CustomFilePicker";
@@ -15,6 +16,13 @@ import { cn } from "@/lib/utils";
 const MAX_VIDEO_SIZE = 100 * 1024 * 1024;
 const DRAFT_KEY = "serkle-create-video-draft";
 const steps = [{ number: 1, label: "Choose" }, { number: 2, label: "Describe" }, { number: 3, label: "Review" }] as const;
+const uploadStageLabels: Record<VideoUploadStage, string> = {
+  preparing: 'Preparing secure upload…',
+  video: 'Uploading video…',
+  thumbnail: 'Uploading cover image…',
+  saving: 'Saving video details…',
+  complete: 'Video published',
+};
 
 const formatFileSize = (bytes: number) => bytes < 1024 * 1024
   ? `${Math.max(1, Math.round(bytes / 1024))} KB`
@@ -36,8 +44,13 @@ const CreateVideo = () => {
   const [description, setDescription] = useState(() => getDraftValue('description'));
   const [tags, setTags] = useState(() => getDraftValue('tags'));
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadStage, setUploadStage] = useState<VideoUploadStage>('preparing');
+  const [uploadError, setUploadError] = useState("");
   const [isGeneratingThumbnail, setIsGeneratingThumbnail] = useState(false);
   const [isVideoThumbModalOpen, setIsVideoThumbModalOpen] = useState(false);
+  const publishLockRef = useRef(false);
+  const uploadIdRef = useRef<string | null>(null);
 
   const videoFileItem = videoManager.files[0];
   const thumbFileItem = thumbManager.files[0];
@@ -49,6 +62,27 @@ const CreateVideo = () => {
   const tagList = useMemo(() => tags.split(',').map(tag => tag.trim()).filter(Boolean), [tags]);
 
   useEffect(() => { localStorage.setItem(DRAFT_KEY, JSON.stringify({ title, description, tags })); }, [title, description, tags]);
+
+  useEffect(() => () => {
+    if (autoThumbPreview.startsWith('blob:')) URL.revokeObjectURL(autoThumbPreview);
+  }, [autoThumbPreview]);
+
+  useEffect(() => {
+    uploadIdRef.current = null;
+    setUploadError("");
+    setUploadProgress(0);
+    setUploadStage('preparing');
+  }, [selectedVideoId]);
+
+  useEffect(() => {
+    if (!isUploading) return;
+    const warnBeforeLeaving = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warnBeforeLeaving);
+    return () => window.removeEventListener('beforeunload', warnBeforeLeaving);
+  }, [isUploading]);
 
   useEffect(() => {
     let active = true;
@@ -66,7 +100,10 @@ const CreateVideo = () => {
     setIsGeneratingThumbnail(true);
     generateVideoThumbnail(file)
       .then(thumb => {
-        if (!active) return;
+        if (!active) {
+          URL.revokeObjectURL(thumb.url);
+          return;
+        }
         setAutoThumbFile(new File([thumb.blob], `thumb_${file.name}.jpg`, { type: 'image/jpeg' }));
         setAutoThumbPreview(thumb.url);
       })
@@ -92,8 +129,15 @@ const CreateVideo = () => {
     setStep(3);
   };
   const handleSubmit = async () => {
-    if (!videoFileItem || !title.trim() || isUploading) return;
+    if (!videoFileItem || !title.trim() || publishLockRef.current) return;
+    publishLockRef.current = true;
     setIsUploading(true);
+    setUploadError("");
+    setUploadProgress(1);
+    setUploadStage('preparing');
+    if (!uploadIdRef.current) {
+      uploadIdRef.current = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    }
     try {
       const result = await createVideo({
         video: videoFileItem.file as File,
@@ -101,12 +145,27 @@ const CreateVideo = () => {
         title: title.trim(),
         description: description.trim() || undefined,
         tags: tagList.length ? tagList : undefined,
+        uploadId: uploadIdRef.current,
+        onProgress: progress => {
+          setUploadStage(progress.stage);
+          setUploadProgress(previous => Math.max(previous, progress.percent));
+        },
       });
       if (result?.success) {
         localStorage.removeItem(DRAFT_KEY);
+        uploadIdRef.current = null;
         navigate('/', { state: { feedMode: 'relax' } });
+      } else {
+        setUploadError(result?.error || 'The upload could not be completed. Check your connection and retry.');
       }
-    } finally { setIsUploading(false); }
+    } catch (error) {
+      setUploadError(error instanceof Error && error.message
+        ? error.message
+        : 'The upload could not be completed. Check your connection and retry.');
+    } finally {
+      publishLockRef.current = false;
+      setIsUploading(false);
+    }
   };
 
   return (
@@ -167,7 +226,19 @@ const CreateVideo = () => {
             <div className="mb-6"><h2 className="text-3xl font-black tracking-[-0.035em]">Ready for Relax?</h2><p className="mt-2 text-sm leading-6 text-muted-foreground">Check everything once more. Your video is only posted when you tap Publish.</p></div>
             <article className="overflow-hidden rounded-[2rem] border border-primary/10 bg-card shadow-[0_24px_70px_-45px_hsl(var(--primary)/0.65)]"><div className="relative aspect-[4/5] max-h-[58dvh] bg-black"><video src={videoFileItem?.url} controls preload="metadata" poster={poster || undefined} className="h-full w-full object-contain" /></div><div className="space-y-3 p-5"><h3 className="text-xl font-extrabold leading-tight">{title.trim()}</h3>{description.trim() && <p className="whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{description.trim()}</p>}{tagList.length > 0 && <div className="flex flex-wrap gap-2">{tagList.map(tag => <span key={tag} className="rounded-full bg-secondary/[0.18] px-3 py-1.5 text-xs font-bold text-primary">#{tag}</span>)}</div>}</div></article>
             <div className="mt-5 rounded-2xl border border-primary/10 bg-primary/[0.04] p-4 text-sm leading-6 text-muted-foreground"><strong className="text-foreground">Before you publish:</strong> keep this screen open until the upload completes. We’ll return you to Relax when your video is ready.</div>
-            <div className="mt-6 grid grid-cols-[0.7fr_1.3fr] gap-3"><Button variant="outline" onClick={() => setStep(2)} disabled={isUploading} className="min-h-[52px] rounded-2xl border-primary/20 font-bold">Edit</Button><Button onClick={handleSubmit} disabled={isUploading} className="min-h-[52px] rounded-2xl font-bold shadow-lg shadow-primary/15">{isUploading ? <><SerkleLoader size="xs" className="mr-2 text-current" label="Publishing video" /> Publishing…</> : <><Upload className="mr-2 size-4" /> Publish video</>}</Button></div>
+            {(isUploading || uploadError) && <div className={cn("mt-5 rounded-2xl border p-4", uploadError ? "border-destructive/25 bg-destructive/[0.06]" : "border-primary/15 bg-primary/[0.05]")} role={uploadError ? "alert" : "status"} aria-live="polite" aria-atomic="true">
+              <div className="flex items-start gap-3">
+                <div className={cn("mt-0.5 grid size-10 shrink-0 place-items-center rounded-xl", uploadError ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary")}>
+                  {uploadError ? <AlertCircle className="size-5" /> : <SerkleLoader size="xs" label="Uploading video" />}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-3"><p className="text-sm font-bold">{uploadError ? 'Upload paused' : uploadStageLabels[uploadStage]}</p><span className="text-sm font-bold tabular-nums">{uploadProgress}%</span></div>
+                  <Progress value={uploadProgress} className="mt-2 h-2" aria-label={`Video upload ${uploadProgress}% complete`} />
+                  <p className="mt-2 text-xs leading-5 text-muted-foreground">{uploadError || (uploadStage === 'saving' ? 'The media upload is complete. Finishing your post now.' : 'Keep this screen open. Progress reflects bytes sent from this device.')}</p>
+                </div>
+              </div>
+            </div>}
+            <div className="mt-6 grid grid-cols-[0.7fr_1.3fr] gap-3"><Button variant="outline" onClick={() => setStep(2)} disabled={isUploading} className="min-h-[52px] rounded-2xl border-primary/20 font-bold">Edit</Button><Button onClick={handleSubmit} disabled={isUploading} aria-busy={isUploading} className="min-h-[52px] rounded-2xl font-bold shadow-lg shadow-primary/15">{isUploading ? <><SerkleLoader size="xs" className="mr-2 text-current" label="Publishing video" /> Uploading {uploadProgress}%</> : <><Upload className="mr-2 size-4" /> {uploadError ? 'Retry upload' : 'Publish video'}</>}</Button></div>
           </div>}
         </section>
       </div>

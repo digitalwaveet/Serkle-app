@@ -1,6 +1,17 @@
-import { useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { uploadFileWithProgress } from '@/lib/uploadWithProgress';
+
+export type VideoUploadStage = 'preparing' | 'video' | 'thumbnail' | 'saving' | 'complete';
+
+export interface VideoUploadProgress {
+  stage: VideoUploadStage;
+  percent: number;
+}
+
+const errorMessage = (error: unknown, fallback: string) =>
+  error instanceof Error && error.message ? error.message : fallback;
 
 export const useVideoMutations = () => {
   const toggleLike = useCallback(async (videoId: string) => {
@@ -32,7 +43,7 @@ export const useVideoMutations = () => {
           .from('video_likes')
           .insert({ video_id: videoId, user_id: user.id });
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error toggling like:', error);
       toast.error('Failed to update like');
     }
@@ -69,7 +80,7 @@ export const useVideoMutations = () => {
           .insert({ video_id: videoId, user_id: user.id });
         toast.success('Video saved');
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error toggling save:', error);
       toast.error('Failed to update save');
     }
@@ -96,7 +107,7 @@ export const useVideoMutations = () => {
 
       toast.success('Comment added');
       return true;
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error adding comment:', error);
       toast.error('Failed to add comment');
       return false;
@@ -118,7 +129,7 @@ export const useVideoMutations = () => {
           .update({ shares_count: (currentStats.shares_count || 0) + 1 })
           .eq('video_id', videoId);
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error incrementing share:', error);
     }
   }, []);
@@ -141,67 +152,89 @@ export const useVideoMutations = () => {
 
       toast.success('Video deleted');
       return true;
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error deleting video:', error);
       toast.error('Failed to delete video');
       return false;
     }
   }, []);
 
-  const createVideo = useCallback(async (data: {
+  const runCreateVideo = useCallback(async (data: {
     video: File;
     thumbnail?: File;
     title: string;
     description?: string;
     tags?: string[];
+    uploadId?: string;
+    onProgress?: (progress: VideoUploadProgress) => void;
   }) => {
+    let videoUrl: string | null = null;
+    let userId: string | null = null;
+    const uploadedPaths: string[] = [];
+    const emit = (stage: VideoUploadStage, percent: number) => data.onProgress?.({
+      stage,
+      percent: Math.min(100, Math.max(0, Math.round(percent))),
+    });
+
     try {
+      emit('preparing', 1);
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
-        toast.error('Please login to upload videos');
-        return { success: false };
+        throw new Error('Please sign in again before publishing your video.');
       }
+      userId = user.id;
 
-      // Upload video file
-      const videoFileName = `${user.id}/${Date.now()}-${data.video.name}`;
-      const { data: videoData, error: videoError } = await supabase.storage
-        .from('video-media')
-        .upload(videoFileName, data.video, {
-          cacheControl: '3600',
-          upsert: false
-        });
+      const safeName = data.video.name.replace(/[^a-zA-Z0-9._-]+/g, '-').slice(-96) || 'video.mp4';
+      const fallbackId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const uploadId = (data.uploadId || globalThis.crypto?.randomUUID?.() || fallbackId).replace(/[^a-zA-Z0-9_-]/g, '');
+      const videoFileName = `${user.id}/${uploadId}-${safeName}`;
+      const bucket = supabase.storage.from('video-media');
+      await uploadFileWithProgress(bucket, videoFileName, data.video, {
+        upsert: true,
+        onProgress: progress => emit('video', 4 + progress * (data.thumbnail ? 0.8 : 0.88)),
+      });
+      uploadedPaths.push(videoFileName);
 
-      if (videoError) throw videoError;
-
-      const { data: { publicUrl: videoUrl } } = supabase.storage
+      const { data: { publicUrl: publicVideoUrl } } = supabase.storage
         .from('video-media')
         .getPublicUrl(videoFileName);
+      videoUrl = publicVideoUrl;
+
+      // Reconcile a response that was lost after a previous successful save.
+      // Reusing the same uploadId makes retries idempotent in this creator session.
+      const { data: existingVideo } = await supabase
+        .from('videos')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('video_url', publicVideoUrl)
+        .maybeSingle();
+      if (existingVideo) {
+        emit('complete', 100);
+        toast.success('Video is already published');
+        return { success: true, video: existingVideo, reconciled: true };
+      }
 
       // Upload thumbnail if provided
       let thumbnailUrl: string | null = null;
       if (data.thumbnail) {
-        const thumbnailFileName = `${user.id}/${Date.now()}-thumb-${data.thumbnail.name}`;
-        const { data: thumbnailData, error: thumbnailError } = await supabase.storage
-          .from('video-media')
-          .upload(thumbnailFileName, data.thumbnail, {
-            cacheControl: '3600',
-            upsert: false
-          });
-
-        if (!thumbnailError) {
-          const { data: { publicUrl } } = supabase.storage
-            .from('video-media')
-            .getPublicUrl(thumbnailFileName);
-          thumbnailUrl = publicUrl;
-        }
+        const extension = data.thumbnail.type === 'image/png' ? 'png' : 'jpg';
+        const thumbnailFileName = `${user.id}/${uploadId}-thumbnail.${extension}`;
+        await uploadFileWithProgress(bucket, thumbnailFileName, data.thumbnail, {
+          upsert: true,
+          onProgress: progress => emit('thumbnail', 84 + progress * 0.11),
+        });
+        uploadedPaths.push(thumbnailFileName);
+        const { data: { publicUrl } } = bucket.getPublicUrl(thumbnailFileName);
+        thumbnailUrl = publicUrl;
       }
 
       // Insert video record
+      emit('saving', 96);
       const { data: videoRecord, error: insertError } = await supabase
         .from('videos')
         .insert({
           user_id: user.id,
-          video_url: videoUrl,
+          video_url: publicVideoUrl,
           thumbnail_url: thumbnailUrl,
           title: data.title,
           description: data.description || null,
@@ -212,14 +245,46 @@ export const useVideoMutations = () => {
 
       if (insertError) throw insertError;
 
+      emit('complete', 100);
       toast.success('Video uploaded successfully');
       return { success: true, video: videoRecord };
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error uploading video:', error);
-      toast.error('Failed to upload video');
-      return { success: false };
+      // If the insert reached the database but its response was interrupted,
+      // recover that record instead of deleting valid media or charging a retry.
+      if (videoUrl && userId) {
+        const { data: recovered } = await supabase
+          .from('videos')
+          .select('*')
+          .eq('user_id', userId)
+          .eq('video_url', videoUrl)
+          .maybeSingle();
+        if (recovered) {
+          emit('complete', 100);
+          toast.success('Video uploaded successfully');
+          return { success: true, video: recovered, reconciled: true };
+        }
+      }
+      if (uploadedPaths.length) {
+        await supabase.storage.from('video-media').remove(uploadedPaths).catch(() => undefined);
+      }
+      const message = error instanceof Error && error.name === 'AbortError'
+        ? 'Video upload was cancelled.'
+        : errorMessage(error, 'Video upload failed. Check your connection and retry.');
+      toast.error(message);
+      return { success: false, error: message };
     }
   }, []);
+
+  const createInFlightRef = useRef<ReturnType<typeof runCreateVideo> | null>(null);
+  const createVideo = useCallback((data: Parameters<typeof runCreateVideo>[0]) => {
+    if (createInFlightRef.current) return createInFlightRef.current;
+    const request = runCreateVideo(data).finally(() => {
+      if (createInFlightRef.current === request) createInFlightRef.current = null;
+    });
+    createInFlightRef.current = request;
+    return request;
+  }, [runCreateVideo]);
 
   return {
     toggleLike,
