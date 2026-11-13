@@ -4,10 +4,23 @@ import type {
 
 export class ImageGatewayError extends Error {
   status: number;
-  constructor(status: number) {
+  detail?: string;
+  code?: string;
+  constructor(status: number, detail?: string, code?: string) {
     super('Image gateway request failed');
     this.status = status;
+    this.detail = detail;
+    this.code = code;
   }
+}
+
+async function readGatewayError(response: Response) {
+  const payload = await response.json().catch(() => null) as { error?: unknown; code?: unknown } | null;
+  const detail = typeof payload?.error === 'string' ? payload.error.slice(0, 120) : undefined;
+  const code = typeof payload?.code === 'string' && /^[A-Za-z0-9_:-]{1,32}$/.test(payload.code)
+    ? payload.code
+    : undefined;
+  return new ImageGatewayError(response.status, detail, code);
 }
 
 export function createImagePreviewGateway(
@@ -26,7 +39,7 @@ export function createImagePreviewGateway(
       redirect: 'error',
       signal: AbortSignal.timeout(45_000),
     });
-    if (!response.ok) throw new ImageGatewayError(response.status);
+    if (!response.ok) throw await readGatewayError(response);
     return response.json();
   }
 
@@ -60,7 +73,7 @@ export function createImagePreviewGateway(
         redirect: 'error',
         signal: AbortSignal.timeout(45_000),
       });
-      if (!response.ok) throw new ImageGatewayError(response.status);
+      if (!response.ok) throw await readGatewayError(response);
       await response.body?.cancel();
     },
     complete: (job: ImagePreviewJob, result: ImagePreviewResult) =>

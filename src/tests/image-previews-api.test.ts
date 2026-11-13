@@ -13,6 +13,7 @@ let base: string;
 let original: Buffer;
 let claimed = false;
 let revoked = false;
+let failCircleClaim = false;
 let reads = 0;
 let writes = 0;
 let claims = 0;
@@ -85,6 +86,7 @@ before(async () => {
         assert.equal(req.headers.authorization, 'Bearer fixture-owner');
         assert.equal(args._post_id, id);
         assert.equal(args._origin, base);
+        if (failCircleClaim) return json({ code: '42501', message: 'sensitive sql details' }, 403);
         return json([{ post_id: id, lease: operation, object_path: asset.original_path, original_bytes: original.length }]);
       }
       if (path.endsWith('can_complete_circle_cover_preview')) {
@@ -268,6 +270,18 @@ test('a signed-in viewer can recover one missing premium Circle cover without a 
   const response = await circleRequest('fixture-owner');
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { status: 'ready' });
+  failCircleClaim = true;
+  try {
+    const failed = await circleRequest('fixture-owner');
+    assert.equal(failed.status, 503);
+    assert.deepEqual(await failed.json(), {
+      error: 'Image processing unavailable',
+      reason: 'Could not claim a Circle cover',
+      code: '42501',
+    });
+  } finally {
+    failCircleClaim = false;
+  }
 });
 test('an expired lease and a different owner cannot upload or finalize previews', async () => {
   asset.status = 'processing';

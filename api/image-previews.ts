@@ -3,6 +3,17 @@ import { encodeCircleCover, processImageAsset } from '../server/imageProcessor.j
 import { createImagePreviewGateway, ImageGatewayError } from '../server/imagePreviewGateway.js';
 import { isImageId } from '../supabase/functions/_shared/imagePreviewProtocol.js';
 
+const SAFE_GATEWAY_DETAILS = new Set([
+  'Image processor is not configured',
+  'Invalid image operation',
+  'Invalid Circle post',
+  'Image maintenance authorization required',
+  'Could not claim a Circle cover',
+  'Could not save the Circle cover',
+  'Could not queue a legacy image',
+  'Image processing unavailable',
+]);
+
 export default async function handler(req: IncomingMessage & { body?: { assetId?: string; circlePostId?: string } }, res: ServerResponse) {
   res.setHeader('Content-Type', 'application/json');
   res.setHeader('Cache-Control', 'no-store');
@@ -48,7 +59,17 @@ export default async function handler(req: IncomingMessage & { body?: { assetId?
     if (error instanceof ImageGatewayError) {
       if (error.status === 401) return reply(401, { error: 'Sign in required' });
       if (error.status === 404) return reply(404, { error: 'Image unavailable' });
+      console.error('image-previews gateway failure', { status: error.status, code: error.code, detail: error.detail });
+      const reason = error.detail && SAFE_GATEWAY_DETAILS.has(error.detail)
+        ? error.detail
+        : `upstream_${error.status}`;
+      return reply(503, {
+        error: 'Image processing unavailable',
+        reason,
+        ...(error.code ? { code: error.code } : {}),
+      });
     }
-    return reply(503, { error: 'Image processing unavailable' });
+    console.error('image-previews unexpected failure', error instanceof Error ? error.name : 'unknown');
+    return reply(503, { error: 'Image processing unavailable', reason: 'gateway_request_failed' });
   }
 }

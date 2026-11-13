@@ -29,17 +29,35 @@ function maintenanceAuthorized(provided: string, expected?: string) {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
+const safeErrorCode = (error: { code?: unknown } | null | undefined) =>
+  typeof error?.code === 'string' && /^[A-Za-z0-9_]{1,16}$/.test(error.code) ? error.code : undefined;
+
 async function readOperation(request: Request, limit = JSON_BYTE_LIMIT) {
   if (!request.body || Number(request.headers.get('content-length')) > limit) return null;
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
   let bytes = 0;
-  const body = request.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
-    transform(chunk, controller) {
-      bytes += chunk.length;
-      if (bytes > limit) throw new Error('Image operation too large');
-      controller.enqueue(chunk);
-    },
-  }));
-  return new Response(body).json().catch(() => null);
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    bytes += value.byteLength;
+    if (bytes > limit) {
+      await reader.cancel().catch(() => {});
+      return null;
+    }
+    chunks.push(value);
+  }
+  const combined = new Uint8Array(bytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    combined.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try {
+    return JSON.parse(new TextDecoder().decode(combined));
+  } catch {
+    return null;
+  }
 }
 
 // Validate the container signature and enforce the limit even for chunked
@@ -117,7 +135,11 @@ export function createImagePreviewHandler(env: ReadEnv) {
             : await userClient!.rpc('claim_circle_cover_preview_for_viewer', {
                 _post_id: body.postId, _origin: new URL(url).origin,
               });
-          if (error) return json({ error: 'Could not claim a Circle cover' }, 503);
+          if (error) {
+            console.error('claim-circle-cover rpc failed', { maintenance, code: error.code, message: error.message });
+            const code = safeErrorCode(error);
+            return json({ error: 'Could not claim a Circle cover', ...(code ? { code } : {}) }, 503);
+          }
           const cover = data?.[0];
           if (!cover) return json({ status: 'idle' } satisfies CircleCoverClaim);
           const { data: signed, error: signError } = await admin.storage.from('post-media').createSignedUrl(cover.object_path, 300);
@@ -141,7 +163,11 @@ export function createImagePreviewHandler(env: ReadEnv) {
         const { data, error } = await admin.rpc('complete_circle_cover_preview', {
           _post_id: body.postId, _lease: body.lease, _cover: body.cover, _thumb: body.thumb,
         });
-        if (error) return json({ error: 'Could not save the Circle cover' }, 503);
+        if (error) {
+          console.error('complete-circle-cover rpc failed', { code: error.code, message: error.message });
+          const code = safeErrorCode(error);
+          return json({ error: 'Could not save the Circle cover', ...(code ? { code } : {}) }, 503);
+        }
         return json({ stored: data === true });
       }
 
@@ -165,7 +191,11 @@ export function createImagePreviewHandler(env: ReadEnv) {
       if (body.action === 'claim') {
         if (asset?.status === 'ready') return json({ status: 'ready' } satisfies ImageClaim);
         const { data: claimed, error } = await admin.rpc('claim_image_asset', { p_id: asset?.id ?? null });
-        if (error) return json({ error: 'Image processing unavailable' }, 503);
+        if (error) {
+          console.error('claim_image_asset rpc failed', { code: error.code, message: error.message });
+          const code = safeErrorCode(error);
+          return json({ error: 'Image processing unavailable', ...(code ? { code } : {}) }, 503);
+        }
         if (!claimed) return json({ status: queueClaim ? 'idle' : 'pending' } satisfies ImageClaim);
         // For a user request, Storage checks the caller's current access again.
         const signed = await reader.storage.from(claimed.bucket_id).createSignedUrl(claimed.original_path, 300);
@@ -227,7 +257,8 @@ export function createImagePreviewHandler(env: ReadEnv) {
         ...leaseArgs, p_width: result.width, p_height: result.height, p_variants: variants, p_animated: result.animated,
       });
       return error ? json({ error: 'Preview completion could not be confirmed' }, 409) : json({ status: 'ready' });
-    } catch {
+    } catch (error) {
+      console.error('image-previews unhandled error', error instanceof Error ? error.message : String(error));
       return json({ error: 'Image processing unavailable' }, 503);
     }
   };

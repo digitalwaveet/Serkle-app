@@ -193,6 +193,29 @@ test('legacy cover worker only claims author-owned images and rejects outdated l
   assert.equal((await q('SELECT * FROM get_post_details($1)', [post]))[0].cover_image_url, null);
 });
 
+test('viewer cover claim enforces auth and Circle visibility in SQL', async () => {
+  const origin = 'https://example.test';
+  const photo = seller + '/viewer-claim.jpg';
+  const url = origin + '/storage/v1/object/public/post-media/' + photo;
+  await login(null);
+  await assert.rejects(q('SELECT * FROM claim_circle_cover_preview_for_viewer($1,$2)', [post, origin]), { code: '42501' });
+  await db.exec('RESET ROLE');
+  await q('UPDATE posts SET cover_image_url=$2 WHERE id=$1', [post, url]);
+  await q(`INSERT INTO storage.objects (bucket_id,name,owner_id,metadata)
+    VALUES ('post-media',$1,$2,'{"mimetype":"image/jpeg","size":123}')`, [photo, seller]);
+  await q('UPDATE circles SET is_private=true WHERE id=$1', [circle]);
+  await q('INSERT INTO circle_members(circle_id,user_id) VALUES ($1,$2)', [circle, buyer]);
+  await login(outsider);
+  assert.deepEqual(await q('SELECT * FROM claim_circle_cover_preview_for_viewer($1,$2)', [post, origin]), []);
+  await login(buyer);
+  const [claimed] = await q('SELECT * FROM claim_circle_cover_preview_for_viewer($1,$2)', [post, origin]);
+  assert.equal(claimed.post_id, post);
+  assert.equal(claimed.object_path, photo);
+  assert.deepEqual(await q('SELECT can_complete_circle_cover_preview($1,$2) AS ok', [post, claimed.lease]), [{ ok: true }]);
+  await login(outsider);
+  assert.deepEqual(await q('SELECT can_complete_circle_cover_preview($1,$2) AS ok', [post, claimed.lease]), [{ ok: false }]);
+});
+
 test('expiry denies subscription access while retaining a prior one-time purchase', async () => {
   await purchase('video',video);
   await db.exec('RESET ROLE');
