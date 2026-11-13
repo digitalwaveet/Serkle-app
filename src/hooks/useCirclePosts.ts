@@ -66,9 +66,12 @@ export const useCirclePosts = (circleId: string | undefined) => {
       const pinnedMap = new Map((pinnedRows || []).map((row) => [row.id, row.pinned_at]));
 
       const rows = data ?? [];
+      const lockedPremiumIds = rows
+        .filter(post => post.is_premium && !post.user_has_unlocked)
+        .map(post => post.post_id);
       const [signedData, previews] = await Promise.all([
         signProtectedMedia(rows),
-        getCirclePostPreviews(circleId, rows.map(post => post.post_id)),
+        getCirclePostPreviews(circleId, rows.map(post => post.post_id), false, lockedPremiumIds),
       ]);
       const previewMap = new Map(previews.map(preview => [preview.post_id, preview]));
       const coverReferences = new Map(rows.map(post => [post.post_id, post.cover_image_url]));

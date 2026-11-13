@@ -7,7 +7,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, MessageCircle, Share2, Bookmark, Lock, Send } from 'lucide-react';
 import DOMPurify from 'dompurify';
-import { CirclePremiumBadge, CirclePreviewFade } from '@/components/circles/CirclePostPreview';
+import { CircleLockedCover, CirclePremiumBadge, CirclePreviewFade } from '@/components/circles/CirclePostPreview';
 import { SubscribeCircleModal } from '@/components/circles/SubscribeCircleModal';
 import { getCirclePostPreviews } from '@/lib/circlePostPreview';
 import { Button } from '@/components/ui/button';
@@ -448,7 +448,12 @@ const CirclePostDetail: React.FC = () => {
       if (!source || !circleId || source.circle_id !== circleId) throw new Error('Post not found');
       const [row, previews] = await Promise.all([
         signProtectedMedia(source),
-        getCirclePostPreviews(circleId, [source.post_id], !!source.is_premium && !source.user_has_unlocked),
+        getCirclePostPreviews(
+          circleId,
+          [source.post_id],
+          !!source.is_premium && !source.user_has_unlocked,
+          source.is_premium && !source.user_has_unlocked ? [source.post_id] : [],
+        ),
       ]);
 
       // Tip count (separate aggregate query).
@@ -538,9 +543,32 @@ const CirclePostDetail: React.FC = () => {
     unlocking.current = true;
     setIsUnlocking(true);
     try {
-      const result = await purchaseCircleAccess('post', postId!, { expectedPrice: post.premium_price });
-      toast({ title: 'Post available', description: result.charged ? `${result.charged} coins paid.` : 'Included in your existing access.' });
-      await Promise.all(CIRCLE_ACCESS_QUERY_KEYS.map(key => queryClient.invalidateQueries({ queryKey: [key] })));
+      const result = await purchaseCircleAccess('post', postId!, {
+        expectedPrice: post.premium_price,
+        deferConfirmation: true,
+      });
+      const confirmed = await retryAccess();
+      if (confirmed.error || !confirmed.data?.user_has_unlocked) {
+        await Promise.all(CIRCLE_ACCESS_QUERY_KEYS.map(key => queryClient.invalidateQueries({ queryKey: [key] })));
+        toast({
+          title: 'Access is still syncing',
+          description: 'Your payment reference was kept safely. Retry this button to restore access without another charge.',
+          variant: 'destructive',
+        });
+        return;
+      }
+      result.confirm();
+      await Promise.all(CIRCLE_ACCESS_QUERY_KEYS
+        .filter(key => key !== 'circle-post')
+        .map(key => queryClient.invalidateQueries({ queryKey: [key] })));
+      toast({
+        title: 'Post unlocked',
+        description: result.charged
+          ? `${result.charged} coins paid. Full post access is ready.`
+          : result.recovered
+            ? 'Your previous payment was restored. No additional coins were charged.'
+            : 'Included in your existing access.',
+      });
     } catch (error: any) {
       toast({ title: "Unlock failed", description: error.message, variant: "destructive" });
     } finally {
@@ -788,9 +816,7 @@ const CirclePostDetail: React.FC = () => {
 
           {shouldShowPaywall ? (
             <section className="space-y-3">
-              {post.preview?.preview_image && (
-                <img src={post.preview.preview_image} alt="Premium post cover preview" className="aspect-[2.24] w-full rounded-xl object-cover" />
-              )}
+              <CircleLockedCover thumbnail={post.preview?.preview_image ?? null} />
               <h2 className="text-xl font-semibold tracking-tight">Premium post</h2>
               {post.preview?.preview_text && <p className="break-words leading-relaxed">{post.preview.preview_text}</p>}
               <CirclePreviewFade />

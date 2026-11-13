@@ -34,7 +34,7 @@ export function createImagePreviewGateway(
   return {
     claim: (assetId?: string) => post<ImageClaim>({ action: 'claim', assetId }),
     enqueueLegacy: () => post<{ queued: number }>({ action: 'enqueue-legacy' }),
-    claimCircleCover: () => post<CircleCoverClaim>({ action: 'claim-circle-cover' }),
+    claimCircleCover: (postId?: string) => post<CircleCoverClaim>({ action: 'claim-circle-cover', ...(postId ? { postId } : {}) }),
     completeCircleCover: (job: CircleCoverJob, cover: string, thumb: string) =>
       post<{ stored: boolean }>({ action: 'complete-circle-cover', postId: job.postId, lease: job.lease, cover, thumb }),
     async download(job: Pick<ImagePreviewJob, 'originalUrl'>) {

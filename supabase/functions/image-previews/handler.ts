@@ -103,16 +103,20 @@ export function createImagePreviewHandler(env: ReadEnv) {
         assetId: request.headers.get('x-image-asset-id'),
         lease: request.headers.get('x-image-lease'),
         size: request.headers.get('x-image-size'),
-      } : await readOperation(request, maintenance ? 110 * 1024 : JSON_BYTE_LIMIT);
+      } : await readOperation(request, 110 * 1024);
       if (!body || !['claim', 'upload', 'complete', 'fail', 'enqueue-legacy', 'claim-circle-cover', 'complete-circle-cover'].includes(body.action)) {
         return json({ error: 'Invalid image operation' }, 400);
       }
 
       const admin = createClient(url, secret, { auth: authOptions });
       if (body.action === 'claim-circle-cover' || body.action === 'complete-circle-cover') {
-        if (!maintenance) return json({ error: 'Image maintenance authorization required' }, 403);
         if (body.action === 'claim-circle-cover') {
-          const { data, error } = await admin.rpc('claim_circle_cover_preview', { _origin: new URL(url).origin });
+          if (!maintenance && !isImageId(body.postId)) return json({ error: 'Invalid Circle post' }, 400);
+          const { data, error } = maintenance
+            ? await admin.rpc('claim_circle_cover_preview', { _origin: new URL(url).origin })
+            : await userClient!.rpc('claim_circle_cover_preview_for_viewer', {
+                _post_id: body.postId, _origin: new URL(url).origin,
+              });
           if (error) return json({ error: 'Could not claim a Circle cover' }, 503);
           const cover = data?.[0];
           if (!cover) return json({ status: 'idle' } satisfies CircleCoverClaim);
@@ -127,6 +131,12 @@ export function createImagePreviewHandler(env: ReadEnv) {
           typeof value === 'string' && value.length <= limit && /^data:image\/webp;base64,[A-Za-z0-9+/]+={0,2}$/.test(value);
         if (!isImageId(body.postId) || !isImageId(body.lease) || !isWebP(body.cover, 100000) || !isWebP(body.thumb, 2000)) {
           return json({ error: 'Invalid Circle cover preview' }, 400);
+        }
+        if (!maintenance) {
+          const { data: allowed, error: accessError } = await userClient!.rpc('can_complete_circle_cover_preview', {
+            _post_id: body.postId, _lease: body.lease,
+          });
+          if (accessError || allowed !== true) return json({ error: 'Circle cover lease expired' }, 409);
         }
         const { data, error } = await admin.rpc('complete_circle_cover_preview', {
           _post_id: body.postId, _lease: body.lease, _cover: body.cover, _thumb: body.thumb,

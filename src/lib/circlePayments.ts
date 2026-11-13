@@ -2,7 +2,7 @@ import { supabase } from '@/integrations/supabase/client';
 
 // Keep the key after uncertain network failures. Retrying the same explicit
 // purchase after a reload must not create another debit.
-export async function purchaseCircleAccess(kind: 'subscription' | 'post' | 'video', targetId: string, options: { expectedPrice: number; renew?: boolean; expectedExpiresAt?: string }) {
+export async function purchaseCircleAccess(kind: 'subscription' | 'post' | 'video', targetId: string, options: { expectedPrice: number; renew?: boolean; expectedExpiresAt?: string; deferConfirmation?: boolean }) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Please log in to purchase');
   const key = `circle-payment:${user.id}:${kind}:${targetId}:${options?.renew ? options.expectedExpiresAt : 'purchase'}`;
@@ -19,8 +19,11 @@ export async function purchaseCircleAccess(kind: 'subscription' | 'post' | 'vide
     localStorage.removeItem(key);
     throw new Error('This purchase is no longer active. Review the price and try again.');
   }
-  localStorage.removeItem(key);
-  return result as { charged: number; replayed: boolean; expires_at?: string };
+  const confirm = () => {
+    if (localStorage.getItem(key) === requestId) localStorage.removeItem(key);
+  };
+  if (!options.deferConfirmation) confirm();
+  return { ...result, confirm } as { charged: number; replayed: boolean; recovered?: boolean; expires_at?: string; confirm: () => void };
 }
 
 export const CIRCLE_ACCESS_QUERY_KEYS = ['circle-subscription', 'circle-posts', 'circle-post', 'circle-videos', 'circle-resources', 'coin-wallet', 'coin-transactions', 'wallet-payments', 'wallet-activity', 'wallet-payment-receipt', 'circle', 'circles', 'circles-search', 'my-circles', 'owned-circles', 'circle-invite-preview'];

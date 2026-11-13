@@ -44,6 +44,33 @@ before(async () => {
   await db.exec(previewMigration);
   await db.exec(await sqlFile('../../supabase/migrations/20261109130000_automatic_circle_post_previews.sql'));
   await db.exec(previewMigration);
+  // Focused verified-receipt fixture used by the production unlock-confirmation
+  // migration without pulling unrelated Chapa wallet tables into this suite.
+  await db.exec(`
+    CREATE FUNCTION public.circle_receipt_paid(_payment uuid,_user uuid,_kind text,_target uuid)
+    RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public,pg_temp AS $$
+      SELECT EXISTS(SELECT 1 FROM circle_payment_requests p WHERE p.id=_payment AND p.user_id=_user
+        AND p.kind=_kind AND p.target_id=_target AND p.amount>0 AND p.refunded_at IS NULL
+        AND EXISTS(SELECT 1 FROM coin_transactions t WHERE t.reference_id=p.id AND t.user_id=p.user_id
+          AND t.amount=-p.amount AND t.type=CASE WHEN p.kind='subscription' THEN 'subscription'::coin_transaction_type ELSE 'premium_unlock'::coin_transaction_type END));
+    $$;
+    CREATE FUNCTION public.reconcile_circle_receipts(_user_id uuid)
+    RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$ BEGIN
+      INSERT INTO post_unlocks(post_id,user_id,amount_paid,payment_id)
+        SELECT p.target_id,p.user_id,p.amount,p.id FROM circle_payment_requests p
+        WHERE p.user_id=_user_id AND p.kind='post' AND p.amount>0 AND p.refunded_at IS NULL
+          AND public.circle_receipt_paid(p.id,p.user_id,p.kind,p.target_id)
+        ON CONFLICT(post_id,user_id) DO UPDATE SET amount_paid=EXCLUDED.amount_paid,payment_id=EXCLUDED.payment_id,refunded_at=NULL;
+      INSERT INTO video_unlocks(video_id,user_id,amount_paid,payment_id)
+        SELECT p.target_id,p.user_id,p.amount,p.id FROM circle_payment_requests p
+        WHERE p.user_id=_user_id AND p.kind='video' AND p.amount>0 AND p.refunded_at IS NULL
+          AND public.circle_receipt_paid(p.id,p.user_id,p.kind,p.target_id)
+        ON CONFLICT(video_id,user_id) DO UPDATE SET amount_paid=EXCLUDED.amount_paid,payment_id=EXCLUDED.payment_id,refunded_at=NULL;
+    END $$;
+    ALTER FUNCTION public.purchase_circle_access(text,uuid,uuid,boolean,timestamptz,integer)
+      RENAME TO purchase_circle_access_paid;
+  `);
+  await db.exec(await sqlFile('../../supabase/migrations/20261113120000_circle_unlock_confirmation_and_preview_recovery.sql'));
   frontend = await createServer({
     configFile: false,
     resolve: { alias: { '@': fileURLToPath(new URL('../', import.meta.url)) } },
@@ -208,6 +235,22 @@ test('retries, lost responses and concurrent submissions with different keys cha
   assert.equal(results.reduce((sum,r)=>sum+r.charged,0),7);
   assert.equal(await balance(),93);
   assert.equal((await q('SELECT count(*)::int n FROM video_unlocks'))[0].n,1);
+});
+
+test('a durable post debit restores a missing grant and never charges the user twice', async () => {
+  const paid = await purchase('post', post);
+  assert.equal(paid.charged, 5);
+  await db.exec('RESET ROLE');
+  await q('DELETE FROM post_unlocks WHERE post_id=$1 AND user_id=$2', [post, buyer]);
+  await login();
+  assert.equal(await access('post', post), false);
+  const restored = await purchase('post', post, randomUUID());
+  assert.equal(restored.charged, 0);
+  assert.equal(restored.recovered, true);
+  assert.equal(restored.has_access, true);
+  assert.equal(await access('post', post), true);
+  assert.equal(await balance(), 95);
+  assert.equal((await q("SELECT count(*)::int n FROM coin_transactions WHERE user_id=$1 AND type='premium_unlock'", [buyer]))[0].n, 1);
 });
 
 test('idempotency keys cannot be reused for a different purchase', async () => {

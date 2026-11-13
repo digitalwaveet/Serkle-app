@@ -79,8 +79,22 @@ before(async () => {
       return json(revoked || url.searchParams.get('id') !== 'eq.' + id ? [] : [asset]);
     }
     if (path.startsWith('/rest/v1/rpc/')) {
-      assert.equal(req.headers.apikey, adminKey, 'privileged RPCs belong to the Edge Function');
       const args = JSON.parse(body.toString());
+      if (path.endsWith('claim_circle_cover_preview_for_viewer')) {
+        assert.equal(req.headers.apikey, publishable);
+        assert.equal(req.headers.authorization, 'Bearer fixture-owner');
+        assert.equal(args._post_id, id);
+        assert.equal(args._origin, base);
+        return json([{ post_id: id, lease: operation, object_path: asset.original_path, original_bytes: original.length }]);
+      }
+      if (path.endsWith('can_complete_circle_cover_preview')) {
+        assert.equal(req.headers.apikey, publishable);
+        assert.equal(req.headers.authorization, 'Bearer fixture-owner');
+        assert.equal(args._post_id, id);
+        assert.equal(args._lease, operation);
+        return json(true);
+      }
+      assert.equal(req.headers.apikey, adminKey, 'privileged RPCs belong to the Edge Function');
       if (path.endsWith('claim_circle_cover_preview')) {
         assert.equal(args._origin, base);
         return json([{ post_id: id, lease: operation, object_path: asset.original_path, original_bytes: original.length }]);
@@ -172,6 +186,14 @@ function request(token?: string, method = 'POST') {
   });
 }
 
+function circleRequest(token?: string) {
+  return fetch(base + '/api/image-previews', {
+    method: 'POST',
+    headers: { ...(token ? { Authorization: 'Bearer ' + token } : {}), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ circlePostId: id }),
+  });
+}
+
 function edgeRequest(body: object, headers: Record<string, string> = {}) {
   return fetch(base + '/functions/v1/image-previews', {
     method: 'POST',
@@ -200,8 +222,8 @@ test('a publishable key or ordinary session cannot start project-wide maintenanc
   const headers = { Authorization: 'Bearer fixture-owner' };
   assert.equal((await edgeRequest({ action: 'claim' }, headers)).status, 400);
   assert.equal((await edgeRequest({ action: 'enqueue-legacy' }, headers)).status, 403);
-  assert.equal((await edgeRequest({ action: 'claim-circle-cover' }, headers)).status, 403);
-  assert.equal((await edgeRequest({ action: 'complete-circle-cover' }, headers)).status, 403);
+  assert.equal((await edgeRequest({ action: 'claim-circle-cover' }, headers)).status, 400);
+  assert.equal((await edgeRequest({ action: 'complete-circle-cover' }, headers)).status, 400);
   assert.equal((await edgeRequest({ action: 'claim' }, { 'x-image-maintenance-key': 'wrong-key' })).status, 401);
   assert.equal(queued, 0);
   assert.equal(claims, 0);
@@ -240,6 +262,12 @@ test('maintenance generates separate WebP previews for an existing Circle cover'
   const image = await gateway.download(claim.job);
   const { cover, thumb } = await encodeCircleCover(image, claim.job.originalBytes);
   assert.deepEqual(await gateway.completeCircleCover(claim.job, cover, thumb), { stored: true });
+});
+test('a signed-in viewer can recover one missing premium Circle cover without a service key in Vercel', async () => {
+  assert.equal((await circleRequest()).status, 401);
+  const response = await circleRequest('fixture-owner');
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { status: 'ready' });
 });
 test('an expired lease and a different owner cannot upload or finalize previews', async () => {
   asset.status = 'processing';
