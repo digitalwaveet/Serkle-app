@@ -2,7 +2,7 @@ import { SerkleLoader } from '@/components/ui/SerkleLoader';
 import { OptimizedImage } from '@/components/ui/OptimizedImage';
 import { uploadImageWithPreviews } from '@/lib/imageStorage';
 import { imageUploadId } from '@/lib/imageAsset';
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -22,6 +22,10 @@ import { PremiumSettingsModal } from './PremiumSettingsModal';
 import { SubscribeCircleModal } from './SubscribeCircleModal';
 import { EditPostModal } from './EditPostModal';
 import { useCirclePosts } from '@/hooks/useCirclePosts';
+import { useCircleSubscription } from '@/hooks/useCircleSubscription';
+import { useCoinWallet } from '@/hooks/useCoinWallet';
+import { purchaseCircleAccess, confirmCirclePostAccess, refreshCircleAccessQueries } from '@/lib/circlePayments';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useUser } from '@/contexts/UserContext';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
@@ -98,7 +102,72 @@ const CirclePosts: React.FC<CirclePostsProps> = ({ circle, isOwner }) => {
 
   const [subscribeModalOpen, setSubscribeModalOpen] = useState(false);
   
+  const [unlockTargetPost, setUnlockTargetPost] = useState<any>(null);
+  const [isUnlockingPost, setIsUnlockingPost] = useState(false);
+  const unlockInFlightRef = useRef(false);
+  const syncedSubRef = useRef(false);
+
+  const { data: subscription } = useCircleSubscription(circleId);
+  const hasActiveSubscription = !!subscription;
+  const { wallet } = useCoinWallet(currentUser?.id);
   const { data: posts = [], isLoading, isError: isPostsError, refetch: retryPosts } = useCirclePosts(circleId);
+
+  useEffect(() => {
+    if ((hasActiveSubscription || isOwner) && posts.some((p) => p.is_premium && !p.user_has_unlocked)) {
+      if (!syncedSubRef.current) {
+        syncedSubRef.current = true;
+        retryPosts();
+      }
+    } else {
+      syncedSubRef.current = false;
+    }
+  }, [hasActiveSubscription, isOwner, posts, retryPosts]);
+
+  const handleUnlockPostWithCoins = async (post: any) => {
+    if (unlockInFlightRef.current || !post?.premium_price || post.premium_price <= 0) return;
+    if (!currentUser) {
+      toast({ title: 'Please log in to unlock', variant: 'destructive' });
+      return;
+    }
+    unlockInFlightRef.current = true;
+    setIsUnlockingPost(true);
+    try {
+      const result = await purchaseCircleAccess('post', post.id, {
+        expectedPrice: post.premium_price,
+        deferConfirmation: true,
+      });
+      const verification = await confirmCirclePostAccess(post.id);
+      if (!verification.confirmed) {
+        await refreshCircleAccessQueries(queryClient, { circleId, postId: post.id });
+        const refreshed = await retryPosts();
+        const unlockedNow = refreshed.data?.some((item) => item.id === post.id && item.user_has_unlocked);
+        if (!unlockedNow) {
+          toast({
+            title: 'Access is still syncing',
+            description: 'Your payment reference was kept safely. Retry this button to restore access without another charge.',
+            variant: 'destructive',
+          });
+          return;
+        }
+      }
+      result.confirm();
+      await refreshCircleAccessQueries(queryClient, { circleId, postId: post.id });
+      setUnlockTargetPost(null);
+      toast({
+        title: 'Post unlocked',
+        description: result.charged
+          ? `${result.charged} coins paid. Full post access is ready.`
+          : result.recovered
+            ? 'Your previous payment was restored. No additional coins were charged.'
+            : 'Included in your existing access.',
+      });
+    } catch (error: any) {
+      toast({ title: 'Unlock failed', description: error.message, variant: 'destructive' });
+    } finally {
+      unlockInFlightRef.current = false;
+      setIsUnlockingPost(false);
+    }
+  };
 
   const removeImage = () => {
     composerManager.clearAll();
@@ -465,18 +534,27 @@ const CirclePosts: React.FC<CirclePostsProps> = ({ circle, isOwner }) => {
                         <Link to={detailPath} aria-label="Open premium post preview" className="rounded-xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring">
                           <CircleLockedCover thumbnail={post.previewImage} />
                         </Link>
-                        <div className="grid gap-2">
-                          {post.premium_price != null && post.premium_price > 0 && (
-                            <Button asChild className="min-h-11 rounded-xl">
-                              <Link to={detailPath}>Unlock for {post.premium_price} coins</Link>
+                        {(hasActiveSubscription || isOwner) ? (
+                          <div className="flex items-center justify-between gap-2 rounded-xl border border-border bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
+                            <span>{isOwner ? 'Author access syncing...' : 'Subscriber access syncing...'}</span>
+                            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => retryPosts()}>
+                              Refresh
                             </Button>
-                          )}
-                          {circle.subscription_enabled && (
-                            <Button variant="outline" className="min-h-11 rounded-xl" onClick={() => setSubscribeModalOpen(true)}>
-                              View subscription
-                            </Button>
-                          )}
-                        </div>
+                          </div>
+                        ) : (
+                          <div className="grid gap-2">
+                            {post.premium_price != null && post.premium_price > 0 && (
+                              <Button className="min-h-11 rounded-xl" onClick={() => setUnlockTargetPost(post)}>
+                                Unlock for {post.premium_price} coins
+                              </Button>
+                            )}
+                            {circle.subscription_enabled && (
+                              <Button variant="outline" className="min-h-11 rounded-xl" onClick={() => setSubscribeModalOpen(true)}>
+                                {circle.subscription_price ? `Subscribe (${circle.subscription_price} coins/mo) · Unlock all` : 'Subscribe · Unlock all posts'}
+                              </Button>
+                            )}
+                          </div>
+                        )}
                       </>
                     ) : (
                       <>
@@ -536,14 +614,75 @@ const CirclePosts: React.FC<CirclePostsProps> = ({ circle, isOwner }) => {
         }}
       />
 
+      <Dialog open={!!unlockTargetPost} onOpenChange={(open) => { if (!open && !isUnlockingPost) setUnlockTargetPost(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Coins className="size-5 text-primary" />
+              Unlock premium post
+            </DialogTitle>
+            <DialogDescription>
+              {circle?.subscription_enabled
+                ? 'Pay once with coins for this post, or subscribe to read all posts in this circle for free.'
+                : 'Pay once with coins to unlock full access to this post.'}
+            </DialogDescription>
+          </DialogHeader>
+          {unlockTargetPost && (
+            <div className="space-y-4 pt-2">
+              <div className="rounded-xl border border-border bg-accent/40 p-3 text-sm space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Post price</span>
+                  <span className="font-semibold">{unlockTargetPost.premium_price} coins</span>
+                </div>
+                {currentUser && (
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>Your balance</span>
+                    <span className={wallet !== undefined && wallet.balance < unlockTargetPost.premium_price ? 'text-destructive font-medium' : ''}>
+                      {(wallet?.balance ?? 0).toLocaleString()} coins
+                    </span>
+                  </div>
+                )}
+              </div>
+              {currentUser && wallet !== undefined && wallet.balance < unlockTargetPost.premium_price && (
+                <p className="text-xs text-destructive">Insufficient coins. Top up your wallet to unlock.</p>
+              )}
+              <div className="grid gap-2">
+                <Button
+                  className="min-h-11 rounded-xl"
+                  disabled={isUnlockingPost || (!!currentUser && wallet !== undefined && wallet.balance < unlockTargetPost.premium_price)}
+                  onClick={() => handleUnlockPostWithCoins(unlockTargetPost)}
+                >
+                  {isUnlockingPost ? <SerkleLoader size="xs" /> : `Pay ${unlockTargetPost.premium_price} coins to unlock`}
+                </Button>
+                {circle?.subscription_enabled && !hasActiveSubscription && (
+                  <Button
+                    variant="outline"
+                    className="min-h-11 rounded-xl"
+                    disabled={isUnlockingPost}
+                    onClick={() => {
+                      setUnlockTargetPost(null);
+                      setSubscribeModalOpen(true);
+                    }}
+                  >
+                    {circle.subscription_price
+                      ? `Subscribe (${circle.subscription_price} coins/mo) · All posts free`
+                      : 'Subscribe · Unlock all posts'}
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       <SubscribeCircleModal
         isOpen={subscribeModalOpen}
         onClose={() => setSubscribeModalOpen(false)}
         circleId={circleId || ''}
         circleName={circle?.name || 'this circle'}
         subscriptionPrice={circle?.subscription_price}
-        onSubscribed={() => {
-          queryClient.invalidateQueries({ queryKey: ['circle-subscription', circleId] });
+        onSubscribed={async () => {
+          await refreshCircleAccessQueries(queryClient, { circleId });
         }}
       />
 

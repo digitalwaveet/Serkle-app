@@ -1,3 +1,4 @@
+import type { QueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 
 // Keep the key after uncertain network failures. Retrying the same explicit
@@ -27,6 +28,46 @@ export async function purchaseCircleAccess(kind: 'subscription' | 'post' | 'vide
 }
 
 export const CIRCLE_ACCESS_QUERY_KEYS = ['circle-subscription', 'circle-posts', 'circle-post', 'circle-videos', 'circle-resources', 'coin-wallet', 'coin-transactions', 'wallet-payments', 'wallet-activity', 'wallet-payment-receipt', 'circle', 'circles', 'circles-search', 'my-circles', 'owned-circles', 'circle-invite-preview'];
+
+/** Verify that the authoritative post reader RPC reflects unlocked access after a coin payment. */
+export async function confirmCirclePostAccess(
+  postId: string,
+  delaysMs: number[] = [0, 150, 350, 700],
+): Promise<{ confirmed: boolean; row?: any; error?: unknown }> {
+  let lastError: unknown;
+  for (const delay of delaysMs) {
+    if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+    const { data, error } = await supabase.rpc('get_post_details', { _post_id: postId });
+    if (error) {
+      lastError = error;
+      continue;
+    }
+    const row = Array.isArray(data) ? data[0] : null;
+    if (row?.user_has_unlocked) {
+      return { confirmed: true, row };
+    }
+  }
+  return { confirmed: false, error: lastError };
+}
+
+/** Invalidate Circle entitlement caches and await active post/subscription refetches. */
+export async function refreshCircleAccessQueries(
+  queryClient: QueryClient,
+  scope?: { circleId?: string; postId?: string },
+) {
+  await Promise.all(
+    CIRCLE_ACCESS_QUERY_KEYS.map((key) => queryClient.invalidateQueries({ queryKey: [key] })),
+  );
+  const refetchTargets: string[][] = [
+    scope?.circleId ? ['circle-subscription', scope.circleId] : ['circle-subscription'],
+    scope?.circleId ? ['circle-posts', scope.circleId] : ['circle-posts'],
+    scope?.postId ? ['circle-post', scope.postId] : ['circle-post'],
+    scope?.circleId ? ['circle', scope.circleId] : ['circle'],
+  ];
+  await Promise.all(
+    refetchTargets.map((queryKey) => queryClient.refetchQueries({ queryKey, type: 'active' })),
+  );
+}
 
 export async function purchaseCircleBooking(kind: 'event' | 'service', targetId: string, expectedPrice: number, details: Record<string, string> = {}) {
   const { data: { user } } = await supabase.auth.getUser();

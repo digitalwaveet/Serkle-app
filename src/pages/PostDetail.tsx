@@ -1,4 +1,4 @@
-import { purchaseCircleAccess } from '@/lib/circlePayments';
+import { purchaseCircleAccess, confirmCirclePostAccess, refreshCircleAccessQueries } from '@/lib/circlePayments';
 import { signProtectedMedia } from '@/lib/protectedMedia';
 import { OptimizedImage } from '@/components/ui/OptimizedImage';
 import { OriginalImageDownload } from '@/components/ui/OriginalImageDownload';
@@ -23,6 +23,7 @@ import { toast } from 'sonner';
 import { useCircleSubscription } from '@/hooks/useCircleSubscription';
 import { PremiumUnlockBanner } from '@/components/premium/PremiumUnlockBanner';
 import { PremiumContentSkeleton } from '@/components/premium/PremiumContentSkeleton';
+import { SubscribeCircleModal } from '@/components/circles/SubscribeCircleModal';
 import { useNavigation } from '@/contexts/NavigationContext';
 import PostReactionButton from '@/components/post/PostReactionButton';
 import ShareIcon from '@/components/post/ShareIcon';
@@ -111,6 +112,8 @@ const PostDetail: React.FC = () => {
   const [hasUnlocked, setHasUnlocked] = useState(false);
   const [isUnlocking, setIsUnlocking] = useState(false);
   const [circleCreatorId, setCircleCreatorId] = useState<string | null>(null);
+  const [circleInfo, setCircleInfo] = useState<{ name: string; subscription_enabled?: boolean | null; subscription_price?: number | null } | null>(null);
+  const [subscribeModalOpen, setSubscribeModalOpen] = useState(false);
   const [userReaction, setUserReaction] = useState<string | undefined>(undefined);
   const [isReportDialogOpen, setIsReportDialogOpen] = useState(false);
   const [showLikersModal, setShowLikersModal] = useState(false);
@@ -191,11 +194,12 @@ const PostDetail: React.FC = () => {
         if (postData.circle_id) {
           const { data: circleData } = await supabase
             .from('circles')
-            .select('creator_id')
+            .select('creator_id, name, subscription_enabled, subscription_price')
             .eq('id', postData.circle_id)
             .maybeSingle();
           if (circleData) {
             setCircleCreatorId(circleData.creator_id);
+            setCircleInfo(circleData);
           }
         }
 
@@ -479,7 +483,10 @@ const PostDetail: React.FC = () => {
     }
     setIsUnlocking(true);
     try {
-      const result = await purchaseCircleAccess('post', postId!, { expectedPrice: post.premium_price });
+      const result = await purchaseCircleAccess('post', postId!, { expectedPrice: post.premium_price, deferConfirmation: true });
+      const verification = await confirmCirclePostAccess(postId!);
+      if (verification.confirmed) result.confirm();
+      await refreshCircleAccessQueries(queryClient, { circleId: post.circle_id, postId });
       toast.success(result.charged ? `Post unlocked for ${result.charged} coins.` : 'Included in your existing access.');
       setAccessRevision(value => value + 1);
     } catch (error: any) {
@@ -746,7 +753,7 @@ const PostDetail: React.FC = () => {
                   <div className="relative mt-8 sticky-paywall-container">
                     <div className="relative overflow-hidden rounded-2xl border border-white/10 shadow-2xl bg-muted/5">
                       {/* Blurred scrolling actual content */}
-                      <div className="pt-8 px-8 pb-[100vh] blur-[32px] opacity-20 select-none pointer-events-none grayscale">
+                      <div className="pt-8 px-8 pb-[100vh] blur-[8px] opacity-30 select-none pointer-events-none grayscale">
                         {isRichText(post.content) ? (
                           <div
                             className="prose prose-base dark:prose-invert max-w-none text-foreground"
@@ -772,6 +779,8 @@ const PostDetail: React.FC = () => {
                                 balance={wallet?.balance ?? 0}
                                 onUnlock={handleUnlock}
                                 isUnlocking={isUnlocking}
+                                subscriptionPrice={circleInfo?.subscription_price}
+                                onSubscribe={circleInfo?.subscription_enabled && !subscription ? () => setSubscribeModalOpen(true) : undefined}
                                 className="my-0 border-0 shadow-none bg-transparent"
                               />
                             </div>
@@ -817,7 +826,7 @@ const PostDetail: React.FC = () => {
                             src={url}
                             className={cn(
                               "w-full object-contain max-h-[70vh] bg-black transition-all duration-500",
-                              shouldShowPaywall && "blur-xl"
+                              shouldShowPaywall && "blur-[6px]"
                             )}
                             controls={!shouldShowPaywall}
                             preload="metadata"
@@ -830,14 +839,14 @@ const PostDetail: React.FC = () => {
                             size="full"
                             className={cn(
                               "w-full object-contain max-h-[70vh] bg-black/5 transition-all duration-500",
-                              shouldShowPaywall && "blur-xl"
+                              shouldShowPaywall && "blur-[6px]"
                             )}
                           />
                         )}
                         {!shouldShowPaywall && !/\.(mp4|webm|mov|ogg|m3u8)(\?|$)/i.test(url) && <OriginalImageDownload src={url} />}
 
                         {shouldShowPaywall && (
-                          <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/20 backdrop-blur-[2px] z-10" />
+                          <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/10 backdrop-blur-[1px] z-10" />
                         )}
                       </div>
                     </CarouselItem>
@@ -1353,6 +1362,19 @@ const PostDetail: React.FC = () => {
         onSubmit={handleReportPost}
         itemType="post"
       />
+      {post?.circle_id && circleInfo?.subscription_enabled && (
+        <SubscribeCircleModal
+          isOpen={subscribeModalOpen}
+          onClose={() => setSubscribeModalOpen(false)}
+          circleId={post.circle_id}
+          circleName={circleInfo.name || 'this circle'}
+          subscriptionPrice={circleInfo.subscription_price ?? undefined}
+          onSubscribed={async () => {
+            await refreshCircleAccessQueries(queryClient, { circleId: post.circle_id, postId });
+            setAccessRevision((value) => value + 1);
+          }}
+        />
+      )}
     </div>
   );
 };

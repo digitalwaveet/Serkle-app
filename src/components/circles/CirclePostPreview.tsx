@@ -22,12 +22,12 @@ export function CircleLockedCover({ thumbnail }: { thumbnail: string | null }) {
             src={thumbnail}
             alt=""
             loading="lazy"
-            className="absolute inset-0 -z-10 size-full scale-125 object-cover blur-lg"
+            className="absolute inset-0 -z-10 size-full scale-105 object-cover blur-[4px]"
           />
-          <div className="absolute inset-0 -z-10 bg-black/30" />
+          <div className="absolute inset-0 -z-10 bg-black/15" />
         </>
       )}
-      <div className="grid justify-items-center gap-2 rounded-xl bg-card/95 px-3 py-2 text-sm font-semibold text-foreground">
+      <div className="grid justify-items-center gap-1.5 rounded-xl bg-card/85 px-3 py-2 text-sm font-semibold text-foreground backdrop-blur-sm">
         <Lock aria-hidden="true" className="size-4 text-primary" />
         Premium preview
       </div>

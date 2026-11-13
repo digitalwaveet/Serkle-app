@@ -1,4 +1,5 @@
-import { purchaseCircleAccess, CIRCLE_ACCESS_QUERY_KEYS } from '@/lib/circlePayments';
+import { purchaseCircleAccess, confirmCirclePostAccess, refreshCircleAccessQueries } from '@/lib/circlePayments';
+import { useCircleSubscription } from '@/hooks/useCircleSubscription';
 import { signProtectedMedia } from '@/lib/protectedMedia';
 import { OptimizedImage } from '@/components/ui/OptimizedImage';
 import { OriginalImageDownload } from '@/components/ui/OriginalImageDownload';
@@ -406,6 +407,8 @@ const CirclePostDetail: React.FC = () => {
   const [subscriptionOpen, setSubscriptionOpen] = useState(false);
   const { user } = useUser();
   const { wallet } = useCoinWallet(user?.id);
+  const { data: subscription } = useCircleSubscription(circleId);
+  const hasActiveSubscription = !!subscription;
   const [showLikersModal, setShowLikersModal] = useState(false);
   const [optimisticLiked, setOptimisticLiked] = useState<boolean | null>(null);
   const [optimisticLikesCount, setOptimisticLikesCount] = useState<number | null>(null);
@@ -456,11 +459,12 @@ const CirclePostDetail: React.FC = () => {
         ),
       ]);
 
-      // Tip count (separate aggregate query).
+      // Tip count (separate aggregate query — must never fail unlock verification).
       const { count: tipCount } = await supabase
         .from('circle_tips')
         .select('*', { count: 'exact', head: true })
-        .eq('post_id', postId);
+        .eq('post_id', postId)
+        .then((res) => (res.error ? { count: 0 } : res), () => ({ count: 0 }));
 
       const author = {
         id: row.user_id,
@@ -502,6 +506,14 @@ const CirclePostDetail: React.FC = () => {
 
   const isOwner = !!user && (user.id === circle?.creator_id || user.id === post?.user_id);
   const shouldShowPaywall = !!post?.is_premium && !post.user_has_unlocked;
+
+  const syncedSubPostRef = useRef<string | null>(null);
+  useEffect(() => {
+    if ((hasActiveSubscription || isOwner) && post?.post_id && post.is_premium && !post.user_has_unlocked && syncedSubPostRef.current !== post.post_id) {
+      syncedSubPostRef.current = post.post_id;
+      retryAccess();
+    }
+  }, [hasActiveSubscription, isOwner, post?.post_id, post?.is_premium, post?.user_has_unlocked, retryAccess]);
 
   useEffect(() => {
     if (post?.post_id && !shouldShowPaywall && !isAccessError && state?.openComments) {
@@ -547,20 +559,21 @@ const CirclePostDetail: React.FC = () => {
         expectedPrice: post.premium_price,
         deferConfirmation: true,
       });
-      const confirmed = await retryAccess();
-      if (confirmed.error || !confirmed.data?.user_has_unlocked) {
-        await Promise.all(CIRCLE_ACCESS_QUERY_KEYS.map(key => queryClient.invalidateQueries({ queryKey: [key] })));
-        toast({
-          title: 'Access is still syncing',
-          description: 'Your payment reference was kept safely. Retry this button to restore access without another charge.',
-          variant: 'destructive',
-        });
-        return;
+      const verification = await confirmCirclePostAccess(postId!);
+      if (!verification.confirmed) {
+        await refreshCircleAccessQueries(queryClient, { circleId, postId });
+        const latest = await retryAccess();
+        if (latest.error || !latest.data?.user_has_unlocked) {
+          toast({
+            title: 'Access is still syncing',
+            description: 'Your payment reference was kept safely. Retry this button to restore access without another charge.',
+            variant: 'destructive',
+          });
+          return;
+        }
       }
       result.confirm();
-      await Promise.all(CIRCLE_ACCESS_QUERY_KEYS
-        .filter(key => key !== 'circle-post')
-        .map(key => queryClient.invalidateQueries({ queryKey: [key] })));
+      await refreshCircleAccessQueries(queryClient, { circleId, postId });
       toast({
         title: 'Post unlocked',
         description: result.charged
@@ -820,34 +833,54 @@ const CirclePostDetail: React.FC = () => {
               <h2 className="text-xl font-semibold tracking-tight">Premium post</h2>
               {post.preview?.preview_text && <p className="break-words leading-relaxed">{post.preview.preview_text}</p>}
               <CirclePreviewFade />
+              {(hasActiveSubscription || isOwner) ? (
+                <div className="space-y-3 rounded-xl border border-border bg-primary/5 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-medium text-foreground">
+                      {isOwner ? 'Restoring author access...' : 'Included in your subscription — unlocking post...'}
+                    </p>
+                    <Button variant="outline" size="sm" onClick={() => retryAccess()}>
+                      Refresh
+                    </Button>
+                  </div>
+                </div>
+              ) : (
               <div className="space-y-3 rounded-xl border border-border bg-primary/5 p-4">
-                <h3 className="flex items-center gap-2 text-sm font-semibold text-primary">
-                  <Lock aria-hidden="true" className="size-4" />
-                  Unlock to keep reading
-                </h3>
+                <div className="space-y-1">
+                  <h3 className="flex items-center gap-2 text-sm font-semibold text-primary">
+                    <Lock aria-hidden="true" className="size-4" />
+                    Unlock to keep reading
+                  </h3>
+                  {circle?.subscription_enabled && (
+                    <p className="text-xs text-muted-foreground">
+                      Pay once with coins for this post, or subscribe to read all posts in this circle for free.
+                    </p>
+                  )}
+                </div>
                 <div className="flex flex-wrap gap-2">
                   {post.premium_price != null && post.premium_price > 0 && (
                     <Button
                       className="min-h-11 flex-1 rounded-xl"
                       onClick={handleUnlock}
-                      disabled={isUnlocking || (!!user && (wallet?.balance ?? 0) < post.premium_price)}
+                      disabled={isUnlocking || (!!user && wallet !== undefined && wallet.balance < post.premium_price)}
                     >
                       {isUnlocking ? <SerkleLoader size="xs" /> : 'Unlock for ' + post.premium_price + ' coins'}
                     </Button>
                   )}
-                  {circle?.subscription_enabled && (
+                  {circle?.subscription_enabled && !hasActiveSubscription && (
                     <Button variant="outline" className="min-h-11 flex-1 rounded-xl" onClick={() => setSubscriptionOpen(true)}>
-                      View subscription
+                      {circle.subscription_price ? `Subscribe (${circle.subscription_price} coins/mo)` : 'Subscribe · Unlock all'}
                     </Button>
                   )}
                 </div>
                 {user && post.premium_price != null && post.premium_price > 0 && (
                   <p className="text-xs text-muted-foreground">
                     Wallet balance {(wallet?.balance ?? 0).toLocaleString()} coins
-                    {(wallet?.balance ?? 0) < post.premium_price && <span className="text-destructive"> · Top up to unlock</span>}
+                    {wallet !== undefined && wallet.balance < post.premium_price && <span className="text-destructive"> · Top up to unlock</span>}
                   </p>
                 )}
               </div>
+              )}
             </section>
           ) : isRichText ? (
             <div className="prose max-w-none break-words dark:prose-invert" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(content) }} />
@@ -879,7 +912,9 @@ const CirclePostDetail: React.FC = () => {
           circleId={circleId}
           circleName={circle.name}
           subscriptionPrice={circle.subscription_price ?? undefined}
-          onSubscribed={() => {}}
+          onSubscribed={async () => {
+            await refreshCircleAccessQueries(queryClient, { circleId, postId });
+          }}
         />
       )}
     </div>

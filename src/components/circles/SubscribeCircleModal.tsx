@@ -5,7 +5,7 @@ import { Crown, Check, Coins, AlertCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useCoinWallet } from '@/hooks/useCoinWallet';
-import { purchaseCircleAccess, CIRCLE_ACCESS_QUERY_KEYS } from '@/lib/circlePayments';
+import { purchaseCircleAccess, refreshCircleAccessQueries } from '@/lib/circlePayments';
 import { useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@/contexts/UserContext';
 
@@ -50,8 +50,8 @@ export const SubscribeCircleModal: React.FC<SubscribeCircleModalProps> = ({
     setIsSubscribing(true);
     try {
       const result = await purchaseCircleAccess('subscription', circleId, { expectedPrice: SUBSCRIPTION_COST, renew: !!renewExpiresAt, expectedExpiresAt: renewExpiresAt });
-      await Promise.all(CIRCLE_ACCESS_QUERY_KEYS.map(key => queryClient.invalidateQueries({ queryKey: [key] })));
-      toast({ title: renewExpiresAt ? 'Subscription renewed' : 'Subscribed successfully', description: result.charged ? `${result.charged} coins paid. Premium posts, videos and resources are included.` : 'Your existing subscription already includes this content.' });
+      await refreshCircleAccessQueries(queryClient, { circleId });
+      toast({ title: renewExpiresAt ? 'Subscription renewed' : 'Subscribed successfully', description: result.charged ? `${result.charged} coins paid. All premium posts, videos and resources are now unlocked.` : 'Your existing subscription already includes all content.' });
       await onSubscribed();
       onClose();
     } catch (error: any) {

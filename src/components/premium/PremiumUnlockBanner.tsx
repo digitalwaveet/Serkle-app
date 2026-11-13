@@ -9,6 +9,8 @@ interface PremiumUnlockBannerProps {
   balance: number;
   onUnlock: () => void;
   isUnlocking: boolean;
+  subscriptionPrice?: number | null;
+  onSubscribe?: () => void;
   className?: string;
 }
 
@@ -17,6 +19,8 @@ export const PremiumUnlockBanner: React.FC<PremiumUnlockBannerProps> = ({
   balance, 
   onUnlock, 
   isUnlocking,
+  subscriptionPrice,
+  onSubscribe,
   className
 }) => {
   const canAfford = balance >= price;
@@ -35,23 +39,36 @@ export const PremiumUnlockBanner: React.FC<PremiumUnlockBannerProps> = ({
           This is a premium post. Pay <span className="font-bold text-primary">{price} 🪙</span> coins to unlock the full content.
         </p>
         <div className="flex flex-col sm:flex-row gap-3">
-          <Button 
-            onClick={onUnlock}
-            disabled={!canAfford || isUnlocking}
-            className="flex-1 bg-gradient-primary hover:bg-gradient-primary/90 text-primary-foreground border-0 shadow-glow hover:shadow-xl transition-all duration-200 disabled:opacity-50 h-12"
-          >
-            {isUnlocking ? (
-              <span className="flex items-center gap-2">
-                <SerkleLoader size="xs" className="text-primary-foreground" />
-                Unlocking...
-              </span>
-            ) : (
-              <span className="flex items-center gap-2">
-                <Coins className="size-4" />
-                Unlock for {price} 🪙
-              </span>
-            )}
-          </Button>
+          {price > 0 && (
+            <Button 
+              onClick={onUnlock}
+              disabled={!canAfford || isUnlocking}
+              className="flex-1 bg-gradient-primary hover:bg-gradient-primary/90 text-primary-foreground border-0 shadow-glow hover:shadow-xl transition-all duration-200 disabled:opacity-50 h-12"
+            >
+              {isUnlocking ? (
+                <span className="flex items-center gap-2">
+                  <SerkleLoader size="xs" className="text-primary-foreground" />
+                  Unlocking...
+                </span>
+              ) : (
+                <span className="flex items-center gap-2">
+                  <Coins className="size-4" />
+                  Unlock for {price} 🪙
+                </span>
+              )}
+            </Button>
+          )}
+          {onSubscribe && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onSubscribe}
+              disabled={isUnlocking}
+              className="flex-1 h-12"
+            >
+              {subscriptionPrice ? `Subscribe (${subscriptionPrice} coins/mo)` : 'Subscribe · Unlock all'}
+            </Button>
+          )}
         </div>
         <div className="flex items-center gap-4 mt-4 text-xs text-muted-foreground">
           <span>Your balance: <span className={cn("font-semibold", canAfford ? "text-primary" : "text-destructive")}>{balance} 🪙</span></span>
