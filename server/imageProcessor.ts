@@ -1,8 +1,8 @@
 import sharp from 'sharp';
 import { createHash } from 'node:crypto';
-import { detectImageMime, fitImage } from '../src/lib/imageAsset.ts';
-import { IMAGE_PRESETS, IMAGE_SIZES, type ImagePreviewJob, type ImagePreviewResult } from '../supabase/functions/_shared/imagePreviewProtocol.ts';
-import type { ImagePreviewStorage } from './imagePreviewGateway.ts';
+import { detectImageMime, fitImage } from '../src/lib/imageAsset';
+import { IMAGE_PRESETS, IMAGE_SIZES, type ImagePreviewJob, type ImagePreviewResult } from '../supabase/functions/_shared/imagePreviewProtocol';
+import type { ImagePreviewStorage } from './imagePreviewGateway';
 
 /** Same dimensions/qualities as the client, with animation and EXIF support.
  * Sharp removes EXIF/GPS from previews by default; original bytes stay intact. */

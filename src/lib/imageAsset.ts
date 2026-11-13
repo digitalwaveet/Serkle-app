@@ -1,5 +1,5 @@
-import type { ImageSize } from '../../supabase/functions/_shared/imagePreviewProtocol.ts';
-export { IMAGE_PREVIEW_MARKER, IMAGE_PRESETS, previewPath, type ImageSize } from '../../supabase/functions/_shared/imagePreviewProtocol.ts';
+import type { ImageSize } from '../../supabase/functions/_shared/imagePreviewProtocol';
+export { IMAGE_PREVIEW_MARKER, IMAGE_PRESETS, previewPath, type ImageSize } from '../../supabase/functions/_shared/imagePreviewProtocol';
 
 export const IMAGE_PREVIEW_VERSION = 1;
 const uploadIds = new WeakMap<Blob, string>();

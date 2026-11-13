@@ -33,7 +33,7 @@
     "test:messaging-delivery": "node --experimental-strip-types --test src/tests/messaging-delivery.integration.test.ts",
     "check:messaging-backend": "node scripts/check-messaging-backend.mjs",
     "test:messaging-ui": "node --experimental-strip-types --test src/tests/messaging.ui.test.ts",
-    "test:image-previews": "node --experimental-strip-types --test src/tests/image-previews.integration.test.ts src/tests/image-previews-api.test.ts",
+    "test:image-previews": "node --experimental-strip-types --experimental-loader ./scripts/ts-extension-loader.mjs --test src/tests/image-previews.integration.test.ts src/tests/image-previews-api.test.ts",
     "test:image-previews-ui": "node --experimental-strip-types --test src/tests/image-previews.ui.test.ts",
     "images:process": "node --experimental-strip-types scripts/process-image-previews.ts"
   },
