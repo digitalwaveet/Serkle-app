@@ -1,6 +1,7 @@
 import { SerkleLoader } from '@/components/ui/SerkleLoader';
-import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { Heart, MessageCircle, Share, Bookmark, Volume2, VolumeX, Plus, Check } from 'lucide-react';
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import { Heart, MessageCircle, Share, Bookmark, Volume2, VolumeX, Plus, Check, ChevronDown, RefreshCw, Gauge, Play } from 'lucide-react';
+import type Hls from 'hls.js';
 import { useHapticFeedback } from '@/hooks/useHapticFeedback';
 import { useFollowMutations } from '@/hooks/useFollowMutations';
 import { useUser } from '@/contexts/UserContext';
@@ -14,6 +15,17 @@ import { DraggablePipVideo } from './DraggablePipVideo';
 import { type TabKey } from '@/hooks/useAppNav';
 import { useVideoFeed } from '@/hooks/useVideoFeed';
 import { useVideoMutations } from '@/hooks/useVideoMutations';
+import { isHlsSource, loadHlsJs, supportsNativeHls } from '@/utils/videoUtils';
+import './relax-video-player.css';
+
+type NetworkInformationLike = EventTarget & {
+  effectiveType?: string;
+  saveData?: boolean;
+};
+
+type NavigatorWithConnection = Navigator & {
+  connection?: NetworkInformationLike;
+};
 
 export interface RelaxVideoPlayerProps {
   onBackToFeed?: () => void;
@@ -44,8 +56,8 @@ export const RelaxVideoPlayer: React.FC<RelaxVideoPlayerProps> = ({
   initialOpenComments = false
 }) => {
   // Fetch videos from database
-  const { videos: relaxVideosRaw, loading: videosLoading, hasMore, loadMore, refetch } = useVideoFeed();
-  const relaxVideos = relaxVideosRaw ?? [];
+  const { videos: relaxVideosRaw, loading: videosLoading, error: videosError, hasMore, loadMore, refetch } = useVideoFeed();
+  const relaxVideos = useMemo(() => relaxVideosRaw ?? [], [relaxVideosRaw]);
   const { toggleLike, toggleSave, incrementShare } = useVideoMutations();
   const { toggleFollow, checkFollowStatus } = useFollowMutations();
   const { user } = useUser();
@@ -57,7 +69,7 @@ export const RelaxVideoPlayer: React.FC<RelaxVideoPlayerProps> = ({
   const [followedUsers, setFollowedUsers] = useState<Set<string>>(new Set());
   const [followStates, setFollowStates] = useState<Record<string, 'visible' | 'checked' | 'hidden'>>({});
   const [isLoading, setIsLoading] = useState<Record<string, boolean>>({});
-  const [landscapeVideos, setLandscapeVideos] = useState<Set<string>>(new Set());
+  const [containedVideos, setContainedVideos] = useState<Set<string>>(new Set());
   const [pausedVideos, setPausedVideos] = useState<Set<string>>(new Set());
   const [expandedCaptions, setExpandedCaptions] = useState<Set<string>>(new Set());
   const [isCommentsOpen, setIsCommentsOpen] = useState(false);
@@ -66,15 +78,87 @@ export const RelaxVideoPlayer: React.FC<RelaxVideoPlayerProps> = ({
   const [selectedUserId, setSelectedUserId] = useState<string>('');
   const [shareVideoId, setShareVideoId] = useState<string | null>(null);
   const [shareVideoUrl, setShareVideoUrl] = useState<string>('');
+  const [videoHeight, setVideoHeight] = useState(() => Math.max(1, window.innerHeight - 50));
+  const [isConstrainedConnection, setIsConstrainedConnection] = useState(false);
+  const [showQualityLabel, setShowQualityLabel] = useState(false);
   const [doubleTapHearts, setDoubleTapHearts] = useState<Array<{ id: number; x: number; y: number }>>([]);
   const containerRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const lastTapRef = useRef<{ time: number; x: number; y: number }>({ time: 0, x: 0, y: 0 });
   const videoRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
+  const hlsRefs = useRef<Map<string, Hls>>(new Map());
   const touchStartY = useRef<number>(0);
   const touchStartTime = useRef<number>(0);
+  const qualityLabelTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { triggerHaptic } = useHapticFeedback();
 
-  const videoHeight = window.innerHeight - 50; // Account for 50px footer navbar
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousOverscroll = document.documentElement.style.overscrollBehavior;
+    document.body.style.overflow = 'hidden';
+    document.documentElement.style.overscrollBehavior = 'none';
+
+    let frame = 0;
+    const syncViewport = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const height = window.visualViewport?.height || window.innerHeight;
+        root.style.setProperty('--relax-viewport-height', `${Math.round(height)}px`);
+      });
+    };
+    syncViewport();
+    window.visualViewport?.addEventListener('resize', syncViewport);
+    window.addEventListener('orientationchange', syncViewport);
+
+    return () => {
+      cancelAnimationFrame(frame);
+      window.visualViewport?.removeEventListener('resize', syncViewport);
+      window.removeEventListener('orientationchange', syncViewport);
+      document.body.style.overflow = previousBodyOverflow;
+      document.documentElement.style.overscrollBehavior = previousOverscroll;
+    };
+  }, []);
+
+  useEffect(() => {
+    const connection = (navigator as NavigatorWithConnection).connection;
+    if (!connection) return;
+    const syncConnectionMode = () => {
+      setIsConstrainedConnection(Boolean(
+        connection.saveData || connection.effectiveType === 'slow-2g' || connection.effectiveType === '2g'
+      ));
+    };
+    syncConnectionMode();
+    connection.addEventListener('change', syncConnectionMode);
+    return () => connection.removeEventListener('change', syncConnectionMode);
+  }, []);
+
+  useEffect(() => () => {
+    hlsRefs.current.forEach(instance => instance.destroy());
+    hlsRefs.current.clear();
+    if (qualityLabelTimerRef.current) clearTimeout(qualityLabelTimerRef.current);
+  }, []);
+
+  const revealQualityLabel = useCallback(() => {
+    setShowQualityLabel(true);
+    if (qualityLabelTimerRef.current) clearTimeout(qualityLabelTimerRef.current);
+    qualityLabelTimerRef.current = setTimeout(() => setShowQualityLabel(false), 1800);
+  }, []);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const updateHeight = () => setVideoHeight(Math.max(1, container.clientHeight));
+    updateHeight();
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(container);
+    window.addEventListener('orientationchange', updateHeight);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('orientationchange', updateHeight);
+    };
+  }, []);
 
   // Scroll to initial video when loaded
   useEffect(() => {
@@ -92,7 +176,7 @@ export const RelaxVideoPlayer: React.FC<RelaxVideoPlayerProps> = ({
         setPipVideoIndex(initialVideoId);
       }
     }
-  }, [initialVideoId, initialOpenComments, relaxVideos.length, videoHeight]);
+  }, [initialVideoId, initialOpenComments, relaxVideos, videoHeight]);
 
   // Check initial follow status for all videos
   useEffect(() => {
@@ -121,10 +205,29 @@ export const RelaxVideoPlayer: React.FC<RelaxVideoPlayerProps> = ({
       // Set video properties
       const videoIndex = relaxVideos.findIndex(v => v.id === videoId);
       const video = relaxVideos[videoIndex];
-      if (video && element.src !== video.url) {
-        element.src = video.url;
+      if (video && element.dataset.videoSource !== video.url) {
+        element.dataset.videoSource = video.url;
         element.muted = isMuted;
-        element.preload = Math.abs(videoIndex - currentIndex) <= 1 ? 'auto' : 'metadata';
+        element.preload = videoIndex === currentIndex && !isConstrainedConnection ? 'auto' : 'metadata';
+
+        hlsRefs.current.get(videoId)?.destroy();
+        hlsRefs.current.delete(videoId);
+        if (isHlsSource(video.url) && !supportsNativeHls()) {
+          void loadHlsJs().then(HlsClass => {
+            if (!HlsClass || videoRefs.current.get(videoId) !== element) return;
+            const hls = new HlsClass({
+              startLevel: -1,
+              capLevelToPlayerSize: true,
+              maxBufferLength: isConstrainedConnection ? 12 : 30,
+              backBufferLength: 15,
+            });
+            hls.attachMedia(element);
+            hls.on(HlsClass.Events.MEDIA_ATTACHED, () => hls.loadSource(video.url));
+            hlsRefs.current.set(videoId, hls);
+          });
+        } else {
+          element.src = video.url;
+        }
         
         // Add event listeners for loading states
         const handleLoadStart = () => setIsLoading(prev => ({ ...prev, [videoId]: true }));
@@ -144,11 +247,6 @@ export const RelaxVideoPlayer: React.FC<RelaxVideoPlayerProps> = ({
         const handleEnded = () => {
           setPausedVideos(prev => new Set(prev).add(videoId));
         };
-        const handleLoadedMetadata = () => {
-          if (element.videoWidth > element.videoHeight) {
-            setLandscapeVideos(prev => new Set(prev).add(videoId));
-          }
-        };
         
         element.addEventListener('loadstart', handleLoadStart);
         element.addEventListener('canplay', handleCanPlay);
@@ -156,15 +254,19 @@ export const RelaxVideoPlayer: React.FC<RelaxVideoPlayerProps> = ({
         element.addEventListener('playing', handlePlaying);
         element.addEventListener('pause', handlePause);
         element.addEventListener('ended', handleEnded);
-        element.addEventListener('loadedmetadata', handleLoadedMetadata);
         
         // Store cleanup function
         element.dataset.cleanup = 'true';
       }
     } else {
       videoRefs.current.delete(videoId);
+      queueMicrotask(() => {
+        if (videoRefs.current.has(videoId)) return;
+        hlsRefs.current.get(videoId)?.destroy();
+        hlsRefs.current.delete(videoId);
+      });
     }
-  }, [relaxVideos, currentIndex, isMuted]);
+  }, [relaxVideos, currentIndex, isMuted, isConstrainedConnection]);
 
   // Handle video playback state changes
   useEffect(() => {
@@ -174,7 +276,6 @@ export const RelaxVideoPlayer: React.FC<RelaxVideoPlayerProps> = ({
     videoRefs.current.forEach((video, videoId) => {
       if (videoId === currentVideo.id) {
         // Play current video
-        video.currentTime = 0; // Reset to beginning
         video.play().catch(() => {
           console.log('Auto-play prevented for video', videoId);
         });
@@ -239,7 +340,7 @@ export const RelaxVideoPlayer: React.FC<RelaxVideoPlayerProps> = ({
       // Reset transition state
       setTimeout(() => setIsTransitioning(false), 300);
     }
-  }, [currentIndex, relaxVideos?.length, onRefresh, isTransitioning]);
+  }, [currentIndex, relaxVideos?.length, onRefresh, isTransitioning, hasMore, loadMore]);
 
   // Keyboard navigation
   useEffect(() => {
@@ -327,6 +428,35 @@ export const RelaxVideoPlayer: React.FC<RelaxVideoPlayerProps> = ({
     triggerHaptic('light');
   }, [triggerHaptic]);
 
+  const handleVideoMetadata = useCallback((videoId: string, element: HTMLVideoElement) => {
+    if (!element.videoWidth || !element.videoHeight) return;
+    const ratio = element.videoWidth / element.videoHeight;
+    const shouldContain = ratio > 2.05 || ratio < 0.44;
+    setContainedVideos(previous => {
+      const currentlyContained = previous.has(videoId);
+      if (currentlyContained === shouldContain) return previous;
+      const next = new Set(previous);
+      if (shouldContain) next.add(videoId);
+      else next.delete(videoId);
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    const handleMediaKeys = (event: KeyboardEvent) => {
+      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
+      if (event.key === ' ') {
+        event.preventDefault();
+        const currentVideo = relaxVideos[currentIndex];
+        if (currentVideo) togglePlayPause(currentVideo.id);
+      } else if (event.key.toLowerCase() === 'm') {
+        handleMute();
+      }
+    };
+    window.addEventListener('keydown', handleMediaKeys);
+    return () => window.removeEventListener('keydown', handleMediaKeys);
+  }, [currentIndex, handleMute, relaxVideos, togglePlayPause]);
+
   // Double-tap to like handler
   const handleDoubleTap = useCallback((e: React.MouseEvent | React.TouchEvent, videoId: string) => {
     const now = Date.now();
@@ -379,7 +509,7 @@ export const RelaxVideoPlayer: React.FC<RelaxVideoPlayerProps> = ({
     // Extract position for potential double tap heart
     let clientX: number, clientY: number;
     if ('touches' in e) {
-      const touch = e.nativeEvent instanceof TouchEvent ? e.nativeEvent.changedTouches[0] : (e as any).changedTouches?.[0] || (e as any).touches?.[0];
+      const touch = e.changedTouches?.[0] || e.touches?.[0];
       clientX = touch?.clientX ?? 0;
       clientY = touch?.clientY ?? 0;
     } else {
@@ -411,7 +541,7 @@ export const RelaxVideoPlayer: React.FC<RelaxVideoPlayerProps> = ({
         lastTapRef.current = { time: 0, x: 0, y: 0 };
       }, 300);
     }
-  }, [handleDoubleTap, togglePlayPause, triggerHaptic]);
+  }, [handleDoubleTap, togglePlayPause]);
 
   const handleAction = useCallback(async (action: string, videoId?: string) => {
     console.log(`${action} action triggered`);
@@ -462,21 +592,67 @@ export const RelaxVideoPlayer: React.FC<RelaxVideoPlayerProps> = ({
   const visibleVideoIndices = getVisibleVideos();
 
   return (
-    <div className="fixed inset-0 bg-black z-50">
+    <div ref={rootRef} className="relax-feed">
       {/* Video container */}
       <div 
         ref={containerRef}
-        className={`relative w-full overflow-hidden transition-all duration-300 ${
+        className={`relax-viewport transition-all duration-300 ${
           isCommentsOpen ? 'blur-[8px] brightness-[0.3]' : ''
         }`}
-        style={{ 
-          height: 'calc(100vh - 50px)', // Leave space for footer navbar
-          touchAction: 'none' 
-        }}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
       >
+        <header className="relax-header bg-gradient-to-b from-black/60 via-black/20 to-transparent text-white">
+          {onBackToFeed ? (
+            <button type="button" onClick={onBackToFeed} className="pointer-events-auto grid size-11 place-items-center rounded-full text-white drop-shadow-lg transition-transform duration-200 hover:scale-110 active:scale-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white" aria-label="Back to feed">
+              <ChevronDown className="size-5" />
+            </button>
+          ) : <span className="size-11" />}
+          <div className="relax-header__title drop-shadow-md"><p className="text-base font-extrabold tracking-tight">Relax</p><p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/70">For you</p></div>
+          <div className="pointer-events-auto relative flex size-11 items-center justify-center">
+            <button
+              type="button"
+              onClick={revealQualityLabel}
+              className="group grid size-10 place-items-center rounded-full text-white transition-transform duration-200 active:scale-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+              aria-label={`Quality mode: ${isConstrainedConnection ? 'Auto data saver' : 'Auto'}`}
+              aria-describedby={showQualityLabel ? 'relax-quality-label' : undefined}
+            >
+              <Gauge className="size-4 drop-shadow-md transition-transform duration-200 group-hover:scale-110" />
+            </button>
+            <span
+              id="relax-quality-label"
+              role="status"
+              className={cn(
+                "pointer-events-none absolute right-0 top-full mt-0.5 whitespace-nowrap text-[9px] font-semibold tracking-wide text-white drop-shadow-lg transition-all duration-200",
+                showQualityLabel ? "translate-y-0 opacity-100" : "-translate-y-1 opacity-0"
+              )}
+            >
+              Auto quality
+            </span>
+          </div>
+        </header>
+
+        {videosLoading && relaxVideos.length === 0 && (
+          <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black text-white" role="status">
+            <div className="mb-5 aspect-[3/4] w-[72%] max-w-xs animate-pulse rounded-[2rem] bg-white/[0.08]" />
+            <SerkleLoader dark label="Preparing Relax" />
+          </div>
+        )}
+
+        {!videosLoading && videosError && relaxVideos.length === 0 && (
+          <div className="absolute inset-0 z-30 flex flex-col items-center justify-center px-8 text-center text-white">
+            <div className="mb-4 grid size-14 place-items-center rounded-2xl bg-white/10"><RefreshCw className="size-6" /></div>
+            <h2 className="text-xl font-bold">Relax couldn’t load</h2>
+            <p className="mt-2 max-w-xs text-sm leading-6 text-white/[0.65]">Check your connection and try again.</p>
+            <button type="button" onClick={refetch} className="mt-5 min-h-12 rounded-full bg-white px-6 font-bold text-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-secondary">Try again</button>
+          </div>
+        )}
+
+        {!videosLoading && !videosError && relaxVideos.length === 0 && (
+          <div className="absolute inset-0 z-30 flex flex-col items-center justify-center px-8 text-center text-white"><h2 className="text-xl font-bold">Nothing to watch yet</h2><p className="mt-2 text-sm text-white/[0.65]">New videos will appear here.</p></div>
+        )}
+
         {visibleVideoIndices.map((index) => {
           const video = relaxVideos[index];
           if (!video) return null;
@@ -484,11 +660,12 @@ export const RelaxVideoPlayer: React.FC<RelaxVideoPlayerProps> = ({
           const isActive = index === currentIndex;
           const isLiked = video.liked || likedVideos.has(video.id);
           const videoIsLoading = isLoading[video.id] || false;
+          const isCaptionExpanded = expandedCaptions.has(video.id);
           
           return (
             <div
               key={`relax-video-${index}-${video.id}`}
-              className="absolute inset-0 w-full h-full"
+              className="relax-slide"
               style={{
                 transform: `translateY(${translateY}px)`,
                 transition: isTransitioning ? 'transform 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94)' : 'none',
@@ -496,22 +673,33 @@ export const RelaxVideoPlayer: React.FC<RelaxVideoPlayerProps> = ({
                 zIndex: isActive ? 20 : 10
               }}
             >
-              {/* Gradient background for landscape videos only */}
-              {landscapeVideos.has(video.id) && (
-                <div className="absolute inset-0 bg-gradient-to-b from-primary via-secondary to-primary" />
-              )}
+              <div className="relax-stage">
+              <div className="relax-media-layer overflow-hidden bg-black">
+                {video.thumbnail ? (
+                  <img
+                    src={video.thumbnail}
+                    alt=""
+                    aria-hidden="true"
+                    className="absolute -inset-8 h-[calc(100%+4rem)] w-[calc(100%+4rem)] scale-110 object-cover opacity-45 blur-3xl"
+                  />
+                ) : (
+                  <div className="absolute inset-0 bg-gradient-to-b from-primary/70 via-black to-primary/50" />
+                )}
+                <div className="absolute inset-0 bg-black/25" />
+              </div>
 
               {/* Video element */}
               <video
                 ref={(el) => registerVideo(video.id, el)}
-                className={`relative w-full h-full z-[1] ${
-                  landscapeVideos.has(video.id) ? 'object-contain' : 'object-cover'
-                }`}
+                className={cn("relax-media", containedVideos.has(video.id) && "relax-media--contain")}
                 poster={video.thumbnail}
                 loop
                 playsInline
                 muted={isMuted}
+                onLoadedMetadata={(event) => handleVideoMetadata(video.id, event.currentTarget)}
               />
+
+              <div className="pointer-events-none absolute inset-0 z-[2] bg-gradient-to-b from-black/10 via-transparent via-55% to-black/75" />
 
               {/* Tap zone for play/pause and like */}
               <div
@@ -522,9 +710,7 @@ export const RelaxVideoPlayer: React.FC<RelaxVideoPlayerProps> = ({
               {/* Play icon overlay */}
               {isActive && pausedVideos.has(video.id) && !videoIsLoading && (
                 <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none transition-all duration-300">
-                  <div className="size-20 bg-black/30 backdrop-blur-md rounded-full flex items-center justify-center border border-white/20 shadow-2xl animate-in zoom-in-75 duration-200">
-                    <div className="w-0 h-0 border-l-[24px] border-l-white border-t-[16px] border-t-transparent border-b-[16px] border-b-transparent ml-1.5 opacity-90" />
-                  </div>
+                  <Play className="size-14 fill-white text-white opacity-95 drop-shadow-[0_3px_8px_rgba(0,0,0,0.55)] animate-in zoom-in-75 duration-200" aria-hidden="true" />
                 </div>
               )}
 
@@ -552,22 +738,23 @@ export const RelaxVideoPlayer: React.FC<RelaxVideoPlayerProps> = ({
               {isActive && (
                 <>
                   {(() => {
-                    const isExpanded = expandedCaptions.has(video.id);
+                    const isExpanded = isCaptionExpanded;
                     const showReadMore = needsReadMore(video.description);
                     
                     return (
                       <div 
-                        className="absolute left-4 right-20 text-white z-20 transition-all duration-300 ease-out"
-                        style={{ 
-                          bottom: '8px',
-                          transform: isExpanded ? 'translateY(-20px)' : 'translateY(0)'
-                        }}
+                        className={cn(
+                          "relax-meta isolate rounded-[1.05rem] border border-white/[0.02] bg-gradient-to-br from-white/[0.008] via-transparent to-black/[0.006] p-2 text-white shadow-[0_12px_42px_rgba(0,0,0,0.025)] backdrop-saturate-125",
+                          isExpanded
+                            ? "relax-meta--expanded"
+                            : "backdrop-blur-sm before:pointer-events-none before:absolute before:-inset-2 before:-z-10 before:rounded-[1.4rem] before:bg-black/[0.008] before:blur-lg"
+                        )}
                       >
                         {/* User info - pushes up when caption expands */}
-                        <div className="flex items-center gap-3 mb-2">
+                        <div className="mb-1 flex items-center gap-1.5">
                           <div className="relative">
                             <div 
-                              className="w-10 h-10 rounded-full border-2 border-white flex items-center justify-center text-xs font-semibold overflow-hidden"
+                              className="flex size-7 items-center justify-center overflow-hidden rounded-full border border-white/80 text-[9px] font-semibold"
                               style={{ backgroundColor: video.user.avatarColor }}
                             >
                               {video.user.avatar ? (
@@ -583,20 +770,20 @@ export const RelaxVideoPlayer: React.FC<RelaxVideoPlayerProps> = ({
                                   e.stopPropagation();
                                   handleFollow(video.user.id);
                                 }}
-                                className="absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full bg-card border-2 border-white flex items-center justify-center shadow-lg hover:scale-110 active:scale-95 transition-all duration-200 z-10"
+                                className="absolute -bottom-1 -right-1 z-10 flex size-4 items-center justify-center rounded-full border border-white bg-card shadow-lg transition-all duration-200 hover:scale-110 active:scale-95"
                                 aria-label={`Follow ${video.user.name}`}
                               >
                                 {(followStates[video.user.id] || 'visible') === 'visible' ? (
-                                  <Plus className="w-2.5 h-2.5 text-primary" />
+                                  <Plus className="size-2 text-primary" />
                                 ) : (
-                                  <Check className="w-2.5 h-2.5 text-green-500" />
+                                  <Check className="size-2 text-green-500" />
                                 )}
                               </button>
                             )}
                           </div>
                           <div>
                             <p 
-                              className="font-semibold text-sm cursor-pointer hover:underline relative z-10"
+                              className="relax-meta__name relative z-10 cursor-pointer font-bold hover:underline"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 setSelectedUserId(video.user.id);
@@ -605,52 +792,56 @@ export const RelaxVideoPlayer: React.FC<RelaxVideoPlayerProps> = ({
                             >
                               {video.user.name}
                             </p>
-                            <p className="text-xs opacity-80">@{video.user.username}</p>
+                            <p className="relax-meta__username text-white/[0.72]">@{video.user.username}</p>
                           </div>
                         </div>
                         
                         {/* Title */}
                         {video.title && (
-                          <h3 className="font-semibold text-sm mb-1 line-clamp-1 drop-shadow-sm">{video.title}</h3>
+                          <h3 className="relax-meta__title mb-0.5 line-clamp-1 font-bold drop-shadow-sm">{video.title}</h3>
                         )}
 
                         {/* Caption with expandable functionality */}
                         <div className="mb-1">
                           {!isExpanded ? (
                             /* Collapsed state - 2 lines with Read More button */
-                            <div className="text-sm leading-relaxed">
-                              <p className="line-clamp-2 mb-1">
+                            <div>
+                              <p className="relax-meta__description mb-0.5">
                                 {video.description}
                               </p>
                               {showReadMore && (
                                 <button
                                   onClick={() => toggleCaptionExpansion(video.id)}
-                                  className="text-white font-bold text-sm hover:text-gray-200 transition-colors"
+                                  className="min-h-8 rounded-md pr-2 text-xs font-bold text-secondary transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
                                 >
-                                  Read More
+                                  More
                                 </button>
                               )}
                             </div>
                           ) : (
                             /* Expanded state - full text */
                             <div>
-                              <p 
-                                className="text-sm leading-relaxed cursor-pointer transition-all duration-300"
-                                onClick={() => toggleCaptionExpansion(video.id)}
-                              >
+                              <p className="relax-meta__description">
                                 {video.description}
                               </p>
+                              <button
+                                type="button"
+                                onClick={() => toggleCaptionExpansion(video.id)}
+                                className="mt-2 min-h-10 rounded-full border border-white/20 px-4 text-xs font-bold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                              >
+                                Less
+                              </button>
                             </div>
                           )}
                         </div>
 
                         {/* Tags - always visible */}
                         {video.tags && video.tags.length > 0 && (
-                          <div className="flex flex-wrap gap-1.5 mt-1">
-                            {video.tags.slice(0, 4).map((tag, tagIndex) => (
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            {video.tags.slice(0, isExpanded ? video.tags.length : 3).map((tag, tagIndex) => (
                               <span 
                                 key={tagIndex} 
-                                className="text-xs text-white bg-card/10 backdrop-blur-md border border-white/20 rounded-full px-2 py-0.5 shadow-sm"
+                                className="relax-meta__tag rounded-full border border-white/20 bg-card/10 px-2 py-1 text-white shadow-sm backdrop-blur-md"
                               >
                                 #{tag}
                               </span>
@@ -661,34 +852,15 @@ export const RelaxVideoPlayer: React.FC<RelaxVideoPlayerProps> = ({
                     );
                   })()}
 
-                  {/* Action buttons - positioned at bottom edge */}
-                  <div className="absolute right-2 flex flex-col items-center gap-3 z-20" style={{ bottom: '8px', maxWidth: '48px' }}>
-                    {/* Like button with enhanced styling */}
+                  {/* Compact glass action rail */}
+                  <div className={cn("relax-actions", isCaptionExpanded && "relax-actions--hidden")}>
                     <button 
                       onClick={() => handleLike(video.id)}
-                      className="group flex flex-col items-center gap-1 transition-all duration-200"
+                      className="relax-action group flex flex-col gap-0.5 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
+                      aria-label={`${isLiked ? 'Unlike' : 'Like'} video, ${formatCount(video.stats.likes)} likes`}
                     >
-                      <div className={cn(
-                        "relative w-10 h-10 rounded-full backdrop-blur-md border transition-all duration-200 flex items-center justify-center group-active:scale-95 shadow-lg",
-                        isLiked 
-                          ? "bg-red-500/20 border-red-500/30 shadow-red-500/25" 
-                          : "bg-card/15 border-white/20 hover:bg-card/25"
-                      )}>
-                        <Heart 
-                          className={cn(
-                            "w-6 h-6 transition-all duration-200",
-                            isLiked ? "fill-red-500 text-red-500 scale-110" : "text-white"
-                          )}
-                        />
-                        {/* Enhanced like animation */}
-                        {isLiked && (
-                          <>
-                            <div className="absolute inset-0 rounded-full bg-red-500/30 animate-ping" />
-                            <div className="absolute inset-0 rounded-full bg-red-500/20 animate-pulse" />
-                          </>
-                        )}
-                      </div>
-                      <span className="text-white text-xs font-medium drop-shadow-sm">
+                      <Heart className={cn("size-5 text-white transition-transform duration-200 ease-out motion-safe:group-hover:-translate-y-0.5 motion-safe:group-active:scale-75", isLiked && "scale-110 fill-rose-500 text-rose-500")} />
+                      <span className="relax-action__count font-semibold text-white/90 tabular-nums">
                         {formatCount(video.stats.likes + (isLiked ? 1 : 0))}
                       </span>
                     </button>
@@ -699,61 +871,52 @@ export const RelaxVideoPlayer: React.FC<RelaxVideoPlayerProps> = ({
                         setPipVideoIndex(video.id);
                         triggerHaptic('light');
                       }}
-                      className="group flex flex-col items-center gap-1 transition-all duration-200 active:bg-transparent"
+                      className="relax-action group flex flex-col gap-0.5 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
+                      aria-label={`Open comments, ${formatCount(video.stats.comments)} comments`}
                     >
-                       <div className="w-10 h-10 rounded-full bg-card/15 backdrop-blur-md border border-white/20 flex items-center justify-center group-active:scale-95 hover:bg-card/25 transition-all duration-200 shadow-lg active:bg-card/15">
-                        <MessageCircle className="w-6 h-6 text-white group-active:text-primary transition-colors" />
-                      </div>
-                      <span className="text-white text-xs font-medium drop-shadow-sm">
+                      <MessageCircle className="size-5 text-white transition-transform duration-200 ease-out motion-safe:group-hover:-translate-y-0.5 motion-safe:group-active:scale-75" />
+                      <span className="relax-action__count font-semibold text-white/90 tabular-nums">
                         {formatCount(video.stats.comments)}
                       </span>
                     </button>
 
-                    {/* Share button with enhanced styling */}
                     <button 
                       onClick={() => {
                         setShareVideoId(video.id);
                         setShareVideoUrl(video.url);
                       }}
-                      className="group flex flex-col items-center gap-1 transition-all duration-200 active:bg-transparent"
+                      className="relax-action group flex flex-col gap-0.5 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
+                      aria-label={`Share video, ${formatCount(video.stats.shares)} shares`}
                     >
-                      <div className="w-10 h-10 rounded-full bg-card/15 backdrop-blur-md border border-white/20 flex items-center justify-center group-active:scale-95 hover:bg-card/25 transition-all duration-200 shadow-lg active:bg-card/15">
-                        <Share className="w-6 h-6 text-white group-active:text-primary transition-colors" />
-                      </div>
-                      <span className="text-white text-xs font-medium drop-shadow-sm">
+                      <Share className="size-5 text-white transition-transform duration-200 ease-out motion-safe:group-hover:-translate-y-0.5 motion-safe:group-hover:-rotate-6 motion-safe:group-active:scale-75" />
+                      <span className="relax-action__count font-semibold text-white/90 tabular-nums">
                         {formatCount(video.stats.shares)}
                       </span>
                     </button>
 
-                    {/* Bookmark button with enhanced styling */}
                     <button 
                       onClick={() => handleAction('save', video.id)}
-                      className="group flex flex-col items-center gap-1 transition-all duration-200"
+                      className="relax-action group grid place-items-center rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
+                      aria-label={video.saved ? "Remove video from saved" : "Save video"}
                     >
-                      <div className="w-10 h-10 rounded-full bg-card/15 backdrop-blur-md border border-white/20 flex items-center justify-center group-active:scale-95 hover:bg-card/25 transition-all duration-200 shadow-lg">
-                        <Bookmark className="w-6 h-6 text-white" />
-                      </div>
+                      <Bookmark className={cn("size-5 text-white transition-transform duration-200 ease-out motion-safe:group-hover:-translate-y-0.5 motion-safe:group-active:scale-75", video.saved && "fill-secondary text-secondary")} />
                     </button>
 
-                    {/* Volume/Mute button with enhanced styling */}
                     <button 
                       onClick={handleMute}
-                      className={cn(
-                        "w-10 h-10 rounded-full backdrop-blur-md border flex items-center justify-center active:scale-95 transition-all duration-200 shadow-lg",
-                        isMuted 
-                          ? "bg-card/15 border-white/20 hover:bg-card/25" 
-                          : "bg-blue-500/20 border-blue-500/30 shadow-blue-500/25"
-                      )}
+                      className="relax-action group grid place-items-center rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
+                      aria-label={isMuted ? "Unmute video" : "Mute video"}
                     >
                       {isMuted ? (
-                        <VolumeX className="w-6 h-6 text-white transition-colors duration-200" />
+                        <VolumeX className="size-5 text-white transition-transform duration-200 motion-safe:group-active:scale-75" />
                       ) : (
-                        <Volume2 className="w-6 h-6 text-blue-400 transition-colors duration-200" />
+                        <Volume2 className="size-5 text-secondary transition-transform duration-200 motion-safe:group-active:scale-75" />
                       )}
                     </button>
                   </div>
                 </>
               )}
+              </div>
             </div>
           );
         })}
@@ -761,7 +924,7 @@ export const RelaxVideoPlayer: React.FC<RelaxVideoPlayerProps> = ({
 
 
       {/* Footer navbar for video mode */}
-      <div className="absolute bottom-0 left-0 right-0 z-30">
+      <div className="relax-nav-layer">
         <FooterNav
           active={activeTab}
           onSelect={onTabSelect}

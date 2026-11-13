@@ -57,7 +57,7 @@ const NavLabel: React.FC<{ active: boolean; children: React.ReactNode }> = ({ ac
 const FooterNavSurface: React.FC<{ videoMode?: boolean }> = ({ videoMode = false }) => (
   <svg
     aria-hidden="true"
-    className={`pointer-events-none absolute inset-0 z-0 h-full w-full overflow-visible ${videoMode ? '' : 'drop-shadow-[0_8px_18px_rgba(15,23,42,0.12)]'}`}
+    className={`pointer-events-none absolute inset-x-0 top-0 z-0 w-full overflow-visible ${videoMode ? 'h-[50px]' : 'h-full drop-shadow-[0_8px_18px_rgba(15,23,42,0.12)]'}`}
     style={{
       // Mask in CSS pixels so the opening stays circular at every navbar width.
       // Only the surface is masked; the independently centered button stays visible.
@@ -139,11 +139,23 @@ const FooterNav: React.FC<FooterNavProps> = ({ active, onSelect, onOpenCreate, o
     return (
       <nav 
         aria-label="Primary" 
-        className="serkle-footer-nav serkle-footer-nav--enter relative w-full h-[50px] flex items-center justify-center bg-transparent"
+        className="serkle-footer-nav serkle-footer-nav--enter relative flex w-full items-start justify-center bg-transparent"
+        style={{ height: 'calc(50px + env(safe-area-inset-bottom))' }}
         role="tablist"
       >
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-x-0 bottom-0 bg-card"
+          style={{ height: 'env(safe-area-inset-bottom)' }}
+        />
         <FooterNavSurface videoMode />
-        <div className="relative z-[1] grid grid-cols-5 place-items-center h-full w-full max-w-md px-4">
+        <div
+          className="relative z-[1] grid h-[50px] w-full max-w-md grid-cols-5 place-items-center px-4"
+          style={{
+            paddingLeft: 'max(1rem, env(safe-area-inset-left))',
+            paddingRight: 'max(1rem, env(safe-area-inset-right))',
+          }}
+        >
           <button
             type="button"
             role="tab"

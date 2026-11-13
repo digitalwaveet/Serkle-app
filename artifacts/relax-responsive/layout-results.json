@@ -1,0 +1,440 @@
+[
+  {
+    "name": "small-iphone",
+    "width": 375,
+    "height": 667,
+    "geometry": {
+      "viewport": {
+        "width": 375,
+        "height": 667
+      },
+      "visualViewport": {
+        "width": 375,
+        "height": 667
+      },
+      "root": {
+        "left": 0,
+        "top": 0,
+        "right": 375,
+        "bottom": 667,
+        "width": 375,
+        "height": 667
+      },
+      "player": {
+        "left": 0,
+        "top": 0,
+        "right": 375,
+        "bottom": 617,
+        "width": 375,
+        "height": 617
+      },
+      "header": {
+        "left": 0,
+        "top": 0,
+        "right": 375,
+        "bottom": 70
+      },
+      "actions": {
+        "left": 323,
+        "top": 391,
+        "right": 367,
+        "bottom": 611
+      },
+      "meta": {
+        "left": 10,
+        "top": 464.21875,
+        "right": 311,
+        "bottom": 611
+      },
+      "nav": {
+        "left": 0,
+        "top": 617,
+        "right": 375,
+        "bottom": 667,
+        "height": 50
+      }
+    },
+    "checks": {
+      "rootMatchesViewport": true,
+      "headerInsidePlayer": true,
+      "actionsInsidePlayer": true,
+      "metadataInsidePlayer": true,
+      "metadataClearsActions": true,
+      "navigationInsideRoot": true
+    },
+    "expanded": {
+      "sheet": {
+        "top": 371.65625,
+        "right": 365,
+        "bottom": 611,
+        "left": 10,
+        "height": 239.34375
+      },
+      "player": {
+        "top": 0,
+        "right": 375,
+        "bottom": 617,
+        "left": 0
+      },
+      "header": {
+        "bottom": 70
+      },
+      "actionsOpacity": 0,
+      "sheetScrollable": true
+    },
+    "expandedChecks": {
+      "exists": true,
+      "insidePlayer": true,
+      "belowHeader": true,
+      "actionsCleared": true,
+      "scrollableWhenNeeded": true
+    }
+  },
+  {
+    "name": "standard-iphone",
+    "width": 393,
+    "height": 852,
+    "geometry": {
+      "viewport": {
+        "width": 393,
+        "height": 852
+      },
+      "visualViewport": {
+        "width": 393,
+        "height": 852
+      },
+      "root": {
+        "left": 0,
+        "top": 0,
+        "right": 393,
+        "bottom": 852,
+        "width": 393,
+        "height": 852
+      },
+      "player": {
+        "left": 0,
+        "top": 0,
+        "right": 393,
+        "bottom": 802,
+        "width": 393,
+        "height": 802
+      },
+      "header": {
+        "left": 0,
+        "top": 0,
+        "right": 393,
+        "bottom": 84
+      },
+      "actions": {
+        "left": 341,
+        "top": 529.203125,
+        "right": 385,
+        "bottom": 790.078125
+      },
+      "meta": {
+        "left": 10,
+        "top": 627.109375,
+        "right": 326.0625,
+        "bottom": 790.078125
+      },
+      "nav": {
+        "left": 0,
+        "top": 802,
+        "right": 393,
+        "bottom": 852,
+        "height": 50
+      }
+    },
+    "checks": {
+      "rootMatchesViewport": true,
+      "headerInsidePlayer": true,
+      "actionsInsidePlayer": true,
+      "metadataInsidePlayer": true,
+      "metadataClearsActions": true,
+      "navigationInsideRoot": true
+    },
+    "expanded": {
+      "sheet": {
+        "top": 550.734375,
+        "right": 383,
+        "bottom": 790.078125,
+        "left": 10,
+        "height": 239.34375
+      },
+      "player": {
+        "top": 0,
+        "right": 393,
+        "bottom": 802,
+        "left": 0
+      },
+      "header": {
+        "bottom": 84
+      },
+      "actionsOpacity": 0,
+      "sheetScrollable": true
+    },
+    "expandedChecks": {
+      "exists": true,
+      "insidePlayer": true,
+      "belowHeader": true,
+      "actionsCleared": true,
+      "scrollableWhenNeeded": true
+    }
+  },
+  {
+    "name": "large-iphone",
+    "width": 430,
+    "height": 932,
+    "geometry": {
+      "viewport": {
+        "width": 430,
+        "height": 932
+      },
+      "visualViewport": {
+        "width": 430,
+        "height": 932
+      },
+      "root": {
+        "left": 0,
+        "top": 0,
+        "right": 430,
+        "bottom": 932,
+        "width": 430,
+        "height": 932
+      },
+      "player": {
+        "left": 0,
+        "top": 0,
+        "right": 430,
+        "bottom": 882,
+        "width": 430,
+        "height": 882
+      },
+      "header": {
+        "left": 0,
+        "top": 0,
+        "right": 430,
+        "bottom": 84
+      },
+      "actions": {
+        "left": 378,
+        "top": 604.265625,
+        "right": 422,
+        "bottom": 868.953125
+      },
+      "meta": {
+        "left": 10,
+        "top": 705.984375,
+        "right": 357.5,
+        "bottom": 868.953125
+      },
+      "nav": {
+        "left": 0,
+        "top": 882,
+        "right": 430,
+        "bottom": 932,
+        "height": 50
+      }
+    },
+    "checks": {
+      "rootMatchesViewport": true,
+      "headerInsidePlayer": true,
+      "actionsInsidePlayer": true,
+      "metadataInsidePlayer": true,
+      "metadataClearsActions": true,
+      "navigationInsideRoot": true
+    }
+  },
+  {
+    "name": "compact-android",
+    "width": 360,
+    "height": 800,
+    "geometry": {
+      "viewport": {
+        "width": 360,
+        "height": 800
+      },
+      "visualViewport": {
+        "width": 360,
+        "height": 800
+      },
+      "root": {
+        "left": 0,
+        "top": 0,
+        "right": 360,
+        "bottom": 800,
+        "width": 360,
+        "height": 800
+      },
+      "player": {
+        "left": 0,
+        "top": 0,
+        "right": 360,
+        "bottom": 750,
+        "width": 360,
+        "height": 750
+      },
+      "header": {
+        "left": 0,
+        "top": 0,
+        "right": 360,
+        "bottom": 84
+      },
+      "actions": {
+        "left": 308,
+        "top": 480.4375,
+        "right": 352,
+        "bottom": 738.8125
+      },
+      "meta": {
+        "left": 10,
+        "top": 575.84375,
+        "right": 296,
+        "bottom": 738.8125
+      },
+      "nav": {
+        "left": 0,
+        "top": 750,
+        "right": 360,
+        "bottom": 800,
+        "height": 50
+      }
+    },
+    "checks": {
+      "rootMatchesViewport": true,
+      "headerInsidePlayer": true,
+      "actionsInsidePlayer": true,
+      "metadataInsidePlayer": true,
+      "metadataClearsActions": true,
+      "navigationInsideRoot": true
+    }
+  },
+  {
+    "name": "standard-android",
+    "width": 393,
+    "height": 851,
+    "geometry": {
+      "viewport": {
+        "width": 393,
+        "height": 851
+      },
+      "visualViewport": {
+        "width": 393,
+        "height": 851
+      },
+      "root": {
+        "left": 0,
+        "top": 0,
+        "right": 393,
+        "bottom": 851,
+        "width": 393,
+        "height": 851
+      },
+      "player": {
+        "left": 0,
+        "top": 0,
+        "right": 393,
+        "bottom": 801,
+        "width": 393,
+        "height": 801
+      },
+      "header": {
+        "left": 0,
+        "top": 0,
+        "right": 393,
+        "bottom": 84
+      },
+      "actions": {
+        "left": 341,
+        "top": 528.28125,
+        "right": 385,
+        "bottom": 789.09375
+      },
+      "meta": {
+        "left": 10,
+        "top": 626.125,
+        "right": 326.0625,
+        "bottom": 789.09375
+      },
+      "nav": {
+        "left": 0,
+        "top": 801,
+        "right": 393,
+        "bottom": 851,
+        "height": 50
+      }
+    },
+    "checks": {
+      "rootMatchesViewport": true,
+      "headerInsidePlayer": true,
+      "actionsInsidePlayer": true,
+      "metadataInsidePlayer": true,
+      "metadataClearsActions": true,
+      "navigationInsideRoot": true
+    }
+  },
+  {
+    "name": "large-samsung",
+    "width": 412,
+    "height": 915,
+    "geometry": {
+      "viewport": {
+        "width": 412,
+        "height": 915
+      },
+      "visualViewport": {
+        "width": 412,
+        "height": 915
+      },
+      "root": {
+        "left": 0,
+        "top": 0,
+        "right": 412,
+        "bottom": 915,
+        "width": 412,
+        "height": 915
+      },
+      "player": {
+        "left": 0,
+        "top": 0,
+        "right": 412,
+        "bottom": 865,
+        "width": 412,
+        "height": 865
+      },
+      "header": {
+        "left": 0,
+        "top": 0,
+        "right": 412,
+        "bottom": 84
+      },
+      "actions": {
+        "left": 360,
+        "top": 588.328125,
+        "right": 404,
+        "bottom": 852.203125
+      },
+      "meta": {
+        "left": 10,
+        "top": 689.234375,
+        "right": 342.203125,
+        "bottom": 852.203125
+      },
+      "nav": {
+        "left": 0,
+        "top": 865,
+        "right": 412,
+        "bottom": 915,
+        "height": 50
+      }
+    },
+    "checks": {
+      "rootMatchesViewport": true,
+      "headerInsidePlayer": true,
+      "actionsInsidePlayer": true,
+      "metadataInsidePlayer": true,
+      "metadataClearsActions": true,
+      "navigationInsideRoot": true
+    }
+  }
+]
