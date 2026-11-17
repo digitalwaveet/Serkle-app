@@ -30,6 +30,7 @@ export interface Post {
   circleName?: string;
   circleAvatar?: string;
   isPremium?: boolean;
+  premiumPrice?: number;
   voiceUrl?: string;
   locationText?: string;
   totalMediaCount?: number;

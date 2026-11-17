@@ -14,6 +14,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useQueryClient } from '@tanstack/react-query';
 import { type Circle } from '@/hooks/useCircles';
 import { formatCircleCount } from '@/lib/circleCountFormat';
+import { getCircleInviteUrl } from '@/lib/circleInviteUrl';
 
 interface CircleSettingsModalProps {
   open: boolean;
@@ -35,8 +36,7 @@ const CircleSettingsModal: React.FC<CircleSettingsModalProps> = ({ open, onOpenC
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
 
-  const publishedDomain = 'https://heart-lens-studio.lovable.app';
-  const inviteLink = circle.invite_code ? `${publishedDomain}/join/${circle.invite_code}` : '';
+  const inviteLink = circle.invite_code ? getCircleInviteUrl(circle.invite_code) : '';
 
   const handleCopyInviteLink = async () => {
     try {

@@ -11,6 +11,7 @@ import DOMPurify from 'dompurify';
 import { CircleLockedCover, CirclePremiumBadge, CirclePreviewFade } from '@/components/circles/CirclePostPreview';
 import { SubscribeCircleModal } from '@/components/circles/SubscribeCircleModal';
 import { getCirclePostPreviews } from '@/lib/circlePostPreview';
+import { restoreOwnedCirclePostPayloads } from '@/lib/circleOwnerAccess';
 import { Button } from '@/components/ui/button';
 import { TipButton } from '@/components/circles/TipButton';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -449,13 +450,14 @@ const CirclePostDetail: React.FC = () => {
       if (error) throw error;
       const source = rows?.[0];
       if (!source || !circleId || source.circle_id !== circleId) throw new Error('Post not found');
+      const [resolvedSource] = await restoreOwnedCirclePostPayloads([source]);
       const [row, previews] = await Promise.all([
-        signProtectedMedia(source),
+        signProtectedMedia(resolvedSource),
         getCirclePostPreviews(
           circleId,
-          [source.post_id],
-          !!source.is_premium && !source.user_has_unlocked,
-          source.is_premium && !source.user_has_unlocked ? [source.post_id] : [],
+          [resolvedSource.post_id],
+          !!resolvedSource.is_premium && !resolvedSource.user_has_unlocked,
+          resolvedSource.is_premium && !resolvedSource.user_has_unlocked ? [resolvedSource.post_id] : [],
         ),
       ]);
 
@@ -483,7 +485,7 @@ const CirclePostDetail: React.FC = () => {
       return {
         ...row,
         preview: previews[0],
-        coverReference: source.cover_image_url || (source.post_type === 'photo' ? source.media_url : null),
+        coverReference: resolvedSource.cover_image_url || (resolvedSource.post_type === 'photo' ? resolvedSource.media_url : null),
         author,
         profiles: author,
         stats,
@@ -836,11 +838,16 @@ const CirclePostDetail: React.FC = () => {
               {(hasActiveSubscription || isOwner) ? (
                 <div className="space-y-3 rounded-xl border border-border bg-primary/5 p-4">
                   <div className="flex items-center justify-between gap-3">
-                    <p className="text-sm font-medium text-foreground">
-                      {isOwner ? 'Restoring author access...' : 'Included in your subscription — unlocking post...'}
-                    </p>
+                    <div>
+                      <p className="text-sm font-medium text-foreground">
+                        {isOwner ? 'Owner access could not be verified.' : 'Subscription access could not be verified.'}
+                      </p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        No payment is required. Retry the authoritative access check.
+                      </p>
+                    </div>
                     <Button variant="outline" size="sm" onClick={() => retryAccess()}>
-                      Refresh
+                      Retry access
                     </Button>
                   </div>
                 </div>

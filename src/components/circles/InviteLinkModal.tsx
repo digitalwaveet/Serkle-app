@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Copy, Check, Link2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { getCircleInviteUrl } from '@/lib/circleInviteUrl';
 
 interface InviteLinkModalProps {
   open: boolean;
@@ -15,8 +16,7 @@ interface InviteLinkModalProps {
 const InviteLinkModal: React.FC<InviteLinkModalProps> = ({ open, onOpenChange, inviteCode, circleName }) => {
   const [copied, setCopied] = useState(false);
 
-  const publishedDomain = 'https://heart-lens-studio.lovable.app';
-  const inviteLink = `${publishedDomain}/join/${inviteCode}`;
+  const inviteLink = getCircleInviteUrl(inviteCode);
 
   const handleCopy = async () => {
     try {

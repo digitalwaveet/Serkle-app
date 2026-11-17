@@ -71,6 +71,8 @@ before(async () => {
       RENAME TO purchase_circle_access_paid;
   `);
   await db.exec(await sqlFile('../../supabase/migrations/20261113120000_circle_unlock_confirmation_and_preview_recovery.sql'));
+  await db.exec(await sqlFile('../../supabase/migrations/20261117120000_circle_owner_author_access.sql'));
+  await db.exec(await sqlFile('../../supabase/migrations/20261117130000_circle_owner_post_payloads.sql'));
   frontend = await createServer({
     configFile: false,
     resolve: { alias: { '@': fileURLToPath(new URL('../', import.meta.url)) } },
@@ -333,7 +335,21 @@ test('anonymous, forged-payer and direct self-grant requests are denied', async 
 });
 
 test('owners, free content and excluded event/service types follow their access rules', async () => {
-  await login(seller); assert.equal(await access('post',post),true); assert.equal((await purchase('video',video)).charged,0);
+  await login(seller);
+  assert.equal(await access('post',post),true);
+  const authorPost = (await q('SELECT * FROM get_post_details($1)', [post]))[0];
+  assert.equal(authorPost.user_has_unlocked, true);
+  assert.equal(authorPost.media_url, 'https://example.test/storage/v1/object/public/post-media/secret.mp4');
+  assert.equal((await q('SELECT * FROM get_owned_circle_post_payloads(ARRAY[$1]::uuid[])', [post]))[0].media_url,
+    'https://example.test/storage/v1/object/public/post-media/secret.mp4');
+  assert.equal((await purchase('video',video)).charged,0);
+  await db.exec('RESET ROLE');
+  await q('UPDATE circles SET creator_id=$2 WHERE id=$1', [circle, outsider]);
+  await login(outsider);
+  assert.equal(await access('post',post),true);
+  const creatorPost = (await q('SELECT * FROM get_post_details($1)', [post]))[0];
+  assert.equal(creatorPost.user_has_unlocked, true);
+  assert.equal(creatorPost.media_url, 'https://example.test/storage/v1/object/public/post-media/secret.mp4');
   await db.exec('RESET ROLE'); await q('UPDATE posts SET is_premium=false WHERE id=$1',[post]); await login();
   assert.equal(await access('post',post),true);
   assert.equal(await access('event',resource),false); assert.equal(await access('service',resource),false);

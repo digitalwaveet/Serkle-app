@@ -221,9 +221,11 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
   // playing video. The onPlay/onPause/onEnded handlers keep this set accurate.
 
   const relative = formatRelativeTime(post.time);
-  const isPremiumCirclePost = post.isPremium && post.circleId;
+  const isCirclePost = !!post.circleId;
+  const isPremiumCirclePost = post.isPremium && isCirclePost;
   const isUnlocked = post.userHasUnlocked || user?.id === post.user.id;
   const shouldShowPaywall = isPremiumCirclePost && !isUnlocked;
+  const hasMedia = Boolean(post.media?.url || post.media?.urls?.length);
   // Friends-only posts limit who may comment / react. The feed RPC already keeps
   // these out of non-audience feeds, but we gate the UI too as a backstop.
   const isFriendsOnly = post.visibility === 'friends';
@@ -327,6 +329,25 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
     else navigate(`/post/${post.id}`);
   };
 
+  const lockedMediaOverlay = shouldShowPaywall ? (
+    <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/[0.04] px-6">
+      <button
+        type="button"
+        onClick={handleOpenForUnlock}
+        className="group flex min-h-11 max-w-[220px] flex-col items-center rounded-2xl border border-white/25 bg-black/35 px-5 py-3 text-center text-white shadow-xl backdrop-blur-[2px] transition-transform active:scale-[0.97]"
+        aria-label={post.premiumPrice ? `Unlock premium post for ${post.premiumPrice} coins` : 'Unlock premium post'}
+      >
+        <span className="mb-1.5 inline-flex size-9 items-center justify-center rounded-xl bg-white/95 text-primary shadow-sm transition-transform group-active:scale-95">
+          <Lock className="size-4" aria-hidden="true" />
+        </span>
+        <span className="text-[13px] font-semibold leading-tight">Premium post</span>
+        <span className="mt-0.5 text-[11px] leading-tight text-white/85">
+          {post.premiumPrice ? `Unlock for ${post.premiumPrice} coins` : 'Tap to unlock'}
+        </span>
+      </button>
+    </div>
+  ) : null;
+
   const handleDelete = async () => {
     if (!user || !post.user.id) return;
     setShowDeleteDialog(true);
@@ -428,15 +449,17 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
             )}
             {isPremiumCirclePost && (
               <span className={cn(
-                "text-[9px] font-medium px-1.5 py-0.5 rounded-full border flex items-center gap-0.5",
-                post.userHasUnlocked ? "bg-green-500/10 text-green-600 border-green-500/20" : "bg-tertiary text-primary border-secondary/30"
-              )}>
-                {post.userHasUnlocked ? (
-                  <Check className="size-2.5" />
+                "inline-flex size-5 shrink-0 items-center justify-center rounded-full",
+                isUnlocked ? "text-secondary" : "text-primary"
+              )}
+                title={isUnlocked ? 'Premium post unlocked' : 'Premium post locked'}
+                aria-label={isUnlocked ? 'Premium post unlocked' : 'Premium post locked'}
+              >
+                {isUnlocked ? (
+                  <Crown className="size-3.5" aria-hidden="true" />
                 ) : (
-                  <Crown className="size-2.5" />
+                  <Lock className="size-3.5" aria-hidden="true" />
                 )}
-                Premium
               </span>
             )}
             {post.sponsored && (
@@ -466,11 +489,6 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
               <span className="flex items-center gap-0.5 text-primary">
                 <MapPin className="size-3" />
                 <span className="max-w-[140px] truncate">{post.locationText}</span>
-              </span>
-            )}
-            {post.circleId && (
-              <span className="px-1.5 py-0.5 rounded-full bg-primary/10 text-primary text-[9px] font-semibold border border-primary/20">
-                Circle
               </span>
             )}
           </p>
@@ -517,7 +535,15 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
                       src={url} 
                       type={/\.(mp4|webm|mov|ogg|m3u8)(\?|$)/i.test(url) ? 'video' : 'image'} 
                       alt={`${post.media?.alt || 'Post image'} ${index + 1}`}
-                      aspectRatio="aspect-auto max-h-[75vh] [&_img]:object-contain [&_video]:object-contain bg-black/5"
+                      aspectRatio={isCirclePost && !isVideoUrl(url)
+                        ? "aspect-[16/10] bg-black/5"
+                        : "aspect-auto max-h-[75vh] [&_img]:object-contain [&_video]:object-contain bg-black/5"}
+                      className={shouldShowPaywall && isVideoUrl(url) ? "[&_video]:scale-[1.04] [&_video]:blur-[6px]" : undefined}
+                      imageClassName={cn(
+                        isCirclePost && !isVideoUrl(url) && "!h-full !w-full !object-cover",
+                        shouldShowPaywall && "scale-[1.04] blur-[6px]"
+                      )}
+                      style={isCirclePost && !isVideoUrl(url) ? { aspectRatio: '16 / 10' } : undefined}
                       showOverlay={false}
                       onPlay={() => setPlayingVideos(prev => new Set(prev).add(index))}
                       onPause={() => setPlayingVideos(prev => {
@@ -531,10 +557,8 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
                         return next;
                       })}
                     />
-                    {shouldShowPaywall && (
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent flex items-center justify-center" />
-                    )}
-                    {isVideoUrl(url) && !playingVideos.has(index) && (
+                    {lockedMediaOverlay}
+                    {!shouldShowPaywall && isVideoUrl(url) && !playingVideos.has(index) && (
                       <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                         <div className="bg-black/30 backdrop-blur-md rounded-full p-4 border border-white/20 shadow-2xl transition-opacity duration-300">
                           <Play className="size-8 text-white fill-white opacity-90" />
@@ -568,8 +592,11 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
             <video
               src={post.media.url}
               poster={post.thumbnailUrl}
-              className="w-full h-auto max-h-[75vh] object-contain bg-black/5"
-              controls
+              className={cn(
+                "w-full h-auto max-h-[75vh] object-contain bg-black/5",
+                shouldShowPaywall && "scale-[1.04] blur-[6px]"
+              )}
+              controls={!shouldShowPaywall}
               preload="metadata"
               playsInline
               onClick={(e) => e.stopPropagation()}
@@ -590,7 +617,12 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
               src={post.media.url}
               type="image"
               alt={post.media.alt || ""}
-              aspectRatio="aspect-auto max-h-[75vh] [&_img]:object-contain bg-black/5"
+              aspectRatio={isCirclePost ? "aspect-[16/10] bg-black/5" : "aspect-auto max-h-[75vh] [&_img]:object-contain bg-black/5"}
+              imageClassName={cn(
+                isCirclePost && "!h-full !w-full !object-cover",
+                shouldShowPaywall && "scale-[1.04] blur-[6px]"
+              )}
+              style={isCirclePost ? { aspectRatio: '16 / 10' } : undefined}
               showOverlay={false}
             />
           )}
@@ -599,10 +631,8 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
               +{(post.totalMediaCount ?? 0) - 1} more
             </div>
           )}
-          {shouldShowPaywall && (
-            <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent flex items-center justify-center" />
-          )}
-          {isVideoUrl(post.media.url) && !playingVideos.has(0) && (
+          {lockedMediaOverlay}
+          {!shouldShowPaywall && isVideoUrl(post.media.url) && !playingVideos.has(0) && (
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
               <div className="bg-black/30 backdrop-blur-md rounded-full p-4 border border-white/20 shadow-2xl transition-opacity duration-300">
                 <Play className="size-8 text-white fill-white opacity-90" />
@@ -698,22 +728,16 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
               )
             )}
 
-            {/* Locked remainder */}
-            <div className="relative overflow-hidden rounded-xl border border-white/5 bg-muted/5 backdrop-blur-sm p-4 mt-1">
-              <div className="max-h-24 overflow-hidden blur-[8px] opacity-20 pointer-events-none select-none grayscale">
-                {isRichText(post.content) ? (
-                  <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(post.content) }} />
-                ) : (
-                  <p>{post.content}</p>
-                )}
-              </div>
-              <div className="absolute inset-0 flex items-center justify-center bg-background/20 backdrop-blur-[2px]">
-                <button className="bg-primary/90 hover:bg-primary text-primary-foreground text-[12px] font-bold px-4 py-2 rounded-full shadow-glow transition-all flex items-center gap-1.5" onClick={handleOpenForUnlock}>
-                  <Lock className="size-3" />
-                  {(post as any).premium_price ? `Unlock for ${(post as any).premium_price} 🪙` : 'Unlock Premium'}
-                </button>
-              </div>
-            </div>
+            {!hasMedia && (
+              <button
+                type="button"
+                className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-primary/15 bg-primary/[0.06] px-4 text-[13px] font-semibold text-primary transition-colors hover:bg-primary/[0.1]"
+                onClick={handleOpenForUnlock}
+              >
+                <Lock className="size-3.5" aria-hidden="true" />
+                {post.premiumPrice ? `Unlock for ${post.premiumPrice} coins` : 'Unlock premium post'}
+              </button>
+            )}
           </div>
         ) : (
           <div className={cn(

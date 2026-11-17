@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { type CSSProperties } from 'react';
 import { SerkleLoader } from '@/components/ui/SerkleLoader';
 import { useMediaLoader, MediaType } from '@/hooks/useMediaLoader';
 import { FileText, AlertCircle, RefreshCw, PlayCircle } from 'lucide-react';
@@ -15,6 +15,8 @@ interface MediaGuardItemProps {
   alt?: string;
   className?: string;
   aspectRatio?: string;
+  imageClassName?: string;
+  style?: CSSProperties;
   showOverlay?: boolean;
   onPlay?: () => void;
   onPause?: () => void;
@@ -22,7 +24,13 @@ interface MediaGuardItemProps {
 }
 
 export const MediaGuardItem: React.FC<MediaGuardItemProps> = props => props.type === 'image'
-  ? <OptimizedImage src={props.src} alt={props.alt || 'Post image'} className={cn('rounded-xl', props.aspectRatio || 'aspect-[4/5]', props.className)} imageClassName="object-contain" />
+  ? <OptimizedImage
+      src={props.src}
+      alt={props.alt || 'Post image'}
+      className={cn('rounded-xl', props.aspectRatio || 'aspect-[4/5]', props.className)}
+      imageClassName={cn('object-contain', props.imageClassName)}
+      style={props.style}
+    />
   : <OtherMediaGuardItem {...props} />;
 
 const OtherMediaGuardItem: React.FC<MediaGuardItemProps> = ({
@@ -31,6 +39,7 @@ const OtherMediaGuardItem: React.FC<MediaGuardItemProps> = ({
   alt = "Media content",
   className,
   aspectRatio = "aspect-[4/5]",
+  style,
   showOverlay = true,
   onPlay,
   onPause,
@@ -71,7 +80,7 @@ const OtherMediaGuardItem: React.FC<MediaGuardItemProps> = ({
 
   // Render Media
   return (
-    <div className={cn("media-guard-container rounded-xl media-fade-in group relative", aspectRatio, className)}>
+    <div className={cn("media-guard-container rounded-xl media-fade-in group relative", aspectRatio, className)} style={style}>
       {type === 'image' || type === 'pdf' ? (
         finalSrc && (
           <img

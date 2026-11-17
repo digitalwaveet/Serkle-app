@@ -28,6 +28,7 @@ export async function purchaseCircleAccess(kind: 'subscription' | 'post' | 'vide
 }
 
 export const CIRCLE_ACCESS_QUERY_KEYS = ['circle-subscription', 'circle-posts', 'circle-post', 'circle-videos', 'circle-resources', 'coin-wallet', 'coin-transactions', 'wallet-payments', 'wallet-activity', 'wallet-payment-receipt', 'circle', 'circles', 'circles-search', 'my-circles', 'owned-circles', 'circle-invite-preview'];
+export const CIRCLE_ACCESS_CHANGED_EVENT = 'serkle:circle-access-changed';
 
 /** Verify that the authoritative post reader RPC reflects unlocked access after a coin payment. */
 export async function confirmCirclePostAccess(
@@ -67,6 +68,9 @@ export async function refreshCircleAccessQueries(
   await Promise.all(
     refetchTargets.map((queryKey) => queryClient.refetchQueries({ queryKey, type: 'active' })),
   );
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event(CIRCLE_ACCESS_CHANGED_EVENT));
+  }
 }
 
 export async function purchaseCircleBooking(kind: 'event' | 'service', targetId: string, expectedPrice: number, details: Record<string, string> = {}) {

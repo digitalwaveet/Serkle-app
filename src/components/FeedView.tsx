@@ -7,10 +7,49 @@ import { supabase } from '@/integrations/supabase/client';
 import { VideoLoader } from '@/components/ui/VideoLoader';
 import { useUser } from '@/contexts/UserContext';
 import EmptyState from '@/components/ui/empty-state';
+import { getCirclePostPreviews } from '@/lib/circlePostPreview';
+import { CIRCLE_ACCESS_CHANGED_EVENT } from '@/lib/circlePayments';
+import { restoreOwnedCirclePostPayloads } from '@/lib/circleOwnerAccess';
 
 const PostSkeleton = () => (<div className="min-h-64 flex items-center justify-center"><SerkleLoader label="Loading posts" showText /></div>);
 
 const PAGE_SIZE = 10;
+
+const addLockedCirclePreviews = async (rows: any[], viewerId?: string) => {
+  const isLockedForViewer = (item: any) =>
+    Boolean(item.circle_id && item.is_premium && !item.user_has_unlocked && item.user_id !== viewerId);
+  const byCircle = new Map<string, string[]>();
+  rows.forEach(item => {
+    if (!isLockedForViewer(item)) return;
+    const postIds = byCircle.get(item.circle_id) ?? [];
+    postIds.push(item.post_id);
+    byCircle.set(item.circle_id, postIds);
+  });
+
+  if (!byCircle.size) return rows;
+
+  const previewGroups = await Promise.all(
+    [...byCircle.entries()].map(([circleId, postIds]) =>
+      getCirclePostPreviews(circleId, postIds, true, postIds)
+    )
+  );
+  const previews = new Map(previewGroups.flat().map(preview => [preview.post_id, preview]));
+
+  return rows.map(item => {
+    if (!isLockedForViewer(item)) return item;
+    const preview = previews.get(item.post_id);
+    const previewImage = preview?.preview_image || null;
+    return {
+      ...item,
+      content: preview?.preview_text || item.content || '',
+      // Locked viewers receive only the deliberately lossy display preview. The
+      // protected original remains absent until entitlement is verified.
+      media_url: previewImage,
+      media_urls: previewImage ? [previewImage] : [],
+      cover_image_url: previewImage,
+    };
+  });
+};
 
 const formatPost = (item: any): Post => ({
   id: item.post_id,
@@ -52,6 +91,7 @@ const formatPost = (item: any): Post => ({
   circleName: item.circle_name || undefined,
   circleAvatar: item.circle_avatar_url || undefined,
   isPremium: item.is_premium || false,
+  premiumPrice: item.premium_price == null ? undefined : Number(item.premium_price),
   voiceUrl: item.voice_url || undefined,
   locationText: item.location_text || undefined,
   thumbnailUrl: item.cover_image_url || undefined,
@@ -73,8 +113,10 @@ export const FeedView: React.FC<FeedViewProps> = ({ onRefresh }) => {
   const [hasMore, setHasMore] = useState(true);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
+  const latestFirstPageRequestRef = useRef(0);
 
   const fetchPosts = useCallback(async (pageNum: number) => {
+    const firstPageRequest = pageNum === 0 ? ++latestFirstPageRequestRef.current : null;
     try {
       const { data, error } = await supabase.rpc('get_feed_posts', {
         page_num: pageNum,
@@ -83,8 +125,13 @@ export const FeedView: React.FC<FeedViewProps> = ({ onRefresh }) => {
 
       if (error) throw error;
       
-      const signedData = await signProtectedMedia(data || []);
+      const rowsWithOwnerAccess = await restoreOwnedCirclePostPayloads(data || []);
+      const rowsWithPreviews = await addLockedCirclePreviews(rowsWithOwnerAccess, user?.id);
+      const signedData = await signProtectedMedia(rowsWithPreviews);
       const formatted = signedData.map((item: any) => formatPost(item));
+
+      // An older locked response must never replace a newer post-unlock fetch.
+      if (firstPageRequest !== null && firstPageRequest !== latestFirstPageRequestRef.current) return;
       
       if (pageNum === 0) {
         setPosts(formatted);
@@ -95,10 +142,12 @@ export const FeedView: React.FC<FeedViewProps> = ({ onRefresh }) => {
     } catch (error) {
       console.error('Error fetching posts:', error);
     } finally {
-      setLoading(false);
-      setLoadingMore(false);
+      if (firstPageRequest === null || firstPageRequest === latestFirstPageRequestRef.current) {
+        setLoading(false);
+        setLoadingMore(false);
+      }
     }
-  }, []);
+  }, [user?.id]);
 
   // Wait for auth to settle before the first fetch so we keep showing skeletons
   // (rather than an empty state) during initial load, and refetch once the user
@@ -109,6 +158,15 @@ export const FeedView: React.FC<FeedViewProps> = ({ onRefresh }) => {
     setPage(0);
     fetchPosts(0);
   }, [authLoading, user?.id, fetchPosts]);
+
+  useEffect(() => {
+    const refreshUnlockedMedia = () => {
+      setPage(0);
+      void fetchPosts(0);
+    };
+    window.addEventListener(CIRCLE_ACCESS_CHANGED_EVENT, refreshUnlockedMedia);
+    return () => window.removeEventListener(CIRCLE_ACCESS_CHANGED_EVENT, refreshUnlockedMedia);
+  }, [fetchPosts]);
 
   const loadMore = useCallback(() => {
     if (loadingMore || !hasMore) return;
