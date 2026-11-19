@@ -30,3 +30,17 @@ verify_jwt = true
 [functions.image-previews]
 verify_jwt = false
 import_map = "./functions/image-previews/deno.json"
+
+# Supabase Auth signs Send SMS Hook requests with Standard Webhooks. The
+# function verifies that signature itself, so no user JWT is expected here.
+[functions.send-sms]
+verify_jwt = false
+
+# Supabase Auth signs this hook with Standard Webhooks. No end-user JWT is sent.
+[functions.send-email]
+verify_jwt = false
+
+# Server-to-server only. The handler requires MAILER_INTERNAL_SECRET and accepts
+# only allowlisted templates, never arbitrary email HTML.
+[functions.send-notification-email]
+verify_jwt = false

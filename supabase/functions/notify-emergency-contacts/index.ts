@@ -1,7 +1,8 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
+import { buildNotificationEmail, isEmailAddress } from "../_shared/serkleEmail.ts";
+import { deterministicMessageId, sendSmtpMail } from "../_shared/smtpMailer.ts";
 
-const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
@@ -70,73 +71,47 @@ const handler = async (req: Request): Promise<Response> => {
     }
 
     const userName = profile?.name || 'Someone';
-    const locationInfo = location_address || (location_lat && location_lng ? `${location_lat}, ${location_lng}` : 'Location not provided');
-    
-    // Send email notifications using Resend
-    if (RESEND_API_KEY) {
-      const emailPromises = contacts
-        .filter(contact => contact.contact_phone.includes('@')) // Basic email detection
-        .map(async (contact) => {
-          try {
-            const response = await fetch("https://api.resend.com/emails", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${RESEND_API_KEY}`,
-              },
-              body: JSON.stringify({
-                from: "SOS Alert <onboarding@resend.dev>",
-                to: [contact.contact_phone],
-                subject: `🚨 Emergency Alert from ${userName}`,
-                html: `
-                  <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                    <h1 style="color: #dc2626;">🚨 Emergency Alert</h1>
-                    <p><strong>${userName}</strong> has triggered an SOS alert and needs help.</p>
-                    
-                    <div style="background: #fef2f2; padding: 15px; border-radius: 8px; margin: 20px 0;">
-                      <h2 style="color: #991b1b; margin-top: 0;">Alert Details</h2>
-                      <p><strong>Type:</strong> ${sos_type.toUpperCase()}</p>
-                      <p><strong>Urgency:</strong> ${urgency.toUpperCase()}</p>
-                      <p><strong>Description:</strong> ${description}</p>
-                      <p><strong>Location:</strong> ${locationInfo}</p>
-                    </div>
-                    
-                    ${location_lat && location_lng ? `
-                      <p>
-                        <a href="https://www.google.com/maps?q=${location_lat},${location_lng}" 
-                           style="background: #dc2626; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
-                          View Location on Map
-                        </a>
-                      </p>
-                    ` : ''}
-                    
-                    <p style="color: #666; font-size: 14px; margin-top: 30px;">
-                      This is an automated emergency notification. Please try to contact ${userName} immediately.
-                    </p>
-                  </div>
-                `,
-              }),
-            });
+    const hasCoordinates = Number.isFinite(location_lat) && Number.isFinite(location_lng);
+    const locationInfo = location_address || (hasCoordinates ? `${location_lat}, ${location_lng}` : 'Location not provided');
+    const emailContacts = contacts.filter((contact) => isEmailAddress(contact.contact_phone));
+    const notification = buildNotificationEmail('sos_alert', {
+      name: userName,
+      alertType: sos_type.toUpperCase(),
+      urgency: urgency.toUpperCase(),
+      description,
+      location: locationInfo,
+      mapUrl: hasCoordinates ? `https://www.google.com/maps?q=${location_lat},${location_lng}` : '',
+    });
 
-            if (!response.ok) {
-              const error = await response.text();
-              console.error(`Failed to send email to ${contact.contact_phone}:`, error);
-            }
-          } catch (error) {
-            console.error(`Error sending email to ${contact.contact_phone}:`, error);
-          }
-        });
+    const deliveries = await Promise.allSettled(
+      emailContacts.map(async (contact, index) => sendSmtpMail({
+        ...notification,
+        to: contact.contact_phone,
+        messageId: await deterministicMessageId('serkle-sos', `${alert_id}:${index}`),
+      })),
+    );
+    const emailsSent = deliveries.filter((delivery) => delivery.status === 'fulfilled').length;
+    const emailsFailed = deliveries.length - emailsSent;
 
-      await Promise.all(emailPromises);
+    console.log('Emergency email notification attempt completed.', {
+      alertId: alert_id,
+      emailsSent,
+      emailsFailed,
+    });
+
+    if (emailContacts.length > 0 && emailsSent === 0) {
+      return new Response(
+        JSON.stringify({ error: 'Emergency email delivery failed', emails_sent: 0, emails_failed: emailsFailed }),
+        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
-
-    // Log notification sent
-    console.log(`Notified ${contacts.length} emergency contacts for alert ${alert_id}`);
 
     return new Response(
       JSON.stringify({ 
-        message: 'Emergency contacts notified', 
-        contacts_notified: contacts.length 
+        message: emailContacts.length > 0 ? 'Emergency email notifications processed' : 'No email emergency contacts to notify',
+        email_contacts: emailContacts.length,
+        emails_sent: emailsSent,
+        emails_failed: emailsFailed,
       }),
       {
         status: 200,

@@ -1,455 +1,268 @@
-import { SerkleLoader } from '@/components/ui/SerkleLoader';
-import React, { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
-import { Eye, EyeOff, ArrowLeft, KeyRound, CheckCircle2, Mail, ShieldCheck } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { supabase } from "@/integrations/supabase/client";
-import { toast } from "@/hooks/use-toast";
+import { useEffect, useMemo, useState } from 'react';
+import { ArrowLeft, CheckCircle2, Eye, EyeOff, KeyRound, Mail, Phone, ShieldCheck } from 'lucide-react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from '@/hooks/use-toast';
+import { authReturnPath } from '@/lib/authReturnPath';
+import {
+  clearPendingAuth,
+  loadPendingAuth,
+  requestPasswordRecovery,
+  revokeOtherSessions,
+  savePendingAuth,
+  updateRecoveredPassword,
+  verifyPendingAuth,
+} from '@/lib/authFlow';
+import { type AuthMethod, authErrorMessage, isValidEmail, maskAuthIdentifier } from '@/lib/authIdentity';
 
-type Step = "request" | "enter-otp" | "new-password" | "success";
+type Step = 'request' | 'code' | 'new-password' | 'success';
 
 export default function ResetPassword() {
   const navigate = useNavigate();
-
-  const [step, setStep] = useState<Step>("request");
-  const [email, setEmail] = useState("");
-  const [otpCode, setOtpCode] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
+  const location = useLocation();
+  const params = new URLSearchParams(location.search);
+  const isRecoveryUrl = window.location.hash.includes('type=recovery')
+    || params.get('type') === 'recovery'
+    || params.has('code');
+  const returnTo = authReturnPath(location.search);
+  const restoredFlow = loadPendingAuth('recovery');
+  const [method, setMethod] = useState<AuthMethod>(params.get('method') === 'phone' ? 'phone' : restoredFlow?.method ?? 'email');
+  const [step, setStep] = useState<Step>(restoredFlow ? 'code' : 'request');
+  const [flow, setFlow] = useState(restoredFlow);
+  const [email, setEmail] = useState(restoredFlow?.method === 'email' ? restoredFlow.identifier : '');
+  const [phone, setPhone] = useState('');
+  const [dialCode, setDialCode] = useState('+251');
+  const [code, setCode] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmation, setConfirmation] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [showConfirmation, setShowConfirmation] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [now, setNow] = useState(Date.now());
 
-  // Check if we arrived via a recovery link (URL hash, query code, or Supabase auth recovery event)
   useEffect(() => {
-    const hash = window.location.hash;
-    const search = window.location.search;
-
-    if (hash.includes("type=recovery") || search.includes("type=recovery")) {
-      setStep("new-password");
-      setStatusMessage("Verified via recovery link. Please set your new password below.");
-    }
-
-    // Listen to Supabase auth state changes for PASSWORD_RECOVERY
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event) => {
-      if (event === "PASSWORD_RECOVERY") {
-        setStep("new-password");
-        setStatusMessage("Authenticated via recovery link. Please choose a new password.");
-      }
-    });
-
-    // Also check if current session is in recovery mode or valid
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session && (hash.includes("access_token") || hash.includes("type=recovery"))) {
-        setStep("new-password");
-      }
-    });
-
-    return () => {
-      subscription.unsubscribe();
-    };
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
   }, []);
 
-  // Step 1: Send reset email / OTP
-  const handleRequestReset = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!email.trim()) {
-      toast({ title: "Email required", description: "Please enter your email address.", variant: "destructive" });
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'PASSWORD_RECOVERY') setStep('new-password');
+    });
+
+    supabase.auth.getSession().then(({ data }) => {
+      if (isRecoveryUrl && data.session) setStep('new-password');
+    });
+
+    return () => subscription.unsubscribe();
+  }, [isRecoveryUrl]);
+
+  const resendSeconds = useMemo(() => {
+    if (!flow) return 0;
+    return Math.max(0, 60 - Math.floor((now - flow.lastSentAt) / 1_000));
+  }, [flow, now]);
+
+  const requestCode = async (event?: React.FormEvent) => {
+    event?.preventDefault();
+    if (isLoading) return;
+    if (method === 'email' && !isValidEmail(email)) {
+      toast({ title: 'Invalid email', description: 'Enter a valid email address.', variant: 'destructive' });
       return;
     }
 
     setIsLoading(true);
-    setStatusMessage(null);
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-        redirectTo: `${window.location.origin}/reset-password`,
-      });
-
+      const { error, identifier } = await requestPasswordRecovery(method, method === 'email' ? email : phone, dialCode);
       if (error) throw error;
-
+      const pending = savePendingAuth({ kind: 'recovery', method, identifier, returnTo });
+      setFlow(pending);
+      setNow(Date.now());
+      setStep('code');
       toast({
-        title: "Reset link sent!",
-        description: `We've sent a password reset link and code to ${email}.`,
+        title: method === 'email' ? 'Recovery email sent' : 'Recovery SMS sent',
+        description: 'Enter the six-digit code to continue.',
       });
-      setStep("enter-otp");
-      setStatusMessage(`Check your inbox at ${email}. You can either click the link in the email or enter the 6-digit code below.`);
-    } catch (err: any) {
-      toast({
-        title: "Failed to send reset link",
-        description: err?.message || "Please check the email address and try again.",
-        variant: "destructive",
-      });
+    } catch (error) {
+      toast({ title: 'Could not send recovery code', description: authErrorMessage(error), variant: 'destructive' });
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Step 2: Verify OTP
-  const handleVerifyOtp = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const cleanOtp = otpCode.trim();
-    if (!cleanOtp || cleanOtp.length < 6) {
-      toast({ title: "Invalid code", description: "Please enter the 6-digit code from your email.", variant: "destructive" });
+  const verifyCode = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!flow || isLoading) return;
+    if (!/^\d{6}$/.test(code)) {
+      toast({ title: 'Invalid code', description: 'Enter the six-digit recovery code.', variant: 'destructive' });
       return;
     }
 
     setIsLoading(true);
     try {
-      const { error } = await supabase.auth.verifyOtp({
-        email: email.trim(),
-        token: cleanOtp,
-        type: "recovery",
-      });
-
+      const { data, error } = await verifyPendingAuth(flow, code);
       if (error) throw error;
-
-      toast({ title: "Code verified!", description: "Now set your new password." });
-      setStep("new-password");
-      setStatusMessage(null);
-    } catch (err: any) {
-      toast({
-        title: "Verification failed",
-        description: err?.message || "The code is invalid or has expired.",
-        variant: "destructive",
-      });
+      if (!data.session) throw new Error('The recovery code did not create a secure session.');
+      setStep('new-password');
+      toast({ title: 'Code verified', description: 'Choose your new password.' });
+    } catch (error) {
+      toast({ title: 'Verification failed', description: authErrorMessage(error), variant: 'destructive' });
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Step 3: Save new password
-  const handleSavePassword = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const resendRecovery = async () => {
+    if (!flow || isLoading || resendSeconds > 0) return;
+    setIsLoading(true);
+    try {
+      const { error } = await requestPasswordRecovery(flow.method, flow.identifier);
+      if (error) throw error;
+      const updated = savePendingAuth({ ...flow, lastSentAt: Date.now() });
+      setFlow(updated);
+      setNow(Date.now());
+      toast({ title: 'New recovery code sent' });
+    } catch (error) {
+      toast({ title: 'Could not resend code', description: authErrorMessage(error), variant: 'destructive' });
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
-    if (newPassword.length < 6) {
-      toast({
-        title: "Password too short",
-        description: "Your new password must be at least 6 characters.",
-        variant: "destructive",
-      });
+  const savePassword = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (isLoading) return;
+    if (password.length < 8) {
+      toast({ title: 'Password too short', description: 'Use at least 8 characters.', variant: 'destructive' });
       return;
     }
-
-    if (newPassword !== confirmPassword) {
-      toast({
-        title: "Passwords do not match",
-        description: "Please make sure both passwords match.",
-        variant: "destructive",
-      });
+    if (password !== confirmation) {
+      toast({ title: "Passwords don't match", description: 'Enter the same password twice.', variant: 'destructive' });
       return;
     }
 
     setIsLoading(true);
     try {
-      const { error } = await supabase.auth.updateUser({
-        password: newPassword,
-      });
-
+      const { error } = await updateRecoveredPassword(password);
       if (error) throw error;
-
-      setStep("success");
-      toast({
-        title: "Password reset successful!",
-        description: "You can now log in with your new password.",
-      });
-
-      // Clear any tokens from URL
+      const revokeResult = await revokeOtherSessions();
+      if (revokeResult.error) console.warn('Other sessions could not be revoked:', revokeResult.error.code);
+      clearPendingAuth();
       window.history.replaceState({}, document.title, window.location.pathname);
-    } catch (err: any) {
-      toast({
-        title: "Failed to update password",
-        description: err?.message || "An error occurred while setting your new password. Try requesting a new link.",
-        variant: "destructive",
-      });
+      setStep('success');
+    } catch (error) {
+      toast({ title: 'Could not update password', description: authErrorMessage(error), variant: 'destructive' });
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const finish = async () => {
+    await supabase.auth.signOut({ scope: 'local' });
+    navigate(`/login?returnTo=${encodeURIComponent(returnTo)}`, { replace: true });
+  };
+
+  const resetRequest = () => {
+    clearPendingAuth();
+    setFlow(null);
+    setCode('');
+    setStep('request');
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-tertiary/30 via-background to-secondary/20 flex items-center justify-center p-4 animate-fade-in">
+    <main className="flex min-h-screen items-center justify-center bg-gradient-to-br from-tertiary/30 via-background to-secondary/20 p-4 animate-fade-in">
       <div className="w-full max-w-md space-y-6">
-        {/* Header with back button */}
-        <div className="text-center space-y-4 relative">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => navigate("/login")}
-            className="absolute -top-2 left-0 text-muted-foreground hover:text-foreground"
-          >
-            <ArrowLeft className="w-4 h-4 mr-1" />
-            Login
+        <header className="relative space-y-4 text-center">
+          <Button variant="ghost" size="icon" onClick={() => navigate(`/login?returnTo=${encodeURIComponent(returnTo)}`)} className="absolute left-0 top-0" aria-label="Back to sign in">
+            <ArrowLeft className="size-4" />
           </Button>
-
-          <div className="flex items-center justify-center w-14 h-14 rounded-full border border-border bg-card mx-auto shadow-sm overflow-hidden">
-            <img
-              src="/lovable-uploads/SerkleMainLogo.svg"
-              alt="Serkle"
-              className="h-8 w-8 object-contain"
-            />
-          </div>
-
+          <div className="mx-auto flex size-12 items-center justify-center rounded-full border border-border bg-card text-primary"><KeyRound className="size-5" /></div>
           <div>
-            <h1 className="text-2xl font-bold text-foreground tracking-tight">
-              {step === "request" && "Forgot Password"}
-              {step === "enter-otp" && "Enter Reset Code"}
-              {step === "new-password" && "Set New Password"}
-              {step === "success" && "Password Updated"}
-            </h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              {step === "request" && "Enter your email to receive a recovery link or code"}
-              {step === "enter-otp" && `Enter the 6-digit code sent to ${email || "your email"}`}
-              {step === "new-password" && "Enter your new secure password below"}
-              {step === "success" && "Your password has been changed successfully"}
-            </p>
+            <h1 className="text-xl font-semibold">Reset your password</h1>
+            <p className="mt-1 text-sm text-muted-foreground">Verify your account before choosing a new password</p>
           </div>
-        </div>
+        </header>
 
-        {/* Card */}
-        <div className="bg-card border border-border rounded-2xl p-6 shadow-sm space-y-5">
-          {statusMessage && (
-            <div className="p-3 bg-primary/10 border border-primary/20 rounded-xl text-xs text-primary leading-relaxed">
-              {statusMessage}
-            </div>
-          )}
-
-          {/* STEP 1: Request reset link */}
-          {step === "request" && (
-            <form onSubmit={handleRequestReset} className="space-y-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="reset-email" className="text-xs font-medium text-muted-foreground">
-                  Account Email Address
-                </Label>
-                <div className="relative">
-                  <Input
-                    id="reset-email"
-                    type="email"
-                    placeholder="your@email.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="h-11 pl-10 bg-muted/50 border-border focus:border-primary focus:bg-card"
-                    required
-                    autoFocus
-                  />
-                  <Mail className="w-4 h-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
-                </div>
+        <section className="space-y-5 rounded-2xl border border-border bg-card p-6 shadow-sm">
+          {step === 'request' && (
+            <form onSubmit={requestCode} className="space-y-4">
+              <div className="flex gap-1 rounded-xl bg-muted p-1" role="tablist" aria-label="Recovery method">
+                {(['email', 'phone'] as const).map((item) => (
+                  <button key={item} type="button" role="tab" aria-selected={method === item} onClick={() => setMethod(item)} className={`flex min-h-10 flex-1 items-center justify-center gap-2 rounded-lg text-sm font-medium ${method === item ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground'}`}>
+                    {item === 'email' ? <Mail className="size-4" /> : <Phone className="size-4" />}
+                    {item === 'email' ? 'Email' : 'Phone'}
+                  </button>
+                ))}
               </div>
 
-              <Button
-                type="submit"
-                disabled={isLoading || !email.trim()}
-                className="w-full h-11 bg-primary text-primary-foreground font-medium rounded-xl hover:bg-primary/90 transition-colors"
-              >
-                {isLoading ? (
-                  <>
-                    <SerkleLoader size="xs" className="text-current mr-2" />
-                    Sending link...
-                  </>
-                ) : (
-                  "Send Reset Link & Code"
-                )}
-              </Button>
-
-              <div className="pt-2 text-center">
-                <button
-                  type="button"
-                  onClick={() => setStep("enter-otp")}
-                  className="text-xs text-primary hover:underline"
-                >
-                  Already have a 6-digit recovery code? Enter code →
-                </button>
-              </div>
-            </form>
-          )}
-
-          {/* STEP 2: Enter OTP Code */}
-          {step === "enter-otp" && (
-            <form onSubmit={handleVerifyOtp} className="space-y-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="reset-otp" className="text-xs font-medium text-muted-foreground">
-                  6-Digit Recovery Code
-                </Label>
-                <div className="relative">
-                  <Input
-                    id="reset-otp"
-                    type="text"
-                    inputMode="numeric"
-                    placeholder="123456"
-                    maxLength={6}
-                    value={otpCode}
-                    onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ""))}
-                    className="h-12 text-center text-xl tracking-[0.5em] font-mono bg-muted/50 border-border focus:border-primary focus:bg-card"
-                    required
-                    autoFocus
-                  />
-                  <KeyRound className="w-4 h-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
-                </div>
-              </div>
-
-              {!email && (
+              {method === 'email' ? (
+                <div className="space-y-1.5"><Label htmlFor="recovery-email">Email address</Label><Input id="recovery-email" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></div>
+              ) : (
                 <div className="space-y-1.5">
-                  <Label htmlFor="otp-email" className="text-xs font-medium text-muted-foreground">
-                    Email Address
-                  </Label>
-                  <Input
-                    id="otp-email"
-                    type="email"
-                    placeholder="your@email.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="h-10 bg-muted/50 border-border"
-                    required
-                  />
+                  <Label htmlFor="recovery-phone">Phone number</Label>
+                  <div className="grid grid-cols-[92px_1fr] gap-2">
+                    <Input aria-label="Country calling code" inputMode="tel" value={dialCode} onChange={(event) => setDialCode(event.target.value)} />
+                    <Input id="recovery-phone" type="tel" inputMode="tel" autoComplete="tel-national" value={phone} onChange={(event) => setPhone(event.target.value)} required />
+                  </div>
                 </div>
               )}
 
-              <Button
-                type="submit"
-                disabled={isLoading || otpCode.length < 6}
-                className="w-full h-11 bg-primary text-primary-foreground font-medium rounded-xl hover:bg-primary/90 transition-colors"
-              >
-                {isLoading ? (
-                  <>
-                    <SerkleLoader size="xs" className="text-current mr-2" />
-                    Verifying...
-                  </>
-                ) : (
-                  "Verify Code"
-                )}
-              </Button>
+              <Button type="submit" disabled={isLoading} className="h-11 w-full rounded-xl">{isLoading ? 'Sending…' : `Send ${method === 'email' ? 'email' : 'SMS'} code`}</Button>
+            </form>
+          )}
 
-              <div className="flex justify-between items-center pt-2 text-xs">
-                <button
-                  type="button"
-                  onClick={() => setStep("request")}
-                  className="text-muted-foreground hover:text-foreground"
-                >
-                  ← Request a new code
-                </button>
-                {email && (
-                  <button
-                    type="button"
-                    onClick={(e) => handleRequestReset(e)}
-                    disabled={isLoading}
-                    className="text-primary hover:underline"
-                  >
-                    Resend code
-                  </button>
-                )}
+          {step === 'code' && flow && (
+            <form onSubmit={verifyCode} className="space-y-4">
+              <div className="text-center">
+                <h2 className="font-semibold">Check your {flow.method === 'email' ? 'email' : 'messages'}</h2>
+                <p className="mt-1 text-sm text-muted-foreground">Code sent to {maskAuthIdentifier(flow.method, flow.identifier)}</p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="recovery-code">Six-digit recovery code</Label>
+                <Input id="recovery-code" inputMode="numeric" autoComplete="one-time-code" maxLength={6} pattern="[0-9]{6}" value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))} className="h-14 text-center font-mono text-2xl tracking-[0.4em]" required autoFocus />
+              </div>
+              <Button type="submit" disabled={isLoading || code.length !== 6} className="h-11 w-full rounded-xl">{isLoading ? 'Verifying…' : 'Verify code'}</Button>
+              <div className="flex items-center justify-between text-xs">
+                <button type="button" onClick={resetRequest} className="text-muted-foreground hover:text-foreground">Change {flow.method}</button>
+                <button type="button" disabled={isLoading || resendSeconds > 0} onClick={resendRecovery} className="font-medium text-primary disabled:text-muted-foreground">{resendSeconds > 0 ? `Resend in ${resendSeconds}s` : 'Resend code'}</button>
               </div>
             </form>
           )}
 
-          {/* STEP 3: Set New Password */}
-          {step === "new-password" && (
-            <form onSubmit={handleSavePassword} className="space-y-4">
+          {step === 'new-password' && (
+            <form onSubmit={savePassword} className="space-y-4">
               <div className="space-y-1.5">
-                <Label htmlFor="new-password" className="text-xs font-medium text-muted-foreground">
-                  New Password (at least 6 characters)
-                </Label>
+                <Label htmlFor="new-password">New password</Label>
                 <div className="relative">
-                  <Input
-                    id="new-password"
-                    type={showPassword ? "text" : "password"}
-                    placeholder="••••••••"
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    className="h-11 pr-10 bg-muted/50 border-border focus:border-primary focus:bg-card"
-                    required
-                    minLength={6}
-                    autoFocus
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
-                  >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </Button>
+                  <Input id="new-password" type={showPassword ? 'text' : 'password'} autoComplete="new-password" minLength={8} value={password} onChange={(event) => setPassword(event.target.value)} className="pr-11" required autoFocus />
+                  <Button type="button" variant="ghost" size="icon" onClick={() => setShowPassword((value) => !value)} className="absolute right-0 top-0 size-10" aria-label={showPassword ? 'Hide password' : 'Show password'}>{showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}</Button>
                 </div>
               </div>
-
               <div className="space-y-1.5">
-                <Label htmlFor="confirm-password" className="text-xs font-medium text-muted-foreground">
-                  Confirm New Password
-                </Label>
+                <Label htmlFor="confirm-new-password">Confirm new password</Label>
                 <div className="relative">
-                  <Input
-                    id="confirm-password"
-                    type={showConfirmPassword ? "text" : "password"}
-                    placeholder="••••••••"
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    className="h-11 pr-10 bg-muted/50 border-border focus:border-primary focus:bg-card"
-                    required
-                    minLength={6}
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
-                  >
-                    {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </Button>
+                  <Input id="confirm-new-password" type={showConfirmation ? 'text' : 'password'} autoComplete="new-password" minLength={8} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} className="pr-11" required />
+                  <Button type="button" variant="ghost" size="icon" onClick={() => setShowConfirmation((value) => !value)} className="absolute right-0 top-0 size-10" aria-label={showConfirmation ? 'Hide confirmation password' : 'Show confirmation password'}>{showConfirmation ? <EyeOff className="size-4" /> : <Eye className="size-4" />}</Button>
                 </div>
-                {confirmPassword && newPassword !== confirmPassword && (
-                  <p className="text-xs text-destructive">Passwords do not match</p>
-                )}
               </div>
-
-              <Button
-                type="submit"
-                disabled={isLoading || newPassword.length < 6 || newPassword !== confirmPassword}
-                className="w-full h-11 bg-primary text-primary-foreground font-medium rounded-xl hover:bg-primary/90 transition-colors"
-              >
-                {isLoading ? (
-                  <>
-                    <SerkleLoader size="xs" className="text-current mr-2" />
-                    Updating password...
-                  </>
-                ) : (
-                  "Update Password"
-                )}
-              </Button>
+              <Button type="submit" disabled={isLoading || password.length < 8 || password !== confirmation} className="h-11 w-full rounded-xl">{isLoading ? 'Updating…' : 'Update password'}</Button>
             </form>
           )}
 
-          {/* STEP 4: Success confirmation */}
-          {step === "success" && (
-            <div className="text-center py-4 space-y-4 animate-scale-in">
-              <div className="w-16 h-16 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center mx-auto text-emerald-500">
-                <CheckCircle2 className="w-8 h-8" />
-              </div>
-              <div className="space-y-1">
-                <h3 className="font-semibold text-foreground text-lg">All Done!</h3>
-                <p className="text-sm text-muted-foreground">
-                  Your password has been successfully updated. You can now log into your Serkle account.
-                </p>
-              </div>
-              <Button
-                type="button"
-                onClick={() => navigate("/login", { replace: true })}
-                className="w-full h-11 bg-primary text-primary-foreground font-medium rounded-xl hover:bg-primary/90 transition-colors"
-              >
-                Go to Login
-              </Button>
+          {step === 'success' && (
+            <div className="space-y-4 py-2 text-center">
+              <div className="mx-auto flex size-16 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600"><CheckCircle2 className="size-8" /></div>
+              <div><h2 className="text-lg font-semibold">Password updated</h2><p className="mt-1 text-sm text-muted-foreground">Other sessions were revoked. Sign in with your new password.</p></div>
+              <Button onClick={finish} className="h-11 w-full rounded-xl">Go to sign in</Button>
             </div>
           )}
-        </div>
+        </section>
 
-        {/* Security Note */}
-        <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground text-center">
-          <ShieldCheck className="w-4 h-4 text-primary" />
-          <span>Secure authentication powered by Serkle</span>
-        </div>
+        <div className="flex items-center justify-center gap-2 text-center text-xs text-muted-foreground"><ShieldCheck className="size-4 text-primary" /><span>Your verification code and password are never stored by Serkle.</span></div>
       </div>
-    </div>
+    </main>
   );
 }
+

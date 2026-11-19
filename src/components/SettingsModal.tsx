@@ -44,6 +44,7 @@ import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { SerkleLoader } from "@/components/ui/SerkleLoader";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
+import { requestPasswordRecovery, updateRecoveredPassword, verifyAuthOtp } from "@/lib/authFlow";
 import { clearIDBCache } from "@/utils/queryPersister";
 import {
   SettingsGroup,
@@ -350,10 +351,7 @@ export default function SettingsModal({
     setPasswordStep("sending");
     setPasswordError("");
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(
-        account.email,
-        { redirectTo: `${window.location.origin}/reset-password` },
-      );
+      const { error } = await requestPasswordRecovery("email", account.email);
       if (error) throw error;
       setPasswordStep("code-sent");
     } catch (error) {
@@ -370,11 +368,7 @@ export default function SettingsModal({
     setPasswordStep("verifying");
     setPasswordError("");
     try {
-      const { error } = await supabase.auth.verifyOtp({
-        email: account.email,
-        token: otp,
-        type: "recovery",
-      });
+      const { error } = await verifyAuthOtp("email", account.email, otp, "recovery");
       if (error) throw error;
       setPasswordStep("new-password");
     } catch (error) {
@@ -395,7 +389,7 @@ export default function SettingsModal({
     setPasswordStep("saving");
     setPasswordError("");
     try {
-      const { error } = await supabase.auth.updateUser({ password });
+      const { error } = await updateRecoveredPassword(password);
       if (error) throw error;
       resetPasswordDialog();
       setNotice({ text: "Password updated." });

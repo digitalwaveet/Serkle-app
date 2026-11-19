@@ -60,6 +60,7 @@ const ShippingAddresses = React.lazy(() => import("./pages/ShippingAddresses"));
 const Profile = React.lazy(() => import("./pages/Profile"));
 const Login = React.lazy(() => import("./pages/Login"));
 const Signup = React.lazy(() => import("./pages/Signup"));
+const VerifyAccount = React.lazy(() => import("./pages/VerifyAccount"));
 const ResetPassword = React.lazy(() => import("./pages/ResetPassword"));
 const NotFound = React.lazy(() => import("./pages/NotFound"));
 const VideoDetail = React.lazy(() => import("./pages/VideoDetail"));
@@ -180,6 +181,7 @@ const AppRoutes = ({ onReadyChange }: { onReadyChange: (ready: boolean) => void 
       <Route path="/login" element={<Login />} />
       <Route path="/share" element={<Share />} />
       <Route path="/signup" element={<Signup />} />
+      <Route path="/verify-account" element={<VerifyAccount />} />
       <Route path="/reset-password" element={<ResetPassword />} />
       <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
       <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />

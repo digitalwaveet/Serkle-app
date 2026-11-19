@@ -9,7 +9,6 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { CircleLockedCover, CirclePremiumBadge } from './CirclePostPreview';
 import { circlePostExcerpt, makeCirclePreviewImages } from '@/lib/circlePostPreview';
 import { useEditor, EditorContent } from '@tiptap/react';
-import { BubbleMenu } from '@tiptap/react/menus';
 import StarterKit from '@tiptap/starter-kit';
 import TiptapUnderline from '@tiptap/extension-underline';
 import TiptapLink from '@tiptap/extension-link';
@@ -39,6 +38,7 @@ import {
 import PostReactionButton from '@/components/post/PostReactionButton';
 import LikersModal from '@/components/LikersModal';
 import CircleEmptyState from './CircleEmptyState';
+import { cn } from '@/lib/utils';
 
 interface CirclePostsProps {
   circle: any;
@@ -95,7 +95,7 @@ const CirclePosts: React.FC<CirclePostsProps> = ({ circle, isOwner }) => {
     },
     editorProps: {
       attributes: {
-        class: 'focus:outline-none min-h-[80px] w-full text-base text-foreground',
+        class: 'prose prose-sm dark:prose-invert max-w-none focus:outline-none min-h-[120px] w-full text-[15px] leading-7 text-foreground prose-headings:mb-2 prose-headings:mt-3 prose-headings:text-foreground prose-h1:text-2xl prose-h2:text-xl prose-p:my-2 prose-p:text-foreground prose-li:my-0.5 prose-li:text-foreground prose-ul:my-2 prose-ol:my-2 prose-a:text-primary',
       },
     },
   });
@@ -306,16 +306,32 @@ const CirclePosts: React.FC<CirclePostsProps> = ({ circle, isOwner }) => {
     }
   };
 
+  const formatButtonClass = (active: boolean) => cn(
+    'flex size-11 shrink-0 items-center justify-center rounded-xl transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+    active
+      ? 'bg-primary text-primary-foreground shadow-sm'
+      : 'text-muted-foreground hover:bg-background hover:text-foreground',
+  );
+
   return (
     <div className="space-y-0 scroll-smooth">
       {/* Inline Post Composer — owners always, members when the circle allows it */}
       {canPost && (
-        <div className="px-4 py-5 border-b border-border/50 animate-fade-in">
-          <div className="bg-card rounded-2xl border border-border shadow-soft">
-            <div className="p-4">
+        <div className="border-b border-border/50 px-3 py-4 animate-fade-in sm:px-4 sm:py-5">
+          <div className="mx-auto max-w-2xl overflow-hidden rounded-[22px] border border-border bg-card shadow-soft">
+            <div className="p-4 sm:p-5">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-base font-semibold tracking-tight text-foreground">Create for your Circle</h2>
+                  <p className="mt-0.5 text-xs text-muted-foreground">Share an update, lesson or announcement.</p>
+                </div>
+                <span className="inline-flex min-h-8 shrink-0 items-center rounded-full bg-primary/[0.08] px-3 text-[11px] font-semibold text-primary">
+                  Members
+                </span>
+              </div>
               <div className="flex gap-3">
                 {/* Creator crown for owners, the member's own avatar otherwise */}
-                <div className="h-10 w-10 rounded-full bg-gradient-primary flex items-center justify-center text-primary-foreground flex-shrink-0 overflow-hidden">
+                <div className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-primary text-primary-foreground">
                   {isOwner ? (
                     <Crown className="w-5 h-5" />
                   ) : currentUser?.avatar ? (
@@ -326,36 +342,44 @@ const CirclePosts: React.FC<CirclePostsProps> = ({ circle, isOwner }) => {
                 </div>
 
                 {/* Text Area / Rich Text Editor */}
-                <div className="flex-1 space-y-3 pt-1 min-h-[80px] min-w-0">
+                <div className="min-w-0 flex-1 space-y-3">
                   {editor && (
-                    <BubbleMenu editor={editor} className="flex items-center gap-0.5 p-1 bg-popover border border-border rounded-xl shadow-elegant">
-                      <button onClick={() => editor.chain().focus().toggleBold().run()} className={`p-1.5 rounded-lg transition-all ${editor.isActive('bold') ? 'bg-primary text-primary-foreground' : 'hover:bg-muted text-muted-foreground'}`}><Bold className="w-3.5 h-3.5" /></button>
-                      <button onClick={() => editor.chain().focus().toggleItalic().run()} className={`p-1.5 rounded-lg transition-all ${editor.isActive('italic') ? 'bg-primary text-primary-foreground' : 'hover:bg-muted text-muted-foreground'}`}><Italic className="w-3.5 h-3.5" /></button>
-                      <button onClick={() => editor.chain().focus().toggleUnderline().run()} className={`p-1.5 rounded-lg transition-all ${editor.isActive('underline') ? 'bg-primary text-primary-foreground' : 'hover:bg-muted text-muted-foreground'}`}><UnderlineIcon className="w-3.5 h-3.5" /></button>
-                      <div className="w-px h-3.5 bg-border mx-0.5" />
-                      <button onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()} className={`p-1.5 rounded-lg transition-all ${editor.isActive('heading', { level: 1 }) ? 'bg-primary text-primary-foreground' : 'hover:bg-muted text-muted-foreground'}`}><Heading1 className="w-3.5 h-3.5" /></button>
-                      <button onClick={() => editor.chain().focus().toggleBulletList().run()} className={`p-1.5 rounded-lg transition-all ${editor.isActive('bulletList') ? 'bg-primary text-primary-foreground' : 'hover:bg-muted text-muted-foreground'}`}><List className="w-3.5 h-3.5" /></button>
-                      <div className="w-px h-3.5 bg-border mx-0.5" />
-                      <button onClick={() => editor.chain().focus().setTextAlign('left').run()} className={`p-1.5 rounded-lg transition-all ${editor.isActive({ textAlign: 'left' }) ? 'bg-primary text-primary-foreground' : 'hover:bg-muted text-muted-foreground'}`}><AlignLeft className="w-3.5 h-3.5" /></button>
-                      <button onClick={() => editor.chain().focus().setTextAlign('center').run()} className={`p-1.5 rounded-lg transition-all ${editor.isActive({ textAlign: 'center' }) ? 'bg-primary text-primary-foreground' : 'hover:bg-muted text-muted-foreground'}`}><AlignCenter className="w-3.5 h-3.5" /></button>
-                      <button onClick={() => editor.chain().focus().setTextAlign('right').run()} className={`p-1.5 rounded-lg transition-all ${editor.isActive({ textAlign: 'right' }) ? 'bg-primary text-primary-foreground' : 'hover:bg-muted text-muted-foreground'}`}><AlignRight className="w-3.5 h-3.5" /></button>
-                      <div className="w-px h-3.5 bg-border mx-0.5" />
+                    <div aria-label="Rich text formatting" className="flex items-center gap-0.5 overflow-x-auto rounded-xl border border-border bg-muted/25 p-1.5">
+                      <button type="button" aria-label="Bold" title="Bold" onClick={() => editor.chain().focus().toggleBold().run()} className={formatButtonClass(editor.isActive('bold'))}><Bold className="size-4" aria-hidden="true" /></button>
+                      <button type="button" aria-label="Italic" title="Italic" onClick={() => editor.chain().focus().toggleItalic().run()} className={formatButtonClass(editor.isActive('italic'))}><Italic className="size-4" aria-hidden="true" /></button>
+                      <button type="button" aria-label="Underline" title="Underline" onClick={() => editor.chain().focus().toggleUnderline().run()} className={formatButtonClass(editor.isActive('underline'))}><UnderlineIcon className="size-4" aria-hidden="true" /></button>
+                      <div className="mx-0.5 h-6 w-px shrink-0 bg-border" aria-hidden="true" />
+                      <button type="button" aria-label="Heading 1" title="Heading 1" onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()} className={formatButtonClass(editor.isActive('heading', { level: 1 }))}><Heading1 className="size-4" aria-hidden="true" /></button>
+                      <button type="button" aria-label="Heading 2" title="Heading 2" onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()} className={formatButtonClass(editor.isActive('heading', { level: 2 }))}><Heading2 className="size-4" aria-hidden="true" /></button>
+                      <button type="button" aria-label="Bullet list" title="Bullet list" onClick={() => editor.chain().focus().toggleBulletList().run()} className={formatButtonClass(editor.isActive('bulletList'))}><List className="size-4" aria-hidden="true" /></button>
+                      <div className="mx-0.5 h-6 w-px shrink-0 bg-border" aria-hidden="true" />
+                      <button type="button" aria-label="Align left" title="Align left" onClick={() => editor.chain().focus().setTextAlign('left').run()} className={formatButtonClass(editor.isActive({ textAlign: 'left' }))}><AlignLeft className="size-4" aria-hidden="true" /></button>
+                      <button type="button" aria-label="Align center" title="Align center" onClick={() => editor.chain().focus().setTextAlign('center').run()} className={formatButtonClass(editor.isActive({ textAlign: 'center' }))}><AlignCenter className="size-4" aria-hidden="true" /></button>
+                      <button type="button" aria-label="Align right" title="Align right" onClick={() => editor.chain().focus().setTextAlign('right').run()} className={formatButtonClass(editor.isActive({ textAlign: 'right' }))}><AlignRight className="size-4" aria-hidden="true" /></button>
+                      <button type="button" aria-label="Justify text" title="Justify text" onClick={() => editor.chain().focus().setTextAlign('justify').run()} className={formatButtonClass(editor.isActive({ textAlign: 'justify' }))}><AlignJustify className="size-4" aria-hidden="true" /></button>
+                      <div className="mx-0.5 h-6 w-px shrink-0 bg-border" aria-hidden="true" />
                       <button
+                        type="button"
+                        aria-label="Add or edit link"
+                        title="Add or edit link"
                         onClick={() => {
-                          const url = window.prompt('URL');
-                          if (url) editor.chain().focus().setLink({ href: url }).run();
+                          const currentHref = editor.getAttributes('link').href || '';
+                          const url = window.prompt('Paste link URL', currentHref);
+                          if (url === null) return;
+                          if (!url.trim()) editor.chain().focus().unsetLink().run();
+                          else editor.chain().focus().extendMarkRange('link').setLink({ href: url.trim() }).run();
                         }}
-                        className={`p-1.5 rounded-lg transition-all ${editor.isActive('link') ? 'bg-primary text-primary-foreground' : 'hover:bg-muted text-muted-foreground'}`}
+                        className={formatButtonClass(editor.isActive('link'))}
                       >
-                        <LinkIcon className="w-3.5 h-3.5" />
+                        <LinkIcon className="size-4" aria-hidden="true" />
                       </button>
-                    </BubbleMenu>
+                    </div>
                   )}
 
-                  <div className="relative">
+                  <div className="relative rounded-2xl border border-border/80 bg-background/55 px-3 py-2.5 transition-colors focus-within:border-primary/40 focus-within:bg-background focus-within:ring-2 focus-within:ring-primary/10">
                     {!content.trim() || content === '<p></p>' ? (
-                      <div className="absolute top-0 left-0 text-muted-foreground text-base pointer-events-none">
-                        {isOwner ? 'Share something with your members...' : 'Share something with the circle...'}
+                      <div className="pointer-events-none absolute left-3 top-3 text-[15px] text-muted-foreground">
+                        What would you like to share?
                       </div>
                     ) : null}
                     <EditorContent editor={editor} />
@@ -363,14 +387,15 @@ const CirclePosts: React.FC<CirclePostsProps> = ({ circle, isOwner }) => {
 
                   {/* Image Preview */}
                   {coverPreview && (
-                    <div className="relative w-full h-40 rounded-xl overflow-hidden border border-border group/img">
-                      <img src={coverPreview} alt="Preview" className="w-full h-full object-cover" />
+                    <div className="group/img relative aspect-video max-h-56 w-full overflow-hidden rounded-2xl border border-border bg-muted">
+                      <img src={coverPreview} alt="Selected post image" className="h-full w-full object-cover" />
                       <button
+                        type="button"
                         onClick={removeImage}
-                        className="absolute top-2 right-2 p-1.5 bg-black/50 text-white rounded-full backdrop-blur-md hover:bg-black/70 transition-colors"
+                        className="absolute right-2 top-2 flex size-11 items-center justify-center rounded-full bg-black/55 text-white shadow-sm backdrop-blur-md transition-colors hover:bg-black/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
                         aria-label="Remove image"
                       >
-                        <X className="w-4 h-4" />
+                        <X className="size-4" aria-hidden="true" />
                       </button>
                     </div>
                   )}
@@ -379,20 +404,27 @@ const CirclePosts: React.FC<CirclePostsProps> = ({ circle, isOwner }) => {
                 </div>
               </div>
               
-              {/* Actions Bar */}
-              <div className="flex items-center justify-between px-4 py-3 border-t border-border gap-2 flex-wrap">
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  {/* Add Image */}
-                  <CustomFilePicker manager={composerManager} hideUploadButton hidePreviewList accept="image/*" maxFileSizeMB={5}>
-                    <button className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-muted text-muted-foreground hover:bg-primary/10 hover:text-primary transition-colors cursor-pointer flex-shrink-0">
-                      <ImageIcon className="w-3.5 h-3.5" />
-                      <span className="text-xs font-medium">Image</span>
-                    </button>
-                  </CustomFilePicker>
-
-                  {/* Premium Toggle — creator monetization, owners only */}
-                  {isOwner && (
+              {/* Option B creator controls */}
+              <div className={cn('grid gap-2 border-t border-border px-4 pt-4 sm:px-5', isOwner ? 'grid-cols-3' : 'grid-cols-2')}>
+                <CustomFilePicker manager={composerManager} hideUploadButton hidePreviewList accept="image/*" maxFileSizeMB={5}>
                   <button
+                    type="button"
+                    className={cn(
+                      'flex min-h-[68px] w-full flex-col items-center justify-center gap-1.5 rounded-2xl border text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                      coverImage
+                        ? 'border-primary/30 bg-primary/[0.08] text-primary'
+                        : 'border-border bg-muted/25 text-muted-foreground hover:border-primary/25 hover:bg-primary/[0.06] hover:text-primary',
+                    )}
+                  >
+                    <ImageIcon className="size-5" aria-hidden="true" />
+                    <span>{coverImage ? 'Change photo' : 'Photo'}</span>
+                  </button>
+                </CustomFilePicker>
+
+                {isOwner && (
+                  <button
+                    type="button"
+                    aria-pressed={isPremium}
                     onClick={() => {
                       if (!isPremium) {
                         setIsPremiumModalOpen(true);
@@ -400,47 +432,56 @@ const CirclePosts: React.FC<CirclePostsProps> = ({ circle, isOwner }) => {
                         setIsPremium(false);
                       }
                     }}
-                    className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full transition-colors flex-shrink-0 ${
+                    className={cn(
+                      'flex min-h-[68px] flex-col items-center justify-center gap-1.5 rounded-2xl border text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                       isPremium
-                        ? 'bg-secondary/15 text-secondary ring-1 ring-secondary/40'
-                        : 'bg-muted text-muted-foreground hover:bg-secondary/10 hover:text-secondary'
-                    }`}
+                        ? 'border-secondary/35 bg-secondary/10 text-secondary'
+                        : 'border-border bg-muted/25 text-muted-foreground hover:border-secondary/25 hover:bg-secondary/[0.06] hover:text-secondary',
+                    )}
                   >
-                    <Crown className="w-3.5 h-3.5" />
-                    <span className="text-xs font-medium">{isPremium ? `${premiumPrice} coins` : 'Premium'}</span>
+                    <Crown className="size-5" aria-hidden="true" />
+                    <span>{isPremium ? `${premiumPrice} coins` : 'Premium'}</span>
                   </button>
+                )}
+
+                <button
+                  type="button"
+                  aria-pressed={hasTipsEnabled}
+                  onClick={() => setHasTipsEnabled(!hasTipsEnabled)}
+                  className={cn(
+                    'flex min-h-[68px] flex-col items-center justify-center gap-1.5 rounded-2xl border text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                    hasTipsEnabled
+                      ? 'border-success/35 bg-success/10 text-success'
+                      : 'border-border bg-muted/25 text-muted-foreground hover:border-success/25 hover:bg-success/[0.06] hover:text-success',
                   )}
+                >
+                  <Coins className="size-5" aria-hidden="true" />
+                  <span>{hasTipsEnabled ? 'Tips on' : 'Tips off'}</span>
+                </button>
+              </div>
 
-                  {/* Tips Toggle */}
-                  <button
-                    onClick={() => setHasTipsEnabled(!hasTipsEnabled)}
-                    className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full transition-colors flex-shrink-0 ${
-                      hasTipsEnabled
-                        ? 'bg-success/15 text-success ring-1 ring-success/40'
-                        : 'bg-muted text-muted-foreground hover:bg-success/10 hover:text-success'
-                    }`}
-                  >
-                    <Coins className="w-3.5 h-3.5" />
-                    <span className="text-xs font-medium">Tips</span>
-                  </button>
-                </div>
-
-                {/* Post Button */}
+              <div className="px-4 pb-4 pt-3 sm:px-5 sm:pb-5">
                 <Button
                   onClick={handleSubmit}
                   disabled={isSubmitting || (!content.trim() && !coverImage)}
-                  size="sm"
-                  className="rounded-full px-5 flex-shrink-0"
+                  className="h-12 w-full rounded-2xl text-sm font-semibold shadow-sm"
                 >
                   {isSubmitting ? (
-                    <SerkleLoader size="xs" className="text-primary-foreground" />
+                    <span className="flex items-center gap-2">
+                      <SerkleLoader size="xs" className="text-primary-foreground" />
+                      Publishing…
+                    </span>
                   ) : (
-                    <div className="flex items-center gap-1.5">
-                      <span>Post</span>
-                      <Send className="w-3.5 h-3.5" />
-                    </div>
+                    <span className="flex items-center gap-2">
+                      Publish post
+                      <Send className="size-4" aria-hidden="true" />
+                    </span>
                   )}
                 </Button>
+                <div className="mt-2.5 flex items-center justify-between gap-3 px-1 text-[11px] text-muted-foreground">
+                  <span>Visible to Circle members</span>
+                  <span>Rich text enabled</span>
+                </div>
               </div>
             </div>
           </div>
