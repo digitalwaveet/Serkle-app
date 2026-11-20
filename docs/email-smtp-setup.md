@@ -8,7 +8,9 @@ delivers them.
 ## Architecture
 
 - `send-email`: signed Supabase Auth **Send Email Hook** for signup, invite,
-  magic-link, recovery and email-change messages.
+  magic-link, recovery and email-change messages. It durably queues mail before
+  returning so the Auth hook stays below its five-second deadline; a protected
+  worker performs SMTP delivery and retries.
 - `send-notification-email`: server-to-server endpoint for allowlisted Serkle
   notification templates. It does not accept arbitrary HTML or subjects.
 - `_shared/smtpMailer.ts`: authenticated TLS transport using Nodemailer.
@@ -32,11 +34,17 @@ SMTP_PASSWORD=<the cPanel mailbox password>
 SMTP_FROM=no-reply@littletigersgroup.com
 SMTP_FROM_NAME=Serkle
 MAILER_INTERNAL_SECRET=<a new random server-to-server secret>
+AUTH_EMAIL_WORKER_SECRET=<a separate random worker secret>
 ```
 
 Port 465 uses implicit TLS. Certificate validation remains enabled. Do not
 switch to port 587 because the hosted Supabase Edge runtime blocks outbound
 connections to ports 25 and 587.
+
+Apply `20261120143000_auth_email_outbox.sql`. Schedule a protected POST to the
+`send-email` function once per minute with `x-email-worker-secret`; the hook
+also starts the worker immediately after a successful enqueue, while the
+schedule recovers interrupted SMTP attempts.
 
 ## 2. Deploy the functions
 
