@@ -1,6 +1,6 @@
 # Wallet audit: manual Supabase release
 
-Project: `zewcewkqruxlniavsrgj`. App: `https://serkle-app-five.vercel.app`.
+Project: `fkeyentcklsuqecqgmak`. App: `https://serkle-app-five.vercel.app`.
 This is a coordinated database, Edge Function and frontend release. A Git push
 deploys the frontend through Vercel; it does not deploy the Supabase changes.
 These files contain no secrets. Keep all payment and service credentials on the
@@ -81,7 +81,7 @@ review; it is never automatically paid again or refunded from a client assertion
 
 ## 4. Webhooks, scheduler and operations
 
-Register `https://zewcewkqruxlniavsrgj.supabase.co/functions/v1/chapa-webhook` in
+Register `https://fkeyentcklsuqecqgmak.supabase.co/functions/v1/chapa-webhook` in
 Chapa with the matching payload-signing secret. Subscribe to transaction and
 payout status notifications, including failures, refunds and reversals. This
 handler accepts payload-bound HMAC signatures; it intentionally rejects the old

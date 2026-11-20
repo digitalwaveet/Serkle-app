@@ -1,6 +1,10 @@
 -- Isolated PostgreSQL fixture: Supabase roles/auth/storage and the existing
 -- columns used by the production migrations. Never connects to the live app.
-CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN CREATE ROLE anon; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN CREATE ROLE authenticated; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN CREATE ROLE service_role; END IF;
+END $$;
 CREATE SCHEMA auth; CREATE SCHEMA storage;
 CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$ SELECT NULLIF(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
 CREATE TABLE auth.users(id uuid PRIMARY KEY);

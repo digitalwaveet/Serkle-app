@@ -11,7 +11,7 @@ New post images remain private to the uploader until a database trigger confirms
 1. Apply `supabase/migrations/20261108130000_image_previews.sql` in the Supabase SQL editor. Prerequisites: the existing chat privacy and Circle entitlement/storage migrations. This migration creates the metadata table, permission guards and processing RPCs. It does not delete files, membership, purchases, or posts, and can be rerun.
 2. From the project root, deploy the `image-previews` Edge Function with the Supabase CLI. Supabase supplies its project keys inside the function. [Supabase Edge Function environment variables](https://supabase.com/docs/guides/functions/secrets)
    ```sh
-   npx supabase functions deploy image-previews --project-ref zewcewkqruxlniavsrgj --use-api
+   npx supabase functions deploy image-previews --remote=fkeyentcklsuqecqgmak --use-api
    ```
 3. Redeploy the app on Vercel with `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY`. Vite also uses these public values for the browser, with the explicit `VITE_SUPABASE_*` settings taking precedence if present.
 

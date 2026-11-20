@@ -1,4 +1,8 @@
-import { supabase } from '@/integrations/supabase/client';
+import {
+  SUPABASE_PUBLISHABLE_KEY,
+  SUPABASE_URL,
+  supabase,
+} from '@/integrations/supabase/client';
 
 export interface GiftCommentMetadata {
   giftId: string;
@@ -354,8 +358,8 @@ export function flushPendingGiftCommentKeepalive(
   void finalizePendingGiftComment(record, fallbackUserId);
 
   try {
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-    const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+    const supabaseUrl = SUPABASE_URL;
+    const supabaseKey = SUPABASE_PUBLISHABLE_KEY;
     if (!supabaseUrl || !supabaseKey) return;
 
     let accessToken = explicitToken || supabaseKey;

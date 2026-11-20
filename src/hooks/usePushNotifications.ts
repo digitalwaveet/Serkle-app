@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { SUPABASE_URL, supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
 // Must match the VAPID_PUBLIC_KEY secret configured for the edge functions.
-const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY || '';
+const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY ||
+  'BNyajxlkWQYqN0F0oUFbVBjCsP1JFokiuJaL0V5aO42PyRUL-1NEmwu58hXfYvtC89pkIlPZcRQQ1UgI4MvkDyI';
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
@@ -188,8 +189,7 @@ export const usePushNotifications = () => {
       const subJson = sub.toJSON();
       
       // Get project ID from standard Supabase URL if not in env
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
-      const projectId = supabaseUrl.split('.')[0].split('//')[1] || import.meta.env.VITE_SUPABASE_PROJECT_ID;
+      const projectId = new URL(SUPABASE_URL).hostname.split('.')[0];
 
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/save-push-subscription`,

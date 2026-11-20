@@ -57,7 +57,7 @@ In **Authentication → Hooks**:
 1. Add or enable **Send Email Hook**.
 2. Select **HTTP**.
 3. Use:
-   `https://zewcewkqruxlniavsrgj.supabase.co/functions/v1/send-email`
+   `https://fkeyentcklsuqecqgmak.supabase.co/functions/v1/send-email`
 4. Copy the generated hook secret into the Edge Function secret named
    `SEND_EMAIL_HOOK_SECRET`.
 

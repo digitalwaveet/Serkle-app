@@ -19,10 +19,15 @@ export default async function handler(req: IncomingMessage & { body?: { assetId?
   res.setHeader('Cache-Control', 'no-store');
   const reply = (status: number, body: unknown) => { res.statusCode = status; res.end(JSON.stringify(body)); };
   if (req.method !== 'POST') { res.setHeader('Allow', 'POST'); return reply(405, { error: 'Method not allowed' }); }
-  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-  const key = process.env.SUPABASE_PUBLISHABLE_KEY || process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
-    process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
-  if (!url || !key) return reply(503, { error: 'Image processor is not configured' });
+  const defaultUrl = 'https://fkeyentcklsuqecqgmak.supabase.co';
+  const defaultKey = 'sb_publishable_YdOseMTPrrWFHQPP_0xc8Q_X5CJ1nPP';
+  const configuredUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+  const useProjectDefault = !configuredUrl || configuredUrl.includes('zewcewkqruxlniavsrgj');
+  const url = useProjectDefault ? defaultUrl : configuredUrl;
+  const key = useProjectDefault
+    ? defaultKey
+    : process.env.SUPABASE_PUBLISHABLE_KEY || process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+      process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || defaultKey;
   const authorization = req.headers.authorization || '';
   if (!/^Bearer [^\s]+$/i.test(authorization)) return reply(401, { error: 'Sign in required' });
   const assetId = req.body?.assetId;

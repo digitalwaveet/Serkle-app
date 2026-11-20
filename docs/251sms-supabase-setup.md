@@ -33,7 +33,7 @@ supabase functions deploy send-sms --no-verify-jwt
 
 The function URL is:
 
-`https://zewcewkqruxlniavsrgj.supabase.co/functions/v1/send-sms`
+`https://fkeyentcklsuqecqgmak.supabase.co/functions/v1/send-sms`
 
 `verify_jwt` is disabled because Supabase Auth does not call the hook with an
 end-user JWT. The function instead verifies the Standard Webhooks signature.

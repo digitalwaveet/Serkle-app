@@ -6,7 +6,11 @@ import { PGlite } from '@electric-sql/pglite';
 test('accounting migration preserves legacy opening balances and enforces later journal changes atomically, including backdated entries', async () => {
   const db = new PGlite();
   try {
-    await db.exec(`CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role;
+    await db.exec(`DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN CREATE ROLE anon; END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN CREATE ROLE authenticated; END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN CREATE ROLE service_role; END IF;
+      END $$;
       CREATE SCHEMA auth; CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql AS $$ SELECT '00000000-0000-0000-0000-000000000001'::uuid $$;
       CREATE TABLE profiles(id uuid PRIMARY KEY); INSERT INTO profiles VALUES('00000000-0000-0000-0000-000000000001');
       CREATE TABLE coin_wallets(user_id uuid PRIMARY KEY REFERENCES profiles(id),balance integer);

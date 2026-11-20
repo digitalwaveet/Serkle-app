@@ -1,4 +1,34 @@
-project_id = "zewcewkqruxlniavsrgj"
+project_id = "fkeyentcklsuqecqgmak"
+
+[auth]
+site_url = "https://serkle-app-five.vercel.app"
+additional_redirect_urls = [
+  "https://serkle-app-five.vercel.app/**",
+  "https://serkle-app.vercel.app/**",
+  "http://localhost:8082/**",
+]
+
+[auth.email]
+enabled = true
+enable_confirmations = true
+otp_length = 6
+otp_expiry = 3600
+max_frequency = "60s"
+
+[auth.sms]
+enabled = true
+enable_confirmations = true
+otp_length = 6
+otp_expiry = 600
+max_frequency = "60s"
+
+# Supabase Auth signs every request to this HTTP hook with a Standard Webhooks
+# secret. The secret is injected only while applying remote configuration and
+# is also stored as SEND_EMAIL_HOOK_SECRET for the Edge Function.
+[auth.hook.send_email]
+enabled = true
+uri = "https://fkeyentcklsuqecqgmak.supabase.co/functions/v1/send-email"
+secrets = "env(SUPABASE_AUTH_HOOK_SEND_EMAIL_SECRET)"
 
 [functions.moderate-content]
 verify_jwt = false
