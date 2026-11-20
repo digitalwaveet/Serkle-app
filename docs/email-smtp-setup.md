@@ -1,16 +1,17 @@
 # Serkle SMTP mailer deployment
 
-Serkle uses Supabase Edge Functions and the Little Tigers Group cPanel mailbox
-to send authentication and notification emails. Supabase Auth continues to
-create, expire and verify authentication codes. The mailer only renders and
-delivers them.
+Serkle uses Supabase Auth Custom SMTP and the Little Tigers Group cPanel
+mailbox for authentication email. Edge Functions continue to send application
+notifications. Supabase Auth creates, expires, renders and verifies all
+authentication codes.
 
 ## Architecture
 
-- `send-email`: signed Supabase Auth **Send Email Hook** for signup, invite,
-  magic-link, recovery and email-change messages. It durably queues mail before
-  returning so the Auth hook stays below its five-second deadline; a protected
-  worker performs SMTP delivery and retries.
+- **Supabase Auth Custom SMTP** sends signup, invite, magic-link, recovery and
+  email-change messages directly through the cPanel mailbox.
+- `send-email`: retained as a disabled fallback worker and for recovery of any
+  already queued Auth emails. Do not enable its Auth hook while Custom SMTP is
+  active.
 - `send-notification-email`: server-to-server endpoint for allowlisted Serkle
   notification templates. It does not accept arbitrary HTML or subjects.
 - `_shared/smtpMailer.ts`: authenticated TLS transport using Nodemailer.
@@ -27,7 +28,7 @@ Add these in **Supabase Dashboard → Edge Functions → Secrets**. Enter the re
 mailbox password only in the dashboard; never paste it into chat or commit it.
 
 ```text
-SMTP_HOSTNAME=mail.littletigersgroup.com
+SMTP_HOSTNAME=pimms.hostns.io
 SMTP_PORT=465
 SMTP_USERNAME=no-reply@littletigersgroup.com
 SMTP_PASSWORD=<the cPanel mailbox password>
@@ -58,20 +59,26 @@ The Auth hook does not receive an end-user JWT; it verifies a Standard Webhooks
 signature instead. The notification function requires
 `Authorization: Bearer <MAILER_INTERNAL_SECRET>` and is server-to-server only.
 
-## 3. Register the Send Email Auth Hook
+## 3. Configure Supabase Auth Custom SMTP
 
-In **Authentication → Hooks**:
+In **Authentication → Email → SMTP Settings**:
 
-1. Add or enable **Send Email Hook**.
-2. Select **HTTP**.
-3. Use:
-   `https://fkeyentcklsuqecqgmak.supabase.co/functions/v1/send-email`
-4. Copy the generated hook secret into the Edge Function secret named
-   `SEND_EMAIL_HOOK_SECRET`.
+1. Enable **Custom SMTP**.
+2. Sender email: `no-reply@littletigersgroup.com`.
+3. Sender name: `Serkle`.
+4. Host: `pimms.hostns.io`.
+5. Port: `465`.
+6. Username: `no-reply@littletigersgroup.com`.
+7. Enter the mailbox password only in the Supabase Dashboard and save.
 
-Keep the Email provider enabled. When both the provider and hook are enabled,
-Supabase delegates delivery to the hook. Do not configure a second Auth SMTP
-delivery path at the same time.
+Keep the Email provider enabled and the **Send Email Auth Hook disabled**.
+Enabling the hook replaces Custom SMTP delivery and will route messages back to
+the legacy Edge worker.
+
+Do not use `mail.littletigersgroup.com` until its DNS record is corrected. It
+currently resolves to a web server where port 465 is closed. The hosting
+provider's SMTP endpoint `pimms.hostns.io` resolves to the working mail server
+and presents a certificate valid for that hostname.
 
 ## 4. cPanel domain authentication
 
