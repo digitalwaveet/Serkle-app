@@ -93,6 +93,34 @@ test('surfaces the storage response instead of appearing to do nothing', async t
   );
 });
 
+test('routes video bytes through the resumable uploader with the signed token', async () => {
+  bucket.calls = [];
+  const progress: number[] = [];
+  let received: Record<string, unknown> | null = null;
+  const file = new File([new Uint8Array(32)], 'clip.mp4', { type: 'video/mp4' });
+
+  await uploadFileWithProgress(bucket, 'user/resumable-clip.mp4', file, {
+    contentType: file.type,
+    onProgress: value => progress.push(value),
+    resumable: {
+      endpoint: 'https://project.storage.supabase.co/storage/v1/upload/resumable',
+      bucketName: 'video-media',
+      upload: async input => {
+        received = input as unknown as Record<string, unknown>;
+        input.onProgress?.(40);
+        input.onProgress?.(100);
+      },
+    },
+  });
+
+  assert.deepEqual(progress, [0, 40, 100]);
+  assert.equal(received?.endpoint, 'https://project.storage.supabase.co/storage/v1/upload/resumable');
+  assert.equal(received?.bucketName, 'video-media');
+  assert.equal(received?.objectName, 'user/resumable-clip.mp4');
+  assert.equal(received?.token, 'signed');
+  assert.equal(received?.contentType, 'video/mp4');
+});
+
 test('an already cancelled upload never creates a signed request', async () => {
   const controller = new AbortController();
   controller.abort();

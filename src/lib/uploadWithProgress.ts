@@ -1,5 +1,18 @@
 export type UploadProgressHandler = (percent: number) => void;
 
+export interface ResumableUploadInput {
+  endpoint: string;
+  bucketName: string;
+  objectName: string;
+  file: Blob;
+  token: string;
+  cacheControl?: string;
+  contentType?: string;
+  onProgress?: UploadProgressHandler;
+  signal?: AbortSignal;
+  upsert?: boolean;
+}
+
 type SignedUploadBucket = {
   createSignedUploadUrl: (
     path: string,
@@ -16,6 +29,11 @@ export interface ProgressUploadOptions {
   onProgress?: UploadProgressHandler;
   signal?: AbortSignal;
   upsert?: boolean;
+  resumable?: {
+    endpoint: string;
+    bucketName: string;
+    upload: (input: ResumableUploadInput) => Promise<void>;
+  };
 }
 
 const clampPercent = (value: number) => Math.min(100, Math.max(0, value));
@@ -45,6 +63,7 @@ export async function uploadFileWithProgress(
     onProgress,
     signal,
     upsert = true,
+    resumable,
   } = options;
   let lastProgress = -1;
   const report = (value: number) => {
@@ -60,6 +79,23 @@ export async function uploadFileWithProgress(
   const { data, error } = await bucket.createSignedUploadUrl(path, { upsert });
   if (error || !data?.signedUrl) {
     throw new Error(error?.message || 'Could not prepare the secure upload');
+  }
+
+  if (resumable) {
+    await resumable.upload({
+      endpoint: resumable.endpoint,
+      bucketName: resumable.bucketName,
+      objectName: path,
+      file,
+      token: data.token,
+      cacheControl,
+      contentType: options.contentType,
+      onProgress: report,
+      signal,
+      upsert,
+    });
+    report(100);
+    return data;
   }
 
   await new Promise<void>((resolve, reject) => {

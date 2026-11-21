@@ -1,7 +1,8 @@
 import { useCallback, useRef } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { SUPABASE_URL, supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { uploadFileWithProgress } from '@/lib/uploadWithProgress';
+import { supabaseResumableEndpoint, uploadResumableFile } from '@/lib/resumableUpload';
 
 export type VideoUploadStage = 'preparing' | 'video' | 'thumbnail' | 'saving' | 'complete';
 
@@ -191,6 +192,12 @@ export const useVideoMutations = () => {
       const bucket = supabase.storage.from('video-media');
       await uploadFileWithProgress(bucket, videoFileName, data.video, {
         upsert: true,
+        contentType: data.video.type || 'video/mp4',
+        resumable: {
+          endpoint: supabaseResumableEndpoint(SUPABASE_URL),
+          bucketName: 'video-media',
+          upload: uploadResumableFile,
+        },
         onProgress: progress => emit('video', 4 + progress * (data.thumbnail ? 0.8 : 0.88)),
       });
       uploadedPaths.push(videoFileName);
