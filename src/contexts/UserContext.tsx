@@ -6,6 +6,11 @@ import { Session } from '@supabase/supabase-js';
 import { chatDb } from '@/lib/db';
 import { registerSyncListeners } from '@/lib/sync';
 import { isPrivacyUpdate, profileUpdatePayload } from '@/lib/profileUpdates';
+import {
+  normalizeProfileGender,
+  resolveProfileAvatar,
+  takePendingSignupGender,
+} from '@/lib/profileAvatar';
 
 const CACHED_PROFILE_KEY = 'cached_user_profile';
 const CACHED_SESSION_KEY = 'cached_has_session';
@@ -19,7 +24,9 @@ const cacheProfile = (profile: UserProfile | null) => {
       localStorage.removeItem(CACHED_PROFILE_KEY);
       localStorage.removeItem(CACHED_SESSION_KEY);
     }
-  } catch {}
+  } catch {
+    // Local storage can be unavailable in private or restricted browser modes.
+  }
 };
 
 const getCachedProfile = (): UserProfile | null => {
@@ -248,7 +255,11 @@ export const UserProvider: React.FC<UserProviderProps> = ({ children }) => {
             const baseUsername = authUser.user_metadata?.username || authUser.email?.split('@')[0]?.toLowerCase().replace(/[^a-z0-9_]/g, '') || 'user';
             const username = `${baseUsername}_${authUser.id.substring(0, 4)}`;
             const initials = name.substring(0, 2).toUpperCase();
-            const avatarUrl = authUser.user_metadata?.avatar_url || authUser.user_metadata?.picture || null;
+            const gender = normalizeProfileGender(authUser.user_metadata?.gender);
+            const avatarUrl = resolveProfileAvatar(
+              authUser.user_metadata?.avatar_url || authUser.user_metadata?.picture,
+              gender,
+            );
 
             // Insert the profile row so foreign keys work
             const { error: insertError } = await supabase.from('profiles').insert({
@@ -257,8 +268,9 @@ export const UserProvider: React.FC<UserProviderProps> = ({ children }) => {
               username,
               email: authUser.email || '',
               initials,
-              avatar_url: avatarUrl,
+              avatar_url: avatarUrl || null,
               avatar_color: '#4B164C',
+              gender,
             });
 
             if (insertError) {
@@ -285,6 +297,7 @@ export const UserProvider: React.FC<UserProviderProps> = ({ children }) => {
               hideFollowers: false,
               hideOnlineStatus: false,
               allowMessagesFrom: 'everyone',
+              gender: gender || undefined,
               stats: { followers: 0, following: 0, replies: 0, posts: 0, videos: 0, saves: 0 }
             };
             setUserAndCache(fallbackProfile);
@@ -301,14 +314,18 @@ export const UserProvider: React.FC<UserProviderProps> = ({ children }) => {
       }
 
       if (profile) {
-        let avatarUrl = profile.avatar_url || '';
-        if (!avatarUrl) {
-          const { data: { user: authUser } } = await supabase.auth.getUser();
-          const oauthAvatar = authUser?.user_metadata?.avatar_url || authUser?.user_metadata?.picture;
-          if (oauthAvatar) {
-            avatarUrl = oauthAvatar;
-            supabase.from('profiles').update({ avatar_url: oauthAvatar }).eq('id', userId).then();
-          }
+        const { data: { user: authUser } } = await supabase.auth.getUser();
+        const pendingGender = takePendingSignupGender();
+        const gender = normalizeProfileGender(profile.gender)
+          || normalizeProfileGender(authUser?.user_metadata?.gender)
+          || pendingGender;
+        const oauthAvatar = authUser?.user_metadata?.avatar_url || authUser?.user_metadata?.picture;
+        const avatarUrl = resolveProfileAvatar(profile.avatar_url || oauthAvatar, gender);
+        const profilePatch: { avatar_url?: string; gender?: 'female' | 'male' } = {};
+        if (!profile.avatar_url && avatarUrl) profilePatch.avatar_url = avatarUrl;
+        if (!profile.gender && gender) profilePatch.gender = gender;
+        if (Object.keys(profilePatch).length) {
+          supabase.from('profiles').update(profilePatch).eq('id', userId).then();
         }
 
         const userProfile: UserProfile = {
@@ -341,6 +358,7 @@ export const UserProvider: React.FC<UserProviderProps> = ({ children }) => {
           },
           phone: profile.phone || '',
           birthday: profile.birthday || '',
+          gender: gender || undefined,
         };
         setUserAndCache(userProfile);
       }

@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { ArrowDownLeft, ArrowUpRight, ChevronDown, ChevronRight, Copy, Info, Printer, ReceiptText, X } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, ChevronDown, ChevronRight, Copy, Info, Printer, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { SerkleLoader } from '@/components/ui/SerkleLoader';
 import { useWalletPayments, useWalletReceipt } from '@/hooks/useWalletHistory';
 import { walletDate, walletShortDate, walletMoney, walletPaymentStatus, walletEventLabels, walletSourceLabels, type WalletMode } from '@/lib/walletHistory';
 import { WalletPaymentStatus } from './WalletPaymentStatus';
 import { WalletReceipt } from './WalletReceipt';
+import { WalletEmptyState } from './WalletEmptyState';
 
 export interface WalletPaymentCheck {
   isPending: boolean;
@@ -56,7 +57,7 @@ export function WalletPaymentHistory({userId,check}: {userId?:string;check:Walle
     </div>
     {payments.isLoading && <div className="wallet-empty"><SerkleLoader label="Loading payment receipts" showText/></div>}
     {payments.isError && <div role="alert" className="wallet-notice wallet-notice--danger"><Info aria-hidden="true"/><div><strong>Payment history could not be refreshed.</strong>Your existing receipts remain saved.<Button variant="ghost" className="wallet-button wallet-button--quiet mt-2" onClick={()=>void payments.refetch()}>Retry</Button></div></div>}
-    {!payments.isLoading && !payments.isError && !items.length && <div className="wallet-empty"><ReceiptText aria-hidden="true"/><h3>No payment receipts yet</h3><p>No payment receipts in this mode. Older wallet movements remain in Coin activity.</p></div>}
+    {!payments.isLoading && !payments.isError && !items.length && <WalletEmptyState title="No wallet payments yet" description="Top-ups and withdrawal receipts will appear here, including pending and test payments." />}
     {!!items.length && <div className="wallet-list">{items.map(item=><button key={item.id} onClick={event=>{openedBy.current=event.currentTarget;setSelected(item.id);}} className="wallet-payment-row">
       <span className="wallet-row-icon">{item.kind==='withdrawal' ? <ArrowUpRight aria-hidden="true"/> : <ArrowDownLeft aria-hidden="true"/>}</span>
       <span className="min-w-0"><span className="wallet-row-title">{item.kind==='withdrawal' ? 'Withdrawal' : 'Wallet top-up'}</span>

@@ -35,7 +35,10 @@ secrets = "env(SUPABASE_AUTH_HOOK_SEND_EMAIL_SECRET)"
 verify_jwt = false
 
 [functions.send-push-notification]
-verify_jwt = true
+# Database triggers cannot attach an end-user JWT. The handler treats a
+# notification UUID as a delivery-only capability and validates user JWTs for
+# every endpoint that can create notification content.
+verify_jwt = false
 
 [functions.save-push-subscription]
 verify_jwt = true

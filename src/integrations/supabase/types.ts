@@ -2988,6 +2988,7 @@ export type Database = {
           created_at: string | null
           email: string
           fcm_token: string | null
+          gender: string | null
           hide_followers: boolean
           hide_online_status: boolean
           id: string
@@ -3017,6 +3018,7 @@ export type Database = {
           created_at?: string | null
           email: string
           fcm_token?: string | null
+          gender?: string | null
           hide_followers?: boolean
           hide_online_status?: boolean
           id: string
@@ -3046,6 +3048,7 @@ export type Database = {
           created_at?: string | null
           email?: string
           fcm_token?: string | null
+          gender?: string | null
           hide_followers?: boolean
           hide_online_status?: boolean
           id?: string
@@ -3071,9 +3074,14 @@ export type Database = {
           body: string
           created_at: string | null
           data: Json | null
+          delivery_attempts: number
+          delivery_status: string
           delivered_at: string | null
           id: string
           notification_type: string
+          last_delivery_attempt_at: string | null
+          last_delivery_error: string | null
+          next_attempt_at: string | null
           read_at: string | null
           sent_at: string | null
           title: string
@@ -3083,9 +3091,14 @@ export type Database = {
           body: string
           created_at?: string | null
           data?: Json | null
+          delivery_attempts?: number
+          delivery_status?: string
           delivered_at?: string | null
           id?: string
           notification_type: string
+          last_delivery_attempt_at?: string | null
+          last_delivery_error?: string | null
+          next_attempt_at?: string | null
           read_at?: string | null
           sent_at?: string | null
           title: string
@@ -3095,9 +3108,14 @@ export type Database = {
           body?: string
           created_at?: string | null
           data?: Json | null
+          delivery_attempts?: number
+          delivery_status?: string
           delivered_at?: string | null
           id?: string
           notification_type?: string
+          last_delivery_attempt_at?: string | null
+          last_delivery_error?: string | null
+          next_attempt_at?: string | null
           read_at?: string | null
           sent_at?: string | null
           title?: string

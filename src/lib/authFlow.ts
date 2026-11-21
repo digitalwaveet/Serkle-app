@@ -6,6 +6,7 @@ import {
   normalizeEmail,
   normalizePhone,
 } from '@/lib/authIdentity';
+import type { ProfileGender } from '@/lib/profileAvatar';
 
 const PENDING_AUTH_KEY = 'serkle_pending_auth';
 const PENDING_AUTH_MAX_AGE_MS = 60 * 60 * 1000;
@@ -17,6 +18,7 @@ export interface BeginSignupInput {
   dialCode?: string;
   password: string;
   fullName: string;
+  gender: ProfileGender;
   returnTo: string;
 }
 
@@ -64,6 +66,7 @@ export async function beginSignup(input: BeginSignupInput) {
   const metadata = {
     name: input.fullName.trim(),
     full_name: input.fullName.trim(),
+    gender: input.gender,
   };
 
   if (input.method === 'email') {

@@ -1,10 +1,11 @@
-import { ArrowDownLeft, ArrowUpRight, History, Info } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { SerkleLoader } from '@/components/ui/SerkleLoader';
 import { useWalletActivity } from '@/hooks/useWalletHistory';
 import { walletDate, walletShortDate } from '@/lib/walletHistory';
 import { WalletPaymentHistory, type WalletPaymentCheck } from './WalletPaymentHistory';
+import { WalletEmptyState } from './WalletEmptyState';
 
 export const transactionTypeLabels:Record<string,string>={topup:'Top up',tip_sent:'Tip sent',tip_received:'Tip received',purchase:'Purchase',sale:'Sale',event_payment:'Event payment',event_earned:'Event earnings',service_payment:'Service payment',service_earned:'Service earnings',subscription:'Subscription',withdrawal:'Withdrawal',refund:'Refund',premium_unlock:'Premium unlock',premium_earning:'Premium earnings'};
 export function WalletHistoryTab({userId,check}: {userId?:string;check:WalletPaymentCheck}) {
@@ -19,7 +20,7 @@ export function WalletHistoryTab({userId,check}: {userId?:string;check:WalletPay
       {integrity?.status==='needs_review' && <p role="alert" className="wallet-notice wallet-notice--danger"><Info aria-hidden="true"/><span>Your wallet balance needs review. Keep your payment receipts and contact support.</span></p>}
       {activity.isLoading && <div className="wallet-empty"><SerkleLoader label="Loading coin activity" showText/></div>}
       {activity.isError && <div role="alert" className="wallet-notice wallet-notice--danger"><Info aria-hidden="true"/><div><strong>Coin activity could not be refreshed.</strong><Button variant="ghost" className="wallet-button wallet-button--quiet" onClick={()=>void activity.refetch()}>Retry activity</Button></div></div>}
-      {!activity.isLoading && !activity.isError && !transactions.length && <div className="wallet-empty"><History aria-hidden="true"/><h3>No coin movements yet</h3><p>Test and pending payments appear under Payments.</p></div>}
+      {!activity.isLoading && !activity.isError && !transactions.length && <WalletEmptyState title="Your wallet is ready" description="Your coin movements will appear here after your first top-up, purchase or reward." />}
       {!!transactions.length && <div className="wallet-list">{transactions.map(tx=>{
         const positive=tx.amount>0;
         const label=tx.type==='refund' && tx.amount<0 ? 'Funding reversed' : transactionTypeLabels[tx.type] || tx.type;

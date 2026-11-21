@@ -1,5 +1,6 @@
 // User data types for the application
 import { Session } from '@supabase/supabase-js';
+import type { ProfileGender } from '@/lib/profileAvatar';
 
 export interface UserStats {
   followers: number;
@@ -33,6 +34,7 @@ export interface UserProfile {
   stats: UserStats;
   phone?: string;
   birthday?: string;
+  gender?: ProfileGender;
 }
 
 export interface UserPreferences {

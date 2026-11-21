@@ -9,6 +9,11 @@ import { toast } from '@/hooks/use-toast';
 import { authReturnPath } from '@/lib/authReturnPath';
 import { beginSignup, hasUsableSession, savePendingAuth } from '@/lib/authFlow';
 import { type AuthMethod, authErrorMessage, isValidEmail } from '@/lib/authIdentity';
+import {
+  PROFILE_GENDER_OPTIONS,
+  savePendingSignupGender,
+  type ProfileGender,
+} from '@/lib/profileAvatar';
 
 export default function Signup() {
   const navigate = useNavigate();
@@ -18,6 +23,7 @@ export default function Signup() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [dialCode, setDialCode] = useState('+251');
+  const [gender, setGender] = useState<ProfileGender | ''>('');
   const [formData, setFormData] = useState({
     fullName: '',
     email: '',
@@ -30,8 +36,13 @@ export default function Signup() {
 
   const handleGoogleSignIn = async () => {
     if (isLoading) return;
+    if (!gender) {
+      toast({ title: 'Profile illustration required', description: 'Choose the profile illustration you want to start with.', variant: 'destructive' });
+      return;
+    }
     setIsLoading(true);
     try {
+      savePendingSignupGender(gender);
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: { redirectTo: `${window.location.origin}${returnTo}` },
@@ -48,6 +59,10 @@ export default function Signup() {
     if (isLoading) return;
     if (!formData.fullName.trim()) {
       toast({ title: 'Name required', description: 'Enter your full name.', variant: 'destructive' });
+      return;
+    }
+    if (!gender) {
+      toast({ title: 'Profile illustration required', description: 'Choose the profile illustration you want to start with.', variant: 'destructive' });
       return;
     }
     if (method === 'email' && !isValidEmail(formData.email)) {
@@ -72,6 +87,7 @@ export default function Signup() {
         dialCode,
         password: formData.password,
         fullName: formData.fullName,
+        gender,
         returnTo,
       });
       if (error) throw error;
@@ -109,6 +125,25 @@ export default function Signup() {
         </header>
 
         <div className="space-y-5 rounded-2xl border border-border bg-card p-6 shadow-sm">
+          <fieldset className="space-y-2">
+            <legend className="text-sm font-medium text-foreground">Choose your starting profile</legend>
+            <p className="text-xs text-muted-foreground">You can replace this illustration with your own photo at any time.</p>
+            <div className="grid grid-cols-2 gap-3 pt-1">
+              {PROFILE_GENDER_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  aria-pressed={gender === option.value}
+                  onClick={() => setGender(option.value)}
+                  className={`flex min-h-20 items-center gap-3 rounded-xl border p-3 text-left transition-colors ${gender === option.value ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'border-border bg-background hover:border-primary/40'}`}
+                >
+                  <img src={`/illustrations/profile-${option.value}.svg`} alt="" className="size-12 rounded-full object-cover" />
+                  <span className="text-sm font-medium">{option.label}</span>
+                </button>
+              ))}
+            </div>
+          </fieldset>
+
           <Button type="button" variant="outline" onClick={handleGoogleSignIn} disabled={isLoading} className="h-11 w-full gap-3 rounded-xl text-sm font-medium">
             <svg className="size-5" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4" />

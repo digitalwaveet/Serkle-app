@@ -203,6 +203,13 @@ interface ProfileWithToken {
   fcm_token: string | null;
 }
 
+interface DeliverySummary {
+  accepted: number;
+  attempted: number;
+  removedStale: number;
+  results: string[];
+}
+
 // Keep FCM logic for Capacitor app
 async function getFCMAccessToken(): Promise<string | null> {
   try {
@@ -263,14 +270,18 @@ async function deliverToUsers(
   body: string,
   data: Record<string, any>,
   notificationType = "system"
-): Promise<string[]> {
-  let webPushResults: string[] = [];
+): Promise<DeliverySummary> {
+  const summary: DeliverySummary = { accepted: 0, attempted: 0, removedStale: 0, results: [] };
 
   if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
-    const { data: webSubs } = await supabase
+    const { data: webSubs, error: subscriptionError } = await supabase
       .from("push_subscriptions")
       .select("*")
       .in("user_id", targetUserIds);
+
+    if (subscriptionError) {
+      summary.results.push(`Subscription lookup failed: ${subscriptionError.message}`);
+    }
 
     if (webSubs?.length) {
       const pushPayload = JSON.stringify({
@@ -286,6 +297,7 @@ async function deliverToUsers(
 
       const results = await Promise.allSettled(
         webSubs.map(async (sub) => {
+          summary.attempted += 1;
           try {
             const res = await sendWebPush(
               { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
@@ -293,20 +305,24 @@ async function deliverToUsers(
             );
             if (res.status === 410 || res.status === 404) {
               await supabase.from("push_subscriptions").delete().eq("id", sub.id);
+              summary.removedStale += 1;
               return `Removed stale subscription ${sub.id}`;
             }
             if (!res.ok) {
               const errText = await res.text();
               return `Push failed (${res.status}): ${errText}`;
             }
+            summary.accepted += 1;
             return `Push sent to ${sub.id}`;
           } catch (err) {
             return `Error: ${err.message}`;
           }
         })
       );
-      webPushResults = results.map((r) => (r.status === "fulfilled" ? r.value : r.reason));
+      summary.results.push(...results.map((r) => (r.status === "fulfilled" ? String(r.value) : `Error: ${String(r.reason)}`)));
     }
+  } else {
+    summary.results.push("Web Push is not configured: missing VAPID secrets");
   }
 
   // FCM branch — inert until FIREBASE_* secrets exist (future native apps)
@@ -321,11 +337,12 @@ async function deliverToUsers(
 
     if (profilesWithTokens?.length) {
       const fcmUrl = `https://fcm.googleapis.com/v1/projects/${firebaseProjectId}/messages:send`;
-      await Promise.allSettled(
+      const fcmResults = await Promise.allSettled(
         (profilesWithTokens as ProfileWithToken[])
           .filter((p) => p.fcm_token && !p.fcm_token.startsWith("web_"))
-          .map((profile) =>
-            fetch(fcmUrl, {
+          .map(async (profile) => {
+            summary.attempted += 1;
+            const response = await fetch(fcmUrl, {
               method: "POST",
               headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
               body: JSON.stringify({
@@ -335,13 +352,25 @@ async function deliverToUsers(
                   data: Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)])),
                 },
               }),
-            })
-          )
+            });
+            if (!response.ok) throw new Error(`FCM failed (${response.status}): ${await response.text()}`);
+            summary.accepted += 1;
+            return `FCM sent to ${profile.id}`;
+          })
       );
+      summary.results.push(...fcmResults.map((result) => result.status === "fulfilled" ? result.value : `Error: ${String(result.reason)}`));
     }
   }
 
-  return webPushResults;
+  return summary;
+}
+
+async function requireUser(req: Request, supabase: ReturnType<typeof createClient>) {
+  const authHeader = req.headers.get("Authorization") || "";
+  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+  if (!token) return null;
+  const { data, error } = await supabase.auth.getUser(token);
+  return error ? null : data.user;
 }
 
 Deno.serve(async (req) => {
@@ -357,38 +386,91 @@ Deno.serve(async (req) => {
     const payload = await req.json();
 
     // ── Deliver-only mode: fired by the DB trigger on push_notifications ──
-    // The request carries only a row id; title/body come from the row itself,
-    // so callers can't forge content. The atomic delivered_at claim makes
-    // duplicate or replayed calls harmless.
+    // The request carries only an unguessable row id; title/body and recipient
+    // always come from the database, so callers cannot forge notification
+    // content. Status + attempt filters make trigger and retry calls idempotent.
     const notificationId =
       payload.notification_id ??
       (payload.table === "push_notifications" ? payload.record?.id : null);
 
     if (notificationId) {
-      const { data: claimed } = await supabase
+      const { data: candidate } = await supabase
         .from("push_notifications")
-        .update({ delivered_at: new Date().toISOString() })
+        .select("*")
         .eq("id", notificationId)
-        .is("delivered_at", null)
-        .select()
+        .in("delivery_status", ["pending", "failed"])
+        .lt("delivery_attempts", 5)
         .maybeSingle();
 
-      if (!claimed) {
-        return new Response(JSON.stringify({ skipped: "already delivered or unknown id" }), {
+      if (!candidate || (candidate.next_attempt_at && new Date(candidate.next_attempt_at) > new Date())) {
+        return new Response(JSON.stringify({ skipped: "not ready, already handled, or unknown id" }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
-      const webPushResults = await deliverToUsers(
-        supabase,
-        [claimed.user_id],
-        claimed.title,
-        claimed.body,
-        (claimed.data as Record<string, any>) ?? {},
-        claimed.notification_type ?? "system"
-      );
+      const attemptedAt = new Date().toISOString();
+      const nextAttempts = (candidate.delivery_attempts || 0) + 1;
+      const { data: claimed } = await supabase
+        .from("push_notifications")
+        .update({
+          delivery_status: "processing",
+          delivery_attempts: nextAttempts,
+          last_delivery_attempt_at: attemptedAt,
+          last_delivery_error: null,
+        })
+        .eq("id", notificationId)
+        .eq("delivery_status", candidate.delivery_status)
+        .eq("delivery_attempts", candidate.delivery_attempts || 0)
+        .select()
+        .maybeSingle();
 
-      return new Response(JSON.stringify({ success: true, webPushResults }), {
+      if (!claimed) {
+        return new Response(JSON.stringify({ skipped: "already claimed" }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      let delivery: DeliverySummary;
+      try {
+        delivery = await deliverToUsers(
+          supabase,
+          [claimed.user_id],
+          claimed.title,
+          claimed.body,
+          (claimed.data as Record<string, any>) ?? {},
+          claimed.notification_type ?? "system"
+        );
+      } catch (error) {
+        delivery = { accepted: 0, attempted: 1, removedStale: 0, results: [`Error: ${error.message}`] };
+      }
+
+      const delivered = delivery.accepted > 0;
+      const noSubscription = delivery.attempted === 0;
+      const retryDelaySeconds = Math.min(15 * (2 ** (nextAttempts - 1)), 15 * 60);
+      const lastError = delivered ? null : delivery.results.join("; ").slice(0, 2000) || "No active push subscription";
+
+      await supabase
+        .from("push_notifications")
+        .update({
+          delivery_status: delivered ? "delivered" : noSubscription ? "no_subscription" : nextAttempts >= 5 ? "failed_permanent" : "failed",
+          delivered_at: delivered ? new Date().toISOString() : null,
+          last_delivery_error: lastError,
+          next_attempt_at: delivered || noSubscription || nextAttempts >= 5
+            ? null
+            : new Date(Date.now() + retryDelaySeconds * 1000).toISOString(),
+        })
+        .eq("id", claimed.id)
+        .eq("delivery_status", "processing");
+
+      return new Response(JSON.stringify({ success: delivered, status: delivered ? "delivered" : noSubscription ? "no_subscription" : "retry_scheduled", delivery }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const authenticatedUser = await requireUser(req, supabase);
+    if (!authenticatedUser) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -428,6 +510,15 @@ Deno.serve(async (req) => {
       data = payload.data || {};
       if (payload.userId) targetUserIds = [payload.userId];
       else if (payload.userIds) targetUserIds = payload.userIds;
+    }
+
+    // Direct client calls are limited to a self-test. Real app notifications
+    // are created by database functions and reach the delivery-only branch.
+    if (targetUserIds.some((id) => id !== authenticatedUser.id)) {
+      return new Response(JSON.stringify({ error: "Cannot notify another account directly" }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     if (targetUserIds.length === 0) {

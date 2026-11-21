@@ -43,7 +43,7 @@ Deno.serve(async (req) => {
     const user = claimsData.user;
     const { subscription } = await req.json();
 
-    if (!subscription || !subscription.endpoint) {
+    if (!subscription || !subscription.endpoint || !subscription.keys?.p256dh || !subscription.keys?.auth) {
       return new Response(JSON.stringify({ error: "Missing subscription data" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -51,8 +51,24 @@ Deno.serve(async (req) => {
     }
 
     // Extract keys for storage
-    const { endpoint, keys } = subscription;
+    const { endpoint, expirationTime, keys } = subscription;
     const { p256dh, auth } = keys;
+
+    let endpointUrl: URL;
+    try {
+      endpointUrl = new URL(endpoint);
+    } catch {
+      return new Response(JSON.stringify({ error: "Invalid subscription endpoint" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    if (endpointUrl.protocol !== "https:" || p256dh.length < 40 || auth.length < 8) {
+      return new Response(JSON.stringify({ error: "Invalid subscription data" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     console.log("Saving push subscription for user:", user.id, "endpoint:", endpoint.substring(0, 50));
 
@@ -63,6 +79,8 @@ Deno.serve(async (req) => {
         endpoint,
         p256dh,
         auth,
+        expiration_time: expirationTime || null,
+        user_agent: req.headers.get("user-agent"),
       },
       {
         onConflict: "user_id, endpoint",

@@ -104,6 +104,7 @@
 .wallet-status--test, .wallet-status--neutral { color: hsl(var(--wallet-brand-text)); background: hsl(var(--wallet-subtle)); }
 .wallet-empty { padding: 40px 24px; border: 1px dashed hsl(var(--border)); border-radius: 20px; text-align: center; background: hsl(var(--card)); }
 .wallet-empty > svg { margin: 0 auto 12px; width: 32px; height: 32px; color: hsl(var(--wallet-brand-text)); }
+.wallet-empty-illustration { display: block; width: min(210px, 72%); max-height: 180px; margin: -8px auto 18px; object-fit: contain; }
 .wallet-empty h3 { font-size: 16px; font-weight: 600; }
 .wallet-empty p { margin-top: 6px; color: hsl(var(--muted-foreground)); }
 .wallet-notice { display: flex; align-items: flex-start; gap: 10px; padding: 14px 16px; border: 1px solid hsl(var(--border)); border-radius: 14px; color: hsl(var(--foreground)); background: hsl(var(--wallet-subtle)); font-size: 13px; }

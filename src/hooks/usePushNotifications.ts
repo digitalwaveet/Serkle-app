@@ -1,21 +1,11 @@
 import { useEffect, useState } from 'react';
 import { SUPABASE_URL, supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { pushSubscriptionUsesKey, urlBase64ToUint8Array } from '@/lib/pushSubscription';
 
 // Must match the VAPID_PUBLIC_KEY secret configured for the edge functions.
 const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY ||
   'BNyajxlkWQYqN0F0oUFbVBjCsP1JFokiuJaL0V5aO42PyRUL-1NEmwu58hXfYvtC89pkIlPZcRQQ1UgI4MvkDyI';
-
-function urlBase64ToUint8Array(base64String: string): Uint8Array {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-  const rawData = window.atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
-  for (let i = 0; i < rawData.length; i++) {
-    outputArray[i] = rawData.charCodeAt(i);
-  }
-  return outputArray;
-}
 
 export const usePushNotifications = () => {
   const [permission, setPermission] = useState<NotificationPermission>('default');
@@ -39,13 +29,25 @@ export const usePushNotifications = () => {
   const checkSubscription = async () => {
     try {
       const registration = await navigator.serviceWorker.ready;
-      const sub = await registration.pushManager.getSubscription();
+      let sub = await registration.pushManager.getSubscription();
+
+      // A browser subscription is permanently bound to the VAPID public key
+      // used to create it. Project/key migrations otherwise leave a seemingly
+      // valid endpoint that the new backend can never deliver to.
+      if (sub && !pushSubscriptionUsesKey(sub, VAPID_PUBLIC_KEY)) {
+        console.warn('Replacing push subscription created with a stale VAPID key');
+        await sub.unsubscribe();
+        sub = null;
+      }
+
       setSubscription(sub);
       // Re-save on every launch: heals server-side drift after the browser
       // rotates the subscription (pushsubscriptionchange) while the app was
       // closed, so background delivery keeps working over time.
       if (sub) {
-        saveSubscription(sub);
+        await saveSubscription(sub);
+      } else if (Notification.permission === 'granted') {
+        await subscribeToPush();
       }
     } catch (error) {
       console.error('Error checking push subscription:', error);
@@ -131,6 +133,12 @@ export const usePushNotifications = () => {
       // Check existing subscription
       let sub = await registration.pushManager.getSubscription();
 
+      if (sub && !pushSubscriptionUsesKey(sub, VAPID_PUBLIC_KEY)) {
+        console.warn('Existing subscription uses a stale VAPID key; replacing it');
+        await sub.unsubscribe();
+        sub = null;
+      }
+
       if (sub) {
         console.log('Existing push subscription found, reusing it');
       } else {
@@ -170,20 +178,19 @@ export const usePushNotifications = () => {
 
       setSubscription(sub);
       // Save to backend
-      await saveSubscription(sub);
-      return true;
+      return await saveSubscription(sub);
     } catch (error: any) {
       console.error('Error subscribing to push:', error);
       return false;
     }
   };
 
-  const saveSubscription = async (sub: PushSubscription) => {
+  const saveSubscription = async (sub: PushSubscription): Promise<boolean> => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
         console.error('No session found, cannot save push subscription');
-        return;
+        return false;
       }
 
       const subJson = sub.toJSON();
@@ -202,6 +209,7 @@ export const usePushNotifications = () => {
           body: JSON.stringify({
             subscription: {
               endpoint: subJson.endpoint,
+              expirationTime: subJson.expirationTime,
               keys: {
                 p256dh: subJson.keys?.p256dh,
                 auth: subJson.keys?.auth,
@@ -214,11 +222,14 @@ export const usePushNotifications = () => {
       if (!response.ok) {
         const err = await response.text();
         console.error('Failed to save push subscription:', err);
+        return false;
       } else {
         console.log('Push subscription saved to backend');
+        return true;
       }
     } catch (error) {
       console.error('Error saving push subscription:', error);
+      return false;
     }
   };
 
