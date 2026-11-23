@@ -1,4 +1,5 @@
 import type { ImageSize } from '../../supabase/functions/_shared/imagePreviewProtocol.js';
+import { storageObjectFromUrl } from './storageReference';
 export { IMAGE_PREVIEW_MARKER, IMAGE_PRESETS, previewPath, type ImageSize } from '../../supabase/functions/_shared/imagePreviewProtocol.js';
 
 export const IMAGE_PREVIEW_VERSION = 1;
@@ -35,13 +36,10 @@ export function imageObject(reference: string, origin: string): ImageObject | nu
   if (reference.startsWith('chat-media://')) {
     bucket = 'chat-media'; path = reference.slice(13);
   } else {
-    let url: URL;
-    try { url = new URL(reference); } catch { return null; }
-    if (url.origin !== origin || url.username || url.password) return null;
-    const match = url.pathname.match(/^\/storage\/v1\/object\/(?:public|sign|authenticated)\/(chat-media|post-media)\/(.+)$/);
-    if (!match) return null;
-    bucket = match[1];
-    try { path = decodeURIComponent(match[2]); } catch { throw new Error('Invalid image path'); }
+    const object = storageObjectFromUrl(reference, origin, ['chat-media', 'post-media'] as const);
+    if (!object) return null;
+    bucket = object.bucket;
+    path = object.path;
   }
   if (/[\x00-\x1f\\]/.test(path) || path.split('/').some(p => !p || p === '.' || p === '..'))
     throw new Error('Invalid image path');
