@@ -61,18 +61,18 @@ Authentication → Email Templates → Reset password:
 Disable link tracking in the SMTP provider because tracking systems can rewrite
 or pre-open authentication links.
 
-## 3. Phone authentication and 251SMS
+## 3. Phone authentication and AfroMessage
 
 In Authentication → Sign In / Providers → Phone:
 
 1. Enable phone/password signup.
 2. Enable phone confirmations.
 3. Deploy the `send-sms` Edge Function and configure it as the Supabase Auth
-   **Send SMS Hook**. Follow `docs/251sms-supabase-setup.md`.
+   **Send SMS Hook**. Follow `docs/afromessage-supabase-setup.md`.
 4. Supabase generates and verifies the code. The hook sends that code through
-   the regional 251SMS API using the provider's `otp` message type.
+   AfroMessage's `/api/send` endpoint without generating a second OTP.
 
-251SMS and hook credentials belong only in Supabase Edge Function secrets.
+AfroMessage and hook credentials belong only in Supabase Edge Function secrets.
 Never paste them into chat, commit them to Git, or expose them through `VITE_*`
 variables.
 

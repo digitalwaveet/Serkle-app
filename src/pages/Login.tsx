@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, Mail, Phone } from 'lucide-react';
+import { Eye, EyeOff } from 'lucide-react';
 import { authReturnPath } from '@/lib/authReturnPath';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,16 +8,13 @@ import { Label } from '@/components/ui/label';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
 import { resendPendingSignup, savePendingAuth, signInWithPassword } from '@/lib/authFlow';
-import { type AuthMethod, authErrorMessage, isUnverifiedAuthError } from '@/lib/authIdentity';
+import { authErrorMessage, authMethodForIdentifier, isUnverifiedAuthError } from '@/lib/authIdentity';
 
 export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
   const returnTo = authReturnPath(location.search);
-  const [method, setMethod] = useState<AuthMethod>('email');
-  const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
-  const [dialCode, setDialCode] = useState('+251');
+  const [identifierValue, setIdentifierValue] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -42,14 +39,17 @@ export default function Login() {
     if (isLoading) return;
     setIsLoading(true);
     try {
+      const method = authMethodForIdentifier(identifierValue);
       const { data, error, identifier } = await signInWithPassword(
         method,
-        method === 'email' ? email : phone,
+        identifierValue,
         password,
-        dialCode,
       );
 
       if (error && isUnverifiedAuthError(error)) {
+        if (method === 'phone') {
+          throw new Error('Phone verification is temporarily unavailable. Existing verified phone accounts can still sign in.');
+        }
         const pending = savePendingAuth({ kind: 'signup', method, identifier, returnTo });
         const resendResult = await resendPendingSignup(pending);
         if (resendResult.error) {
@@ -92,35 +92,28 @@ export default function Login() {
 
           <div className="flex items-center gap-3"><div className="h-px flex-1 bg-border" /><span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">or</span><div className="h-px flex-1 bg-border" /></div>
 
-          <div className="flex gap-1 rounded-xl bg-muted p-1" role="tablist" aria-label="Sign-in method">
-            {(['email', 'phone'] as const).map((item) => (
-              <button key={item} type="button" role="tab" aria-selected={method === item} onClick={() => setMethod(item)} className={`flex min-h-10 flex-1 items-center justify-center gap-2 rounded-lg text-sm font-medium transition-all ${method === item ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}>
-                {item === 'email' ? <Mail className="size-4" /> : <Phone className="size-4" />}
-                {item === 'email' ? 'Email' : 'Phone'}
-              </button>
-            ))}
-          </div>
-
           <form onSubmit={handleSubmit} className="space-y-4">
-            {method === 'email' ? (
-              <div className="space-y-1.5">
-                <Label htmlFor="login-email">Email address</Label>
-                <Input id="login-email" type="email" autoComplete="email" placeholder="you@example.com" value={email} onChange={(event) => setEmail(event.target.value)} required />
-              </div>
-            ) : (
-              <div className="space-y-1.5">
-                <Label htmlFor="login-phone">Phone number</Label>
-                <div className="grid grid-cols-[92px_1fr] gap-2">
-                  <Input aria-label="Country calling code" inputMode="tel" value={dialCode} onChange={(event) => setDialCode(event.target.value)} />
-                  <Input id="login-phone" type="tel" inputMode="tel" autoComplete="tel-national" placeholder="0911 123 456" value={phone} onChange={(event) => setPhone(event.target.value)} required />
-                </div>
-              </div>
-            )}
+            <div className="space-y-1.5">
+              <Label htmlFor="login-identifier">Email or phone number</Label>
+              <Input
+                id="login-identifier"
+                type="text"
+                autoComplete="username"
+                placeholder="you@example.com or 0911 123 456"
+                value={identifierValue}
+                onChange={(event) => setIdentifierValue(event.target.value)}
+                aria-describedby="login-identifier-help"
+                required
+              />
+              <p id="login-identifier-help" className="text-xs text-muted-foreground">
+                Existing phone accounts can continue signing in with their number.
+              </p>
+            </div>
 
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
                 <Label htmlFor="login-password">Password</Label>
-                <button type="button" onClick={() => navigate(`/reset-password?method=${method}&returnTo=${encodeURIComponent(returnTo)}`)} className="text-xs font-medium text-primary hover:underline">Forgot password?</button>
+                <button type="button" onClick={() => navigate(`/reset-password?returnTo=${encodeURIComponent(returnTo)}`)} className="text-xs font-medium text-primary hover:underline">Forgot password?</button>
               </div>
               <div className="relative">
                 <Input id="login-password" type={showPassword ? 'text' : 'password'} autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} className="pr-11" required />

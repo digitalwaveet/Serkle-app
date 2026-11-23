@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Eye, EyeOff, Mail, Phone } from 'lucide-react';
+import { ArrowLeft, Eye, EyeOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -8,7 +8,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
 import { authReturnPath } from '@/lib/authReturnPath';
 import { beginSignup, hasUsableSession, savePendingAuth } from '@/lib/authFlow';
-import { type AuthMethod, authErrorMessage, isValidEmail } from '@/lib/authIdentity';
+import { authErrorMessage, isValidEmail } from '@/lib/authIdentity';
 import {
   PROFILE_GENDER_OPTIONS,
   savePendingSignupGender,
@@ -18,16 +18,13 @@ import {
 export default function Signup() {
   const navigate = useNavigate();
   const returnTo = authReturnPath(useLocation().search);
-  const [method, setMethod] = useState<AuthMethod>('email');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [dialCode, setDialCode] = useState('+251');
   const [gender, setGender] = useState<ProfileGender | ''>('');
   const [formData, setFormData] = useState({
     fullName: '',
     email: '',
-    phone: '',
     password: '',
     confirmPassword: '',
   });
@@ -65,7 +62,7 @@ export default function Signup() {
       toast({ title: 'Profile illustration required', description: 'Choose the profile illustration you want to start with.', variant: 'destructive' });
       return;
     }
-    if (method === 'email' && !isValidEmail(formData.email)) {
+    if (!isValidEmail(formData.email)) {
       toast({ title: 'Invalid email', description: 'Enter a valid email address.', variant: 'destructive' });
       return;
     }
@@ -81,10 +78,8 @@ export default function Signup() {
     setIsLoading(true);
     try {
       const { data, error, identifier } = await beginSignup({
-        method,
+        method: 'email',
         email: formData.email,
-        phone: formData.phone,
-        dialCode,
         password: formData.password,
         fullName: formData.fullName,
         gender,
@@ -95,7 +90,7 @@ export default function Signup() {
         navigate(returnTo, { replace: true });
         return;
       }
-      savePendingAuth({ kind: 'signup', method, identifier, returnTo });
+      savePendingAuth({ kind: 'signup', method: 'email', identifier, returnTo });
       navigate(`/verify-account?returnTo=${encodeURIComponent(returnTo)}`, { replace: true });
     } catch (error) {
       toast({ title: 'Could not create account', description: authErrorMessage(error), variant: 'destructive' });
@@ -156,36 +151,16 @@ export default function Signup() {
 
           <div className="flex items-center gap-3"><div className="h-px flex-1 bg-border" /><span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">or</span><div className="h-px flex-1 bg-border" /></div>
 
-          <div className="flex gap-1 rounded-xl bg-muted p-1" role="tablist" aria-label="Sign-up method">
-            {(['email', 'phone'] as const).map((item) => (
-              <button key={item} type="button" role="tab" aria-selected={method === item} onClick={() => setMethod(item)} className={`flex min-h-10 flex-1 items-center justify-center gap-2 rounded-lg text-sm font-medium transition-all ${method === item ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}>
-                {item === 'email' ? <Mail className="size-4" /> : <Phone className="size-4" />}
-                {item === 'email' ? 'Email' : 'Phone'}
-              </button>
-            ))}
-          </div>
-
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="full-name">Full name</Label>
               <Input id="full-name" autoComplete="name" value={formData.fullName} onChange={(event) => updateField('fullName', event.target.value)} required />
             </div>
 
-            {method === 'email' ? (
-              <div className="space-y-1.5">
-                <Label htmlFor="signup-email">Email address</Label>
-                <Input id="signup-email" type="email" autoComplete="email" placeholder="you@example.com" value={formData.email} onChange={(event) => updateField('email', event.target.value)} required />
-              </div>
-            ) : (
-              <div className="space-y-1.5">
-                <Label htmlFor="signup-phone">Phone number</Label>
-                <div className="grid grid-cols-[92px_1fr] gap-2">
-                  <Input aria-label="Country calling code" inputMode="tel" value={dialCode} onChange={(event) => setDialCode(event.target.value)} />
-                  <Input id="signup-phone" type="tel" inputMode="tel" autoComplete="tel-national" placeholder="0911 123 456" value={formData.phone} onChange={(event) => updateField('phone', event.target.value)} required />
-                </div>
-                <p className="text-xs text-muted-foreground">We will send a six-digit SMS code to verify this number.</p>
-              </div>
-            )}
+            <div className="space-y-1.5">
+              <Label htmlFor="signup-email">Email address</Label>
+              <Input id="signup-email" type="email" autoComplete="email" placeholder="you@example.com" value={formData.email} onChange={(event) => updateField('email', event.target.value)} required />
+            </div>
 
             <div className="space-y-1.5">
               <Label htmlFor="signup-password">Password</Label>
@@ -209,7 +184,7 @@ export default function Signup() {
             </div>
 
             <Button type="submit" disabled={isLoading} className="h-11 w-full rounded-xl text-sm font-medium">
-              {isLoading ? 'Creating account…' : method === 'email' ? 'Create account with email' : 'Create account with phone'}
+              {isLoading ? 'Creating account…' : 'Create account with email'}
             </Button>
           </form>
         </div>

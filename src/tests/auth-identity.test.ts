@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  authMethodForIdentifier,
   authErrorMessage,
   isUnverifiedAuthError,
   isValidEmail,
@@ -29,6 +30,13 @@ test('supports another supplied country calling code', () => {
 
 test('rejects invalid phone numbers', () => {
   assert.throws(() => normalizePhone('123'), /valid phone number/i);
+});
+
+test('detects email and phone values from the combined login field', () => {
+  assert.equal(authMethodForIdentifier(' member@example.com '), 'email');
+  assert.equal(authMethodForIdentifier('0911 123 456'), 'phone');
+  assert.equal(authMethodForIdentifier('+251711223344'), 'phone');
+  assert.throws(() => authMethodForIdentifier('not-an-account'), /email address or phone number/i);
 });
 
 test('masks verification destinations without hiding their identity type', () => {

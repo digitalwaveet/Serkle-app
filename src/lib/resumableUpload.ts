@@ -9,13 +9,16 @@ const readableTusError = (error: unknown) => {
   if (/network|fetch|connection|offline|failed to upload/i.test(message)) {
     return 'The connection was interrupted. Tap Retry upload to resume from the last completed chunk.';
   }
+  if (/invalid compact jws|invalidjwt|unauthorized|accessdenied/i.test(message)) {
+    return 'Your sign-in session could not authorize this upload. Tap Retry upload to refresh it and continue.';
+  }
   return message || 'The resumable upload could not be completed.';
 };
 
 /**
- * Uploads directly to Supabase Storage's TUS endpoint. The signed token keeps
- * authorization scoped to one object while the browser can resume a partially
- * transferred video after a network interruption or retry.
+ * Uploads directly to Supabase Storage's TUS endpoint. Every TUS request gets
+ * the current user's access token so long uploads survive an auth refresh while
+ * Storage RLS continues to scope the user to their own object path.
  */
 export function uploadResumableFile(input: ResumableUploadInput) {
   const {
@@ -23,7 +26,7 @@ export function uploadResumableFile(input: ResumableUploadInput) {
     bucketName,
     objectName,
     file,
-    token,
+    getAccessToken,
     cacheControl = '3600',
     contentType = file.type || 'application/octet-stream',
     onProgress,
@@ -46,8 +49,12 @@ export function uploadResumableFile(input: ResumableUploadInput) {
       endpoint,
       retryDelays: RETRY_DELAYS,
       headers: {
-        'x-signature': token,
         'x-upsert': String(upsert),
+      },
+      onBeforeRequest: async request => {
+        const accessToken = await getAccessToken();
+        if (!accessToken) throw new Error('Your sign-in session has expired. Please sign in again.');
+        request.setHeader('authorization', `Bearer ${accessToken}`);
       },
       uploadDataDuringCreation: true,
       removeFingerprintOnSuccess: true,

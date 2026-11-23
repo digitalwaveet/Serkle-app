@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, CheckCircle2, Eye, EyeOff, KeyRound, Mail, Phone, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Eye, EyeOff, KeyRound, ShieldCheck } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,7 +16,7 @@ import {
   updateRecoveredPassword,
   verifyPendingAuth,
 } from '@/lib/authFlow';
-import { type AuthMethod, authErrorMessage, isValidEmail, maskAuthIdentifier } from '@/lib/authIdentity';
+import { authErrorMessage, isValidEmail, maskAuthIdentifier } from '@/lib/authIdentity';
 
 type Step = 'request' | 'code' | 'new-password' | 'success';
 
@@ -28,13 +28,11 @@ export default function ResetPassword() {
     || params.get('type') === 'recovery'
     || params.has('code');
   const returnTo = authReturnPath(location.search);
-  const restoredFlow = loadPendingAuth('recovery');
-  const [method, setMethod] = useState<AuthMethod>(params.get('method') === 'phone' ? 'phone' : restoredFlow?.method ?? 'email');
+  const pendingFlow = loadPendingAuth('recovery');
+  const restoredFlow = pendingFlow?.method === 'email' ? pendingFlow : null;
   const [step, setStep] = useState<Step>(restoredFlow ? 'code' : 'request');
   const [flow, setFlow] = useState(restoredFlow);
-  const [email, setEmail] = useState(restoredFlow?.method === 'email' ? restoredFlow.identifier : '');
-  const [phone, setPhone] = useState('');
-  const [dialCode, setDialCode] = useState('+251');
+  const [email, setEmail] = useState(restoredFlow?.identifier ?? '');
   const [code, setCode] = useState('');
   const [password, setPassword] = useState('');
   const [confirmation, setConfirmation] = useState('');
@@ -68,21 +66,21 @@ export default function ResetPassword() {
   const requestCode = async (event?: React.FormEvent) => {
     event?.preventDefault();
     if (isLoading) return;
-    if (method === 'email' && !isValidEmail(email)) {
+    if (!isValidEmail(email)) {
       toast({ title: 'Invalid email', description: 'Enter a valid email address.', variant: 'destructive' });
       return;
     }
 
     setIsLoading(true);
     try {
-      const { error, identifier } = await requestPasswordRecovery(method, method === 'email' ? email : phone, dialCode);
+      const { error, identifier } = await requestPasswordRecovery('email', email);
       if (error) throw error;
-      const pending = savePendingAuth({ kind: 'recovery', method, identifier, returnTo });
+      const pending = savePendingAuth({ kind: 'recovery', method: 'email', identifier, returnTo });
       setFlow(pending);
       setNow(Date.now());
       setStep('code');
       toast({
-        title: method === 'email' ? 'Recovery email sent' : 'Recovery SMS sent',
+        title: 'Recovery email sent',
         description: 'Enter the six-digit code to continue.',
       });
     } catch (error) {
@@ -188,28 +186,13 @@ export default function ResetPassword() {
         <section className="space-y-5 rounded-2xl border border-border bg-card p-6 shadow-sm">
           {step === 'request' && (
             <form onSubmit={requestCode} className="space-y-4">
-              <div className="flex gap-1 rounded-xl bg-muted p-1" role="tablist" aria-label="Recovery method">
-                {(['email', 'phone'] as const).map((item) => (
-                  <button key={item} type="button" role="tab" aria-selected={method === item} onClick={() => setMethod(item)} className={`flex min-h-10 flex-1 items-center justify-center gap-2 rounded-lg text-sm font-medium ${method === item ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground'}`}>
-                    {item === 'email' ? <Mail className="size-4" /> : <Phone className="size-4" />}
-                    {item === 'email' ? 'Email' : 'Phone'}
-                  </button>
-                ))}
+              <div className="space-y-1.5">
+                <Label htmlFor="recovery-email">Email address</Label>
+                <Input id="recovery-email" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required />
+                <p className="text-xs text-muted-foreground">Phone recovery is temporarily unavailable while SMS delivery is being updated.</p>
               </div>
 
-              {method === 'email' ? (
-                <div className="space-y-1.5"><Label htmlFor="recovery-email">Email address</Label><Input id="recovery-email" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></div>
-              ) : (
-                <div className="space-y-1.5">
-                  <Label htmlFor="recovery-phone">Phone number</Label>
-                  <div className="grid grid-cols-[92px_1fr] gap-2">
-                    <Input aria-label="Country calling code" inputMode="tel" value={dialCode} onChange={(event) => setDialCode(event.target.value)} />
-                    <Input id="recovery-phone" type="tel" inputMode="tel" autoComplete="tel-national" value={phone} onChange={(event) => setPhone(event.target.value)} required />
-                  </div>
-                </div>
-              )}
-
-              <Button type="submit" disabled={isLoading} className="h-11 w-full rounded-xl">{isLoading ? 'Sending…' : `Send ${method === 'email' ? 'email' : 'SMS'} code`}</Button>
+              <Button type="submit" disabled={isLoading} className="h-11 w-full rounded-xl">{isLoading ? 'Sending…' : 'Send email code'}</Button>
             </form>
           )}
 
@@ -225,7 +208,7 @@ export default function ResetPassword() {
               </div>
               <Button type="submit" disabled={isLoading || code.length !== 6} className="h-11 w-full rounded-xl">{isLoading ? 'Verifying…' : 'Verify code'}</Button>
               <div className="flex items-center justify-between text-xs">
-                <button type="button" onClick={resetRequest} className="text-muted-foreground hover:text-foreground">Change {flow.method}</button>
+                <button type="button" onClick={resetRequest} className="text-muted-foreground hover:text-foreground">Change email</button>
                 <button type="button" disabled={isLoading || resendSeconds > 0} onClick={resendRecovery} className="font-medium text-primary disabled:text-muted-foreground">{resendSeconds > 0 ? `Resend in ${resendSeconds}s` : 'Resend code'}</button>
               </div>
             </form>

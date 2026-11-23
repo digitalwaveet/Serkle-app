@@ -5,7 +5,7 @@ export interface ResumableUploadInput {
   bucketName: string;
   objectName: string;
   file: Blob;
-  token: string;
+  getAccessToken: () => Promise<string>;
   cacheControl?: string;
   contentType?: string;
   onProgress?: UploadProgressHandler;
@@ -32,6 +32,7 @@ export interface ProgressUploadOptions {
   resumable?: {
     endpoint: string;
     bucketName: string;
+    getAccessToken: () => Promise<string>;
     upload: (input: ResumableUploadInput) => Promise<void>;
   };
 }
@@ -48,9 +49,8 @@ const uploadErrorMessage = (request: XMLHttpRequest) => {
 };
 
 /**
- * Uploads through a short-lived Supabase signed URL so browser-native XHR can
- * report real transmitted-byte progress. The signed URL is issued under the
- * current user's storage policy; no service-role credential reaches the client.
+ * Uses authenticated TUS for resumable files, or a short-lived signed URL for
+ * the browser-native XHR fallback. No service-role credential reaches the client.
  */
 export async function uploadFileWithProgress(
   bucket: SignedUploadBucket,
@@ -76,18 +76,13 @@ export async function uploadFileWithProgress(
   if (signal?.aborted) throw new DOMException('Upload cancelled', 'AbortError');
   report(0);
 
-  const { data, error } = await bucket.createSignedUploadUrl(path, { upsert });
-  if (error || !data?.signedUrl) {
-    throw new Error(error?.message || 'Could not prepare the secure upload');
-  }
-
   if (resumable) {
     await resumable.upload({
       endpoint: resumable.endpoint,
       bucketName: resumable.bucketName,
       objectName: path,
       file,
-      token: data.token,
+      getAccessToken: resumable.getAccessToken,
       cacheControl,
       contentType: options.contentType,
       onProgress: report,
@@ -95,7 +90,12 @@ export async function uploadFileWithProgress(
       upsert,
     });
     report(100);
-    return data;
+    return { path };
+  }
+
+  const { data, error } = await bucket.createSignedUploadUrl(path, { upsert });
+  if (error || !data?.signedUrl) {
+    throw new Error(error?.message || 'Could not prepare the secure upload');
   }
 
   await new Promise<void>((resolve, reject) => {

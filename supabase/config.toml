@@ -22,6 +22,11 @@ otp_length = 6
 otp_expiry = 600
 max_frequency = "60s"
 
+[auth.hook.send_sms]
+enabled = true
+uri = "https://fkeyentcklsuqecqgmak.supabase.co/functions/v1/send-sms"
+secrets = "env(SEND_SMS_HOOK_SECRET)"
+
 # Authentication email is delivered by Supabase Auth through the project's
 # Custom SMTP settings. Keep the legacy HTTP hook disabled: the hosted Edge
 # runtime cannot reliably connect to the cPanel SMTP endpoint and enabling both

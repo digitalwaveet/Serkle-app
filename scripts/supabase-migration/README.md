@@ -85,7 +85,7 @@ Still required:
 1. Transfer the 1,116 actual Storage files. Metadata alone will make files appear in the dashboard but they will return missing-object errors.
 2. Finish the Google OAuth client/brand configuration for the new callback URL.
    Serkle does not currently expose GitHub sign-in.
-3. Configure 251SMS and its Send SMS Auth Hook only when phone authentication is
+3. Configure AfroMessage and its Send SMS Auth Hook when phone authentication is
    ready to launch. Mapbox remains intentionally deferred as well.
 4. Add the Lovable AI key only if those retained AI functions are still required.
 5. Run end-to-end signup, recovery, Storage, messaging, push, wallet and payment checks.

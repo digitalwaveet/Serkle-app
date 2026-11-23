@@ -14,6 +14,22 @@ export interface VideoUploadProgress {
 const errorMessage = (error: unknown, fallback: string) =>
   error instanceof Error && error.message ? error.message : fallback;
 
+const getVideoUploadAccessToken = async () => {
+  const { data, error } = await supabase.auth.getSession();
+  if (error) throw new Error('Your sign-in session could not be loaded. Please sign in again.');
+
+  let session = data.session;
+  const expiresWithinOneMinute = !session?.expires_at || session.expires_at * 1000 <= Date.now() + 60_000;
+  if (session && expiresWithinOneMinute) {
+    const refreshed = await supabase.auth.refreshSession();
+    if (refreshed.error) throw new Error('Your sign-in session could not be refreshed. Please sign in again.');
+    session = refreshed.data.session;
+  }
+
+  if (!session?.access_token) throw new Error('Your sign-in session has expired. Please sign in again.');
+  return session.access_token;
+};
+
 export const useVideoMutations = () => {
   const toggleLike = useCallback(async (videoId: string) => {
     try {
@@ -196,6 +212,7 @@ export const useVideoMutations = () => {
         resumable: {
           endpoint: supabaseResumableEndpoint(SUPABASE_URL),
           bucketName: 'video-media',
+          getAccessToken: getVideoUploadAccessToken,
           upload: uploadResumableFile,
         },
         onProgress: progress => emit('video', 4 + progress * (data.thumbnail ? 0.8 : 0.88)),

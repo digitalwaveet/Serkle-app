@@ -1,11 +1,11 @@
 import { Webhook } from 'https://esm.sh/standardwebhooks@1.0.0';
 import {
-  buildSms251OtpRequest,
-  isSms251Success,
-  safeSms251ErrorMessage,
-  SMS251_ENDPOINT,
-  type Sms251Response,
-} from '../_shared/sms251.ts';
+  AFROMESSAGE_ENDPOINT,
+  buildAfroMessageOtpRequest,
+  isAfroMessageSuccess,
+  safeAfroMessageErrorMessage,
+  type AfroMessageResponse,
+} from '../_shared/afroMessage.ts';
 
 interface SendSmsHookPayload {
   user?: {
@@ -70,11 +70,12 @@ Deno.serve(async (request) => {
   let apiToken: string;
 
   try {
-    apiToken = requiredSecret('SMS251_API_TOKEN');
-    providerRequest = buildSms251OtpRequest(
+    apiToken = requiredSecret('AFROMESSAGE_API_TOKEN');
+    providerRequest = buildAfroMessageOtpRequest(
       phone,
       otp,
-      requiredSecret('SMS251_SENDER_ID'),
+      requiredSecret('AFROMESSAGE_SENDER_NAME'),
+      requiredSecret('AFROMESSAGE_IDENTIFIER_ID'),
     );
   } catch (error) {
     console.error(
@@ -85,10 +86,12 @@ Deno.serve(async (request) => {
   }
 
   const abortController = new AbortController();
-  const timeout = setTimeout(() => abortController.abort(), 10_000);
+  // Supabase HTTP Auth Hooks have a five-second deadline. Leave enough time
+  // for this function to return a structured error instead of hook_timeout.
+  const timeout = setTimeout(() => abortController.abort(), 4_000);
 
   try {
-    const response = await fetch(SMS251_ENDPOINT, {
+    const response = await fetch(AFROMESSAGE_ENDPOINT, {
       method: 'POST',
       headers: {
         Accept: 'application/json',
@@ -99,21 +102,21 @@ Deno.serve(async (request) => {
       signal: abortController.signal,
     });
 
-    let result: Sms251Response | null = null;
+    let result: AfroMessageResponse | null = null;
     try {
-      result = await response.json() as Sms251Response;
+      result = await response.json() as AfroMessageResponse;
     } catch {
       // A non-JSON provider response is treated as a failed send.
     }
 
-    if (!isSms251Success(response.ok, result)) {
-      console.error('251SMS rejected an OTP delivery request.', {
+    if (!isAfroMessageSuccess(response.ok, result)) {
+      console.error('AfroMessage rejected an OTP delivery request.', {
         status: response.status,
-        providerStatus: result?.status ?? 'unknown',
+        providerStatus: result?.acknowledge ?? 'unknown',
       });
       return hookError(
         response.status >= 400 && response.status < 600 ? response.status : 502,
-        safeSms251ErrorMessage(response.status, result),
+        safeAfroMessageErrorMessage(response.status, result),
       );
     }
 
@@ -125,8 +128,8 @@ Deno.serve(async (request) => {
     const timedOut = error instanceof DOMException && error.name === 'AbortError';
     console.error(
       timedOut
-        ? '251SMS OTP delivery timed out.'
-        : '251SMS OTP delivery failed before a response was received.',
+        ? 'AfroMessage OTP delivery timed out.'
+        : 'AfroMessage OTP delivery failed before a response was received.',
     );
     return hookError(
       503,

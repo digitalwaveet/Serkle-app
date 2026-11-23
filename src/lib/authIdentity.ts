@@ -45,6 +45,18 @@ export function isValidEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizeEmail(value));
 }
 
+/** Resolve the single login field without changing existing phone identities. */
+export function authMethodForIdentifier(value: string): AuthMethod {
+  if (isValidEmail(value)) return 'email';
+
+  try {
+    normalizePhone(value);
+    return 'phone';
+  } catch {
+    throw new Error('Enter a valid email address or phone number.');
+  }
+}
+
 export function maskAuthIdentifier(method: AuthMethod, identifier: string) {
   if (method === 'phone') {
     const visibleStart = identifier.slice(0, Math.min(4, identifier.length));
