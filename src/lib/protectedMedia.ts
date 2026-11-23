@@ -1,4 +1,4 @@
-import { supabase } from '@/integrations/supabase/client';
+import { SUPABASE_URL, supabase } from '@/integrations/supabase/client';
 import { storageObjectFromUrl } from './storageReference';
 
 const PROTECTED_BUCKETS = ['post-media', 'circle-videos', 'circle-resources'] as const;
@@ -7,7 +7,7 @@ const MEDIA_URL = /https?:\/\/[^\s"'<>]+\/storage\/v1\/object\/(?:public|sign|au
 /** Resolve legacy URLs (including rich-text attachments) through object RLS.
  * Signing failures never fall back to a public URL. Tokens last only 60 seconds. */
 export async function signProtectedMedia<T>(value: T): Promise<T> {
-  const origin = new URL(import.meta.env.VITE_SUPABASE_URL).origin;
+  const origin = new URL(SUPABASE_URL).origin;
   const urls = new Set<string>();
   const visit = (item: unknown) => {
     if (typeof item === 'string') {
