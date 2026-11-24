@@ -344,6 +344,10 @@ const ImageCropper: React.FC<ImageCropperProps> = ({
   const content = (
     <div
       className="fixed inset-0 z-[200] bg-black/95 flex flex-col select-none"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="image-editor-title"
+      aria-busy={isSaving}
       onClick={stopAll}
       onMouseDown={stopAll}
       onTouchStart={stopAll as any}
@@ -353,18 +357,20 @@ const ImageCropper: React.FC<ImageCropperProps> = ({
         <button
           type="button"
           onClick={onCancel}
+          aria-label="Cancel photo editing"
           className="h-10 w-10 rounded-full bg-card/10 hover:bg-card/20 active:bg-card/30 border border-white/10 flex items-center justify-center transition-all"
         >
           <X className="h-5 w-5 text-white/90" />
         </button>
         <div className="text-center">
-          <h2 className="text-white font-semibold text-base tracking-tight">Edit Photo</h2>
+          <h2 id="image-editor-title" className="text-white font-semibold text-base tracking-tight">Edit Photo</h2>
           <p className="text-secondary text-[11px] font-medium mt-0.5">{getDimensionHint()}</p>
         </div>
         <button
           type="button"
           onClick={handleConfirm}
           disabled={isSaving}
+          aria-label={isSaving ? 'Saving edited photo' : 'Save edited photo'}
           className="h-10 w-10 rounded-full bg-secondary hover:bg-secondary/90 active:bg-secondary/80 flex items-center justify-center transition-all disabled:opacity-50 shadow-lg shadow-secondary/30"
         >
           <Check className="h-5 w-5 text-secondary-foreground" />
@@ -415,6 +421,8 @@ const ImageCropper: React.FC<ImageCropperProps> = ({
                   type="button"
                   key={preset.label}
                   onClick={() => setAspect(preset.value)}
+                  aria-pressed={isActive}
+                  aria-label={`Crop ratio ${preset.label}`}
                   className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all ${
                     isActive
                       ? 'bg-secondary text-secondary-foreground shadow-lg shadow-secondary/30'
@@ -443,6 +451,7 @@ const ImageCropper: React.FC<ImageCropperProps> = ({
           <button
             type="button"
             onClick={() => setActiveControl('zoom')}
+            aria-pressed={activeControl === 'zoom'}
             className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
               activeControl === 'zoom'
                 ? 'bg-card/15 text-white'
@@ -454,6 +463,7 @@ const ImageCropper: React.FC<ImageCropperProps> = ({
           <button
             type="button"
             onClick={() => setActiveControl('rotate')}
+            aria-pressed={activeControl === 'rotate'}
             className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
               activeControl === 'rotate'
                 ? 'bg-card/15 text-white'
@@ -471,6 +481,7 @@ const ImageCropper: React.FC<ImageCropperProps> = ({
               <button
                 type="button"
                 onClick={() => setZoom(Math.max(0.5, zoom - 0.2))}
+                aria-label="Zoom out"
                 className="h-8 w-8 rounded-full bg-card/8 hover:bg-card/15 active:bg-card/20 flex items-center justify-center transition-all"
               >
                 <ZoomOut className="h-3.5 w-3.5 text-white/70" />
@@ -482,12 +493,14 @@ const ImageCropper: React.FC<ImageCropperProps> = ({
                   max={5}
                   step={0.05}
                   onValueChange={(val) => setZoom(val[0])}
+                  aria-label="Photo zoom"
                   className="[&_[role=slider]]:bg-secondary [&_[role=slider]]:border-secondary [&_[role=slider]]:shadow-lg [&_[role=slider]]:shadow-secondary/30 [&_[role=slider]]:h-5 [&_[role=slider]]:w-5 [&>span:first-child]:bg-card/15 [&>span:first-child>span]:bg-secondary"
                 />
               </div>
               <button
                 type="button"
                 onClick={() => setZoom(Math.min(5, zoom + 0.2))}
+                aria-label="Zoom in"
                 className="h-8 w-8 rounded-full bg-card/8 hover:bg-card/15 active:bg-card/20 flex items-center justify-center transition-all"
               >
                 <ZoomIn className="h-3.5 w-3.5 text-white/70" />
@@ -498,6 +511,7 @@ const ImageCropper: React.FC<ImageCropperProps> = ({
               <button
                 type="button"
                 onClick={() => setRotation(r => r - 15)}
+                aria-label="Rotate left 15 degrees"
                 className="h-8 w-8 rounded-full bg-card/8 hover:bg-card/15 active:bg-card/20 flex items-center justify-center transition-all"
               >
                 <RotateCcw className="h-3.5 w-3.5 text-white/70" />
@@ -509,12 +523,14 @@ const ImageCropper: React.FC<ImageCropperProps> = ({
                   max={180}
                   step={1}
                   onValueChange={(val) => setRotation(val[0])}
+                  aria-label="Photo rotation"
                   className="[&_[role=slider]]:bg-secondary [&_[role=slider]]:border-secondary [&_[role=slider]]:shadow-lg [&_[role=slider]]:shadow-secondary/30 [&_[role=slider]]:h-5 [&_[role=slider]]:w-5 [&>span:first-child]:bg-card/15 [&>span:first-child>span]:bg-secondary"
                 />
               </div>
               <button
                 type="button"
                 onClick={() => setRotation(r => r + 15)}
+                aria-label="Rotate right 15 degrees"
                 className="h-8 w-8 rounded-full bg-card/8 hover:bg-card/15 active:bg-card/20 flex items-center justify-center transition-all"
               >
                 <RotateCw className="h-3.5 w-3.5 text-white/70" />
