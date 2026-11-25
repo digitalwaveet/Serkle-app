@@ -38,6 +38,8 @@ import {
 } from '@/lib/giftComment';
 import PostReactionButton from '@/components/post/PostReactionButton';
 import ShareIcon from '@/components/post/ShareIcon';
+import PostShareModal from '@/components/post/PostShareModal';
+import { usePostMutations } from '@/hooks/usePostMutations';
 import LikersModal from '@/components/LikersModal';
 import { PDFCarousel } from '@/components/post/PDFCarousel';
 
@@ -411,8 +413,11 @@ const CirclePostDetail: React.FC = () => {
   const { data: subscription } = useCircleSubscription(circleId);
   const hasActiveSubscription = !!subscription;
   const [showLikersModal, setShowLikersModal] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
   const [optimisticLiked, setOptimisticLiked] = useState<boolean | null>(null);
   const [optimisticLikesCount, setOptimisticLikesCount] = useState<number | null>(null);
+  const [optimisticSharesCount, setOptimisticSharesCount] = useState<number | null>(null);
+  const { incrementShare } = usePostMutations();
 
   useEffect(() => {
     return () => {
@@ -503,8 +508,9 @@ const CirclePostDetail: React.FC = () => {
     if (post) {
       setOptimisticLiked(post.user_has_liked);
       setOptimisticLikesCount(post.stats?.likes_count ?? 0);
+      setOptimisticSharesCount(post.stats?.shares_count ?? 0);
     }
-  }, [post?.user_has_liked, post?.stats?.likes_count]);
+  }, [post?.user_has_liked, post?.stats?.likes_count, post?.stats?.shares_count]);
 
   const isOwner = !!user && (user.id === circle?.creator_id || user.id === post?.user_id);
   const shouldShowPaywall = !!post?.is_premium && !post.user_has_unlocked;
@@ -803,21 +809,12 @@ const CirclePostDetail: React.FC = () => {
               
               <button
                 type="button"
-                onClick={async () => {
-                  if (navigator.share) {
-                    try { await navigator.share({ url: window.location.href }); } catch {}
-                  } else if (navigator.clipboard) {
-                    try {
-                      await navigator.clipboard.writeText(window.location.href);
-                      toast({ title: 'Link copied' });
-                    } catch {}
-                  }
-                }}
+                onClick={() => setShowShareModal(true)}
                 aria-label="Share"
                 className="engagement-btn"
               >
                 <ShareIcon strokeWidth={1.85} className="engagement-icon" />
-                <span className="engagement-count">{post.stats?.shares_count || 0}</span>
+                <span className="engagement-count">{optimisticSharesCount ?? post.stats?.shares_count ?? 0}</span>
               </button>
 
               {user && user.id !== post.user_id && post.preview?.has_tips_enabled && (
@@ -917,6 +914,25 @@ const CirclePostDetail: React.FC = () => {
         isOpen={showLikersModal}
         onClose={() => setShowLikersModal(false)}
         postId={postId || ''}
+      />
+      <PostShareModal
+        isOpen={showShareModal}
+        onClose={() => setShowShareModal(false)}
+        postId={postId || ''}
+        circleId={circleId}
+        authorName={circle?.name || post.author?.name}
+        postTitle={post.preview?.headline || undefined}
+        onShareConfirmed={async () => {
+          if (!postId) return;
+          const prevCount = optimisticSharesCount ?? post.stats?.shares_count ?? 0;
+          setOptimisticSharesCount(prevCount + 1);
+          const persistedCount = await incrementShare(postId);
+          if (typeof persistedCount === 'number') {
+            setOptimisticSharesCount(persistedCount);
+          } else {
+            setOptimisticSharesCount(prevCount);
+          }
+        }}
       />
       {circle?.subscription_enabled && circleId && (
         <SubscribeCircleModal

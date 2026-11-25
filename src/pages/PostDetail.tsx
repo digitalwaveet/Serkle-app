@@ -27,6 +27,7 @@ import { SubscribeCircleModal } from '@/components/circles/SubscribeCircleModal'
 import { useNavigation } from '@/contexts/NavigationContext';
 import PostReactionButton from '@/components/post/PostReactionButton';
 import ShareIcon from '@/components/post/ShareIcon';
+import PostShareModal from '@/components/post/PostShareModal';
 import MiniGiftAnimation from '@/components/post/MiniGiftAnimation';
 import GiftCommentCard from '@/components/post/GiftCommentCard';
 import {
@@ -87,7 +88,7 @@ const PostDetail: React.FC = () => {
   const navigate = useNavigate();
   const { triggerHaptic } = useHapticFeedback();
   const { user } = useUser();
-  const { toggleLike, addComment } = usePostMutations();
+  const { toggleLike, addComment, incrementShare } = usePostMutations();
   const { transferCoins, wallet, invalidate: invalidateWallet } = useCoinWallet(user?.id);
   const { pushModalState } = useNavigation();
   const queryClient = useQueryClient();
@@ -97,6 +98,8 @@ const PostDetail: React.FC = () => {
   const [comments, setComments] = useState<Comment[]>([]);
   const [liked, setLiked] = useState(false);
   const [likesCount, setLikesCount] = useState(0);
+  const [sharesCount, setSharesCount] = useState(0);
+  const [showShareModal, setShowShareModal] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveAnim, setSaveAnim] = useState<'idle' | 'save' | 'unsave'>('idle');
   const [commentsOpen, setCommentsOpen] = useState(true);
@@ -185,6 +188,7 @@ const PostDetail: React.FC = () => {
         const postData = await signProtectedMedia(data[0]);
         setPost(postData);
         setLikesCount(postData.likes_count || 0);
+        setSharesCount(postData.shares_count ?? postData.post_stats?.shares_count ?? 0);
         setLiked(postData.user_has_liked || false);
         setUserReaction(postData.user_reaction);
         setHasUnlocked(postData.user_has_unlocked || false);
@@ -571,20 +575,18 @@ const PostDetail: React.FC = () => {
     }
   };
 
-  const handleSharePost = async () => {
-    if (shareInFlightRef.current) return;
-    shareInFlightRef.current = true;
-    try {
-      if (navigator.share) {
-        try {
-          await navigator.share({ title: post.name, text: post.content, url: window.location.href });
-        } catch { }
-      } else {
-        await navigator.clipboard.writeText(window.location.href);
-        toast.success('Link copied');
-      }
-    } finally {
-      shareInFlightRef.current = false;
+  const handleSharePost = () => {
+    setShowShareModal(true);
+  };
+
+  const handleShareConfirmed = async () => {
+    if (!postId) return;
+    setSharesCount((prev) => prev + 1);
+    const persistedCount = await incrementShare(postId);
+    if (typeof persistedCount === 'number') {
+      setSharesCount(persistedCount);
+    } else {
+      setSharesCount((prev) => Math.max(0, prev - 1));
     }
   };
 
@@ -979,7 +981,7 @@ const PostDetail: React.FC = () => {
               className="engagement-btn"
             >
               <ShareIcon strokeWidth={1.85} className="engagement-icon" />
-              <span className="engagement-count">{formatCount(post.post_stats?.shares_count || 0)}</span>
+              <span className="engagement-count">{formatCount(sharesCount)}</span>
             </button>
 
             <div className="ml-auto flex items-center">
@@ -1356,6 +1358,14 @@ const PostDetail: React.FC = () => {
         onDelete={() => commentAction && handleDeleteComment(commentAction.commentId)}
       />
       <LikersModal isOpen={showLikersModal} onClose={() => setShowLikersModal(false)} postId={postId!} />
+      <PostShareModal
+        isOpen={showShareModal}
+        onClose={() => setShowShareModal(false)}
+        postId={postId!}
+        circleId={post?.circle_id}
+        authorName={post?.name}
+        onShareConfirmed={handleShareConfirmed}
+      />
       <ReportDialog
         isOpen={isReportDialogOpen}
         onClose={() => setIsReportDialogOpen(false)}

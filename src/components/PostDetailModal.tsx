@@ -8,6 +8,8 @@ import { useReducedMotion } from '@/hooks/useReducedMotion';
 import { Carousel, CarouselContent, CarouselItem, CarouselApi } from '@/components/ui/carousel';
 import PostReactionButton from './post/PostReactionButton';
 import ShareIcon from './post/ShareIcon';
+import PostShareModal from './post/PostShareModal';
+import { usePostMutations } from '@/hooks/usePostMutations';
 
 interface PostDetailModalProps {
   post: Post;
@@ -74,8 +76,10 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
   const [saved, setSaved] = useState(false);
   const [saveAnim, setSaveAnim] = useState<'idle' | 'save' | 'unsave'>('idle');
   const [sharesCount, setSharesCount] = useState(post.stats.shares);
+  const [showShareModal, setShowShareModal] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(true);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { incrementShare } = usePostMutations();
 
   useEffect(() => {
     setLiked(post.userHasLiked || false);
@@ -108,13 +112,18 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
     }
   };
 
-  const handleShare = async () => {
+  const handleShare = () => {
+    setShowShareModal(true);
+  };
+
+  const handleShareConfirmed = async () => {
+    const prevCount = sharesCount;
     setSharesCount((prev) => prev + 1);
-    const postUrl = window.location.origin + `/post/${post.id}`;
-    if (navigator.share) {
-      try { await navigator.share({ url: postUrl }); } catch {}
-    } else if (navigator.clipboard) {
-      try { await navigator.clipboard.writeText(postUrl); } catch {}
+    const persistedCount = await incrementShare(String(post.id));
+    if (typeof persistedCount === 'number') {
+      setSharesCount(persistedCount);
+    } else {
+      setSharesCount(prevCount);
     }
   };
 
@@ -366,6 +375,14 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
           </div>
         </div>
       </div>
+      <PostShareModal
+        isOpen={showShareModal}
+        onClose={() => setShowShareModal(false)}
+        postId={String(post.id)}
+        circleId={post.circleId}
+        authorName={post.circleId ? post.circleName : post.user.name}
+        onShareConfirmed={handleShareConfirmed}
+      />
     </div>
   );
 };

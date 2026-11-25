@@ -18,6 +18,7 @@ import PublicProfileModal from '@/components/PublicProfileModal';
 import LikersModal from '@/components/LikersModal';
 import PostReactionButton from './post/PostReactionButton';
 import ShareIcon from './post/ShareIcon';
+import PostShareModal from './post/PostShareModal';
 import { PremiumContentSkeleton } from '@/components/premium/PremiumContentSkeleton';
 import SharePostToStoryModal from '@/components/story/SharePostToStoryModal';
 import { Carousel, CarouselContent, CarouselItem, CarouselApi } from '@/components/ui/carousel';
@@ -175,7 +176,8 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
   useEffect(() => {
     setLiked(post.userHasLiked || false);
     setLikesCount(post.stats.likes);
-  }, [post.userHasLiked, post.stats.likes]);
+    setSharesCount(post.stats.shares);
+  }, [post.id, post.userHasLiked, post.stats.likes, post.stats.shares]);
 
   // Animate bookmark on save (260ms) / unsave (180ms) transitions
   useEffect(() => {
@@ -197,6 +199,7 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
     };
   }, []);
   const [showLikersModal, setShowLikersModal] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
   const [showShareToStory, setShowShareToStory] = useState(false);
   const [carouselApi, setCarouselApi] = useState<CarouselApi>();
   const [currentSlide, setCurrentSlide] = useState(0);
@@ -295,23 +298,17 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
     }
   };
 
-  const handleShare = async () => {
-    if (shareInFlightRef.current) return;
-    shareInFlightRef.current = true;
-    try {
-      setSharesCount(prev => prev + 1);
-      await incrementShare(String(post.id));
-      const postUrl = window.location.origin + `/post/${post.id}`;
-      if (navigator.share) {
-        try { await navigator.share({ url: postUrl }); } catch {}
-      } else {
-        try {
-          await navigator.clipboard.writeText(postUrl);
-          toast({ title: "Link copied" });
-        } catch {}
-      }
-    } finally {
-      shareInFlightRef.current = false;
+  const handleShare = () => {
+    setShowShareModal(true);
+  };
+
+  const handleShareConfirmed = async () => {
+    setSharesCount((prev) => prev + 1);
+    const persistedCount = await incrementShare(String(post.id));
+    if (typeof persistedCount === 'number') {
+      setSharesCount(persistedCount);
+    } else {
+      setSharesCount((prev) => Math.max(0, prev - 1));
     }
   };
 
@@ -744,7 +741,22 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
 
       <PublicProfileModal isOpen={showProfileModal} onClose={() => setShowProfileModal(false)} userId={post.user.id || ''} />
       <LikersModal isOpen={showLikersModal} onClose={() => setShowLikersModal(false)} postId={String(post.id)} />
-      <SharePostToStoryModal isOpen={showShareToStory} onClose={() => setShowShareToStory(false)} post={post} />
+      <PostShareModal
+        isOpen={showShareModal}
+        onClose={() => setShowShareModal(false)}
+        postId={String(post.id)}
+        circleId={post.circleId}
+        authorName={post.circleId ? post.circleName : post.user.name}
+        postTitle={post.circleHeadline || undefined}
+        onShareConfirmed={handleShareConfirmed}
+        onShareToStory={() => setShowShareToStory(true)}
+      />
+      <SharePostToStoryModal
+        isOpen={showShareToStory}
+        onClose={() => setShowShareToStory(false)}
+        post={post}
+        onShared={handleShareConfirmed}
+      />
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>

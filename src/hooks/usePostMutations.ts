@@ -252,25 +252,25 @@ export const usePostMutations = () => {
     }
   };
 
-  const incrementShare = async (postId: string) => {
+  const incrementShare = async (postId: string): Promise<number | null> => {
     try {
-      // Get current shares count
-      const { data: stats } = await supabase
-        .from('post_stats')
-        .select('shares_count')
-        .eq('post_id', postId)
-        .single();
+      const { data, error } = await supabase.rpc('increment_post_shares', {
+        _post_id: postId,
+      });
 
-      if (stats) {
-        const { error } = await supabase
-          .from('post_stats')
-          .update({ shares_count: stats.shares_count + 1 })
-          .eq('post_id', postId);
+      if (error) throw error;
+      if (typeof data !== 'number') return null;
 
-        if (error) throw error;
-      }
+      queryClient.invalidateQueries({ queryKey: ['feed'] });
+      queryClient.invalidateQueries({ queryKey: ['posts'] });
+      queryClient.invalidateQueries({ queryKey: ['post-detail', postId] });
+      queryClient.invalidateQueries({ queryKey: ['circle-posts'] });
+      queryClient.invalidateQueries({ queryKey: ['circle-post', postId] });
+
+      return data;
     } catch (error) {
       console.error('Error incrementing share:', error);
+      return null;
     }
   };
 

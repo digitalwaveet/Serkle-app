@@ -13,9 +13,10 @@ interface SharePostToStoryModalProps {
   isOpen: boolean;
   onClose: () => void;
   post: Post;
+  onShared?: () => void | Promise<void>;
 }
 
-const SharePostToStoryModal: React.FC<SharePostToStoryModalProps> = ({ isOpen, onClose, post }) => {
+const SharePostToStoryModal: React.FC<SharePostToStoryModalProps> = ({ isOpen, onClose, post, onShared }) => {
   const { user } = useUser();
   const [isUploading, setIsUploading] = useState(false);
   const [uploadDone, setUploadDone] = useState(false);
@@ -342,6 +343,7 @@ const SharePostToStoryModal: React.FC<SharePostToStoryModalProps> = ({ isOpen, o
         reshared_post_id: String(post.id)
       });
 
+      await onShared?.();
       setIsUploading(false);
       setUploadDone(true);
       
