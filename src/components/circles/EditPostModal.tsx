@@ -1,6 +1,6 @@
 import { SerkleLoader } from '@/components/ui/SerkleLoader';
 import { uploadImageWithPreviews } from '@/lib/imageStorage';
-import { makeCirclePreviewImages } from '@/lib/circlePostPreview';
+import { circleHeadlineChange, isMissingCircleHeadlineColumn, makeCirclePreviewImages } from '@/lib/circlePostPreview';
 import { imageUploadId } from '@/lib/imageAsset';
 import React, { useState, useEffect } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
@@ -15,6 +15,8 @@ import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { CustomFilePicker, useFileManager } from '@/components/CustomFilePicker';
+import { CircleHeadlineField } from './CircleHeadlineField';
+import { OptimizedImage } from '@/components/ui/OptimizedImage';
 
 interface EditPostModalProps {
   isOpen: boolean;
@@ -25,13 +27,18 @@ interface EditPostModalProps {
 
 export const EditPostModal: React.FC<EditPostModalProps> = ({ isOpen, onClose, post, onSave }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [headline, setHeadline] = useState(post?.headline || '');
+  const [bodyEdited, setBodyEdited] = useState(false);
+  const [removeExistingCover, setRemoveExistingCover] = useState(false);
   const [isPremium, setIsPremium] = useState(post?.is_premium || false);
   const [premiumPrice, setPremiumPrice] = useState(post?.premium_price?.toString() || '50');
   const [hasTipsEnabled, setHasTipsEnabled] = useState(post?.has_tips_enabled ?? true);
   
   const editManager = useFileManager();
   const coverImage = editManager.files[0]?.file as File | undefined;
-  const coverPreview = editManager.files[0]?.url || '';
+  const newCoverPreview = editManager.files[0]?.url;
+  const existingCover = removeExistingCover ? null : post?.coverReference || post?.cover_image_url;
+  const hasCover = Boolean(newCoverPreview || existingCover);
 
   const editor = useEditor({
     extensions: [
@@ -52,8 +59,10 @@ export const EditPostModal: React.FC<EditPostModalProps> = ({ isOpen, onClose, p
       }),
     ],
     content: post?.content || '',
+    onUpdate: () => setBodyEdited(true),
     editorProps: {
       attributes: {
+        'aria-label': 'Body',
         class: 'prose prose-sm prose-invert focus:outline-none min-h-[150px] w-full text-lg placeholder:text-muted-foreground/50 p-4 bg-muted/20 rounded-2xl border border-border/50',
       },
     },
@@ -61,62 +70,58 @@ export const EditPostModal: React.FC<EditPostModalProps> = ({ isOpen, onClose, p
 
   useEffect(() => {
     if (editor && post) {
-      editor.commands.setContent(post.content);
-      setIsPremium(post.is_premium);
+      editor.commands.setContent(post.content, { emitUpdate: false });
+      setBodyEdited(false);
+      setHeadline(post.headline || '');
+      setIsPremium(Boolean(post.is_premium));
       setPremiumPrice(post.premium_price?.toString() || '50');
       setHasTipsEnabled(post.has_tips_enabled ?? true);
       
-      // Initialize manager with existing URL if no new file selected
-      if (post.cover_image_url && editManager.files.length === 0) {
-        editManager.setFiles([{
-          id: 'existing',
-          file: new File([], 'existing'), // Dummy file for existing URL
-          url: post.cover_image_url,
-          status: 'idle',
-          kind: 'image',
-          name: 'existing',
-          size: 0,
-          mimeType: 'image/jpeg'
-        }]);
-      }
     }
   }, [post, editor]);
-
-  // Removed native handleImageSelect in favor of editManager
 
   const handleUpdate = async () => {
     if (!editor || isSubmitting) return;
 
     const content = editor.getHTML();
-    if (!content.trim() && !coverPreview) {
+    if (!headline.trim() && editor.isEmpty && !hasCover && !post.mediaUrl) {
       toast.error("Please add some content or an image");
+      return;
+    }
+
+    const changedPremium = isPremium !== Boolean(post.is_premium);
+    const changedPrice = isPremium && (changedPremium || premiumPrice !== (post.premium_price?.toString() || '50'));
+    const price = Number(premiumPrice);
+    if (changedPrice && (!Number.isSafeInteger(price) || price < 1)) {
+      toast.error('Enter a whole coin price of at least 1.');
       return;
     }
 
     setIsSubmitting(true);
     try {
-      let finalCoverUrl = post.coverReference;
+      let finalCoverUrl: string | null | undefined;
 
-      if (coverImage && coverImage.size > 0) {
+      if (coverImage) {
         const { data: { user: uploader }, error: authError } = await supabase.auth.getUser();
         if (authError || !uploader) throw new Error('Sign in to update the cover image');
         finalCoverUrl = await uploadImageWithPreviews('post-media', uploader.id, coverImage, imageUploadId(coverImage));
-      } else if (!coverPreview) {
+      } else if (removeExistingCover) {
         finalCoverUrl = null;
       }
 
-      const previews = isPremium && (coverImage?.size || (!post.previewImage && coverPreview))
-        ? await makeCirclePreviewImages(coverImage?.size ? coverImage : coverPreview)
+      const previews = isPremium && coverImage
+        ? await makeCirclePreviewImages(coverImage)
         : {};
 
       const { error: updateError } = await supabase
         .from('posts')
         .update({
-          content: content.trim(),
-          cover_image_url: finalCoverUrl,
-          is_premium: isPremium,
-          premium_price: isPremium ? parseInt(premiumPrice) : null,
-          has_tips_enabled: hasTipsEnabled,
+          ...(bodyEdited ? { content: content.trim() } : {}),
+          ...circleHeadlineChange(headline, post.headline),
+          ...(finalCoverUrl !== undefined ? { cover_image_url: finalCoverUrl } : {}),
+          ...(changedPremium ? { is_premium: isPremium } : {}),
+          ...(changedPremium || changedPrice ? { premium_price: isPremium ? price : null } : {}),
+          ...(hasTipsEnabled !== (post.has_tips_enabled ?? true) ? { has_tips_enabled: hasTipsEnabled } : {}),
           ...previews,
           updated_at: new Date().toISOString(),
         })
@@ -129,7 +134,9 @@ export const EditPostModal: React.FC<EditPostModalProps> = ({ isOpen, onClose, p
       onClose();
     } catch (error: any) {
       console.error('Error updating post:', error);
-      toast.error(error.message || "Failed to update post");
+      toast.error(isMissingCircleHeadlineColumn(error)
+        ? 'Headlines need the Circle headline database migration. Your edits are still here.'
+        : error.message || 'Failed to update post');
     } finally {
       setIsSubmitting(false);
     }
@@ -145,9 +152,10 @@ export const EditPostModal: React.FC<EditPostModalProps> = ({ isOpen, onClose, p
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
+          <CircleHeadlineField value={headline} onChange={setHeadline} disabled={isSubmitting} premium={isPremium} />
           {/* Editor Area */}
           <div className="space-y-3">
-            <label className="text-sm font-semibold text-muted-foreground ml-1 uppercase tracking-wider">Content</label>
+            <p className="text-sm font-medium">Body</p>
             <div className="relative group">
               {editor && (
                 <BubbleMenu editor={editor} className="flex items-center gap-1 p-1.5 bg-card/90 backdrop-blur-xl border border-border/50 rounded-2xl shadow-2xl">
@@ -171,17 +179,24 @@ export const EditPostModal: React.FC<EditPostModalProps> = ({ isOpen, onClose, p
           <div className="space-y-3">
             <label className="text-sm font-semibold text-muted-foreground ml-1 uppercase tracking-wider">Cover Image</label>
             <CustomFilePicker manager={editManager} hideUploadButton hidePreviewList accept="image/*" maxFileSizeMB={5}>
-              {coverPreview ? (
+              {hasCover ? (
                 <div className="relative aspect-video w-full rounded-2xl overflow-hidden group shadow-lg border border-border/30">
-                  <img src={coverPreview} alt="Preview" className="w-full h-full object-cover" />
+                  {newCoverPreview ? (
+                    <img src={newCoverPreview} alt="New cover preview" className="w-full h-full object-contain" />
+                  ) : existingCover && (
+                    <OptimizedImage src={existingCover} alt="Current cover" loading="eager" className="h-full w-full" imageClassName="object-contain" />
+                  )}
                   <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-4">
                     <div className="p-3 bg-white/20 backdrop-blur-md rounded-full text-white cursor-pointer hover:bg-white/30 transition-all">
                       <ImageIcon className="w-6 h-6" />
                     </div>
-                    <button 
+                    <button
+                      type="button"
+                      aria-label={newCoverPreview ? 'Discard replacement cover' : 'Remove cover image'}
                       onClick={(e) => { 
                         e.stopPropagation();
-                        editManager.clearAll(); 
+                        if (newCoverPreview) editManager.clearAll();
+                        else setRemoveExistingCover(true);
                       }} 
                       className="p-3 bg-red-500/20 backdrop-blur-md rounded-full text-white hover:bg-red-500/40 transition-all"
                     >

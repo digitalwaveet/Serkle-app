@@ -2780,6 +2780,8 @@ export type Database = {
       }
       posts: {
         Row: {
+          circle_headline: string | null
+          circle_preview_full_frame: boolean
           circle_id: string | null
           content: string
           cover_image_url: string | null
@@ -2806,6 +2808,8 @@ export type Database = {
           voice_url: string | null
         }
         Insert: {
+          circle_headline?: string | null
+          circle_preview_full_frame?: boolean
           circle_id?: string | null
           content: string
           cover_image_url?: string | null
@@ -2832,6 +2836,8 @@ export type Database = {
           voice_url?: string | null
         }
         Update: {
+          circle_headline?: string | null
+          circle_preview_full_frame?: boolean
           circle_id?: string | null
           content?: string
           cover_image_url?: string | null
@@ -4928,6 +4934,17 @@ export type Database = {
           post_id: string
           preview_text: string | null
           preview_image: string | null
+          has_tips_enabled: boolean
+        }[]
+      }
+      get_circle_post_previews_v2: {
+        Args: { _circle_id: string; _post_ids: string[]; _detail?: boolean }
+        Returns: {
+          post_id: string
+          headline: string | null
+          preview_text: string | null
+          preview_image: string | null
+          full_frame: boolean
           has_tips_enabled: boolean
         }[]
       }

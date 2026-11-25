@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import DOMPurify from 'dompurify';
-import { Heart, MessageCircle, Share2, MoreHorizontal, BadgeCheck, Plus, Check, Trash2, Bookmark, Flag, Crown, Lock, MapPin, Mic, Pause, BookImage, Play, ThumbsUp, Laugh, LifeBuoy, Ghost, Angry, FileText, Users } from 'lucide-react';
+import { Heart, MessageCircle, Share2, MoreHorizontal, BadgeCheck, Plus, Check, Trash2, Bookmark, Flag, Lock, MapPin, Mic, Pause, BookImage, Play, ThumbsUp, Laugh, LifeBuoy, Ghost, Angry, FileText, Users } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
+import { CirclesIcon } from '@/components/icons/FooterIcons';
+import { OptimizedImage } from '@/components/ui/OptimizedImage';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useNavigate } from 'react-router-dom';
 import { Post } from '@/data/mock';
@@ -42,6 +44,16 @@ import { ReportDialog } from '@/components/ReportDialog';
 
 interface PostCardProps {
   post: Post;
+}
+
+function FeedPhoto({ src, alt }: { src: string; alt: string }) {
+  return (
+    <div className="relative aspect-[16/10] w-full overflow-hidden rounded-xl bg-muted/30">
+      <div className="absolute inset-0">
+        <OptimizedImage src={src} alt={alt} className="h-full !min-h-0" imageClassName="!object-cover object-center" />
+      </div>
+    </div>
+  );
 }
 
 const formatRelativeTime = (iso: string) => {
@@ -225,7 +237,6 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
   const isPremiumCirclePost = post.isPremium && isCirclePost;
   const isUnlocked = post.userHasUnlocked || user?.id === post.user.id;
   const shouldShowPaywall = isPremiumCirclePost && !isUnlocked;
-  const hasMedia = Boolean(post.media?.url || post.media?.urls?.length);
   // Friends-only posts limit who may comment / react. The feed RPC already keeps
   // these out of non-audience feeds, but we gate the UI too as a backstop.
   const isFriendsOnly = post.visibility === 'friends';
@@ -329,25 +340,6 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
     else navigate(`/post/${post.id}`);
   };
 
-  const lockedMediaOverlay = shouldShowPaywall ? (
-    <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/[0.04] px-6">
-      <button
-        type="button"
-        onClick={handleOpenForUnlock}
-        className="group flex min-h-11 max-w-[220px] flex-col items-center rounded-2xl border border-white/25 bg-black/35 px-5 py-3 text-center text-white shadow-xl backdrop-blur-[2px] transition-transform active:scale-[0.97]"
-        aria-label={post.premiumPrice ? `Unlock premium post for ${post.premiumPrice} coins` : 'Unlock premium post'}
-      >
-        <span className="mb-1.5 inline-flex size-9 items-center justify-center rounded-xl bg-white/95 text-primary shadow-sm transition-transform group-active:scale-95">
-          <Lock className="size-4" aria-hidden="true" />
-        </span>
-        <span className="text-[13px] font-semibold leading-tight">Premium post</span>
-        <span className="mt-0.5 text-[11px] leading-tight text-white/85">
-          {post.premiumPrice ? `Unlock for ${post.premiumPrice} coins` : 'Tap to unlock'}
-        </span>
-      </button>
-    </div>
-  ) : null;
-
   const handleDelete = async () => {
     if (!user || !post.user.id) return;
     setShowDeleteDialog(true);
@@ -437,7 +429,11 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
             >
               {post.circleId ? post.circleName : post.user.name}
             </h3>
-            {post.user.verified && (
+            {isCirclePost ? (
+              <span role="img" aria-label="Circle post" title="Circle post" className="inline-flex shrink-0 text-primary">
+                <CirclesIcon fillMode="current" className="size-6" aria-hidden="true" />
+              </span>
+            ) : post.user.verified && (
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -446,21 +442,6 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
                   <TooltipContent><p>Verified account</p></TooltipContent>
                 </Tooltip>
               </TooltipProvider>
-            )}
-            {isPremiumCirclePost && (
-              <span className={cn(
-                "inline-flex size-5 shrink-0 items-center justify-center rounded-full",
-                isUnlocked ? "text-secondary" : "text-primary"
-              )}
-                title={isUnlocked ? 'Premium post unlocked' : 'Premium post locked'}
-                aria-label={isUnlocked ? 'Premium post unlocked' : 'Premium post locked'}
-              >
-                {isUnlocked ? (
-                  <Crown className="size-3.5" aria-hidden="true" />
-                ) : (
-                  <Lock className="size-3.5" aria-hidden="true" />
-                )}
-              </span>
             )}
             {post.sponsored && (
               <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-tertiary text-primary border border-primary/20">
@@ -519,8 +500,18 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
         </DropdownMenu>
       </header>
 
+      {isCirclePost && (post.circleHeadline || shouldShowPaywall) && (
+        <h2 dir="auto" className="px-4 pb-3 text-base font-bold leading-tight [overflow-wrap:anywhere]">
+          <button type="button" onClick={handleOpenForUnlock} className="text-start hover:underline">
+            {post.circleHeadline || 'Premium post'}
+          </button>
+        </h2>
+      )}
+
       {/* ── MEDIA ── */}
-      {post.post_type?.toLowerCase() === 'pdf' && post.media?.urls && post.media.urls.length > 0 ? (
+      {shouldShowPaywall ? (
+        post.circlePreviewImage ? <FeedPhoto src={post.circlePreviewImage} alt="Post cover" /> : null
+      ) : post.post_type?.toLowerCase() === 'pdf' && post.media?.urls && post.media.urls.length > 0 ? (
         <div className="relative" onClick={(e) => e.stopPropagation()}>
           <PDFCarousel pages={post.media.urls} className="aspect-[4/5]" />
         </div>
@@ -531,19 +522,11 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
               {post.media.urls.map((url, index) => (
                 <CarouselItem key={index} className="flex items-center justify-center">
                   <div className="relative overflow-hidden cursor-pointer w-full" onClick={handleOpenPost}>
-                    <MediaGuardItem 
-                      src={url} 
-                      type={/\.(mp4|webm|mov|ogg|m3u8)(\?|$)/i.test(url) ? 'video' : 'image'} 
-                      alt={`${post.media?.alt || 'Post image'} ${index + 1}`}
-                      aspectRatio={isCirclePost && !isVideoUrl(url)
-                        ? "aspect-[16/10] bg-black/5"
-                        : "aspect-auto max-h-[75vh] [&_img]:object-contain [&_video]:object-contain bg-black/5"}
-                      className={shouldShowPaywall && isVideoUrl(url) ? "[&_video]:scale-[1.04] [&_video]:blur-[6px]" : undefined}
-                      imageClassName={cn(
-                        isCirclePost && !isVideoUrl(url) && "!h-full !w-full !object-cover",
-                        shouldShowPaywall && "scale-[1.04] blur-[6px]"
-                      )}
-                      style={isCirclePost && !isVideoUrl(url) ? { aspectRatio: '16 / 10' } : undefined}
+                    {isVideoUrl(url) ? <MediaGuardItem
+                      src={url}
+                      type="video"
+                      alt={`Post video ${index + 1}`}
+                      aspectRatio="aspect-auto max-h-[75vh] [&_video]:object-contain bg-black/5"
                       showOverlay={false}
                       onPlay={() => setPlayingVideos(prev => new Set(prev).add(index))}
                       onPause={() => setPlayingVideos(prev => {
@@ -556,9 +539,8 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
                         next.delete(index);
                         return next;
                       })}
-                    />
-                    {lockedMediaOverlay}
-                    {!shouldShowPaywall && isVideoUrl(url) && !playingVideos.has(index) && (
+                    /> : <FeedPhoto src={url} alt={`${post.media?.alt || 'Post image'} ${index + 1}`} />}
+                    {isVideoUrl(url) && !playingVideos.has(index) && (
                       <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                         <div className="bg-black/30 backdrop-blur-md rounded-full p-4 border border-white/20 shadow-2xl transition-opacity duration-300">
                           <Play className="size-8 text-white fill-white opacity-90" />
@@ -592,11 +574,8 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
             <video
               src={post.media.url}
               poster={post.thumbnailUrl}
-              className={cn(
-                "w-full h-auto max-h-[75vh] object-contain bg-black/5",
-                shouldShowPaywall && "scale-[1.04] blur-[6px]"
-              )}
-              controls={!shouldShowPaywall}
+              className="w-full h-auto max-h-[75vh] object-contain bg-black/5"
+              controls
               preload="metadata"
               playsInline
               onClick={(e) => e.stopPropagation()}
@@ -613,26 +592,14 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
               })}
             />
           ) : (
-            <MediaGuardItem
-              src={post.media.url}
-              type="image"
-              alt={post.media.alt || ""}
-              aspectRatio={isCirclePost ? "aspect-[16/10] bg-black/5" : "aspect-auto max-h-[75vh] [&_img]:object-contain bg-black/5"}
-              imageClassName={cn(
-                isCirclePost && "!h-full !w-full !object-cover",
-                shouldShowPaywall && "scale-[1.04] blur-[6px]"
-              )}
-              style={isCirclePost ? { aspectRatio: '16 / 10' } : undefined}
-              showOverlay={false}
-            />
+            <FeedPhoto src={post.media.url} alt={post.media.alt || 'Post image'} />
           )}
           {(post.totalMediaCount ?? 0) > 1 && (
             <div className="absolute top-3 right-3 bg-black/70 text-white text-xs font-semibold px-2.5 py-1 rounded-full z-10">
               +{(post.totalMediaCount ?? 0) - 1} more
             </div>
           )}
-          {lockedMediaOverlay}
-          {!shouldShowPaywall && isVideoUrl(post.media.url) && !playingVideos.has(0) && (
+          {isVideoUrl(post.media.url) && !playingVideos.has(0) && (
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
               <div className="bg-black/30 backdrop-blur-md rounded-full p-4 border border-white/20 shadow-2xl transition-opacity duration-300">
                 <Play className="size-8 text-white fill-white opacity-90" />
@@ -713,32 +680,14 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
       {/* ── CAPTION ── */}
       <div className="px-4 pt-1 pb-4" dir="auto">
         {shouldShowPaywall ? (
-          <div className="mt-2">
-            {/* Readable teaser — keep the first couple of lines visible before locking */}
-            {post.content && (
-              isRichText(post.content) ? (
-                <div
-                  className="prose prose-sm dark:prose-invert max-w-none text-foreground text-[14px] leading-relaxed line-clamp-2 mb-1"
-                  dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(post.content) }}
-                />
-              ) : (
-                <p className="text-[14px] text-foreground leading-relaxed break-words whitespace-pre-wrap line-clamp-2 mb-1">
-                  {post.content}
-                </p>
-              )
-            )}
-
-            {!hasMedia && (
-              <button
-                type="button"
-                className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-primary/15 bg-primary/[0.06] px-4 text-[13px] font-semibold text-primary transition-colors hover:bg-primary/[0.1]"
-                onClick={handleOpenForUnlock}
-              >
-                <Lock className="size-3.5" aria-hidden="true" />
-                {post.premiumPrice ? `Unlock for ${post.premiumPrice} coins` : 'Unlock premium post'}
-              </button>
-            )}
-          </div>
+          <button
+            type="button"
+            className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-primary/15 bg-primary/[0.06] px-4 text-[13px] font-semibold text-primary transition-colors hover:bg-primary/[0.1]"
+            onClick={handleOpenForUnlock}
+          >
+            <Lock className="size-3.5" aria-hidden="true" />
+            {post.premiumPrice ? `Unlock for ${post.premiumPrice} coins` : 'Unlock premium post'}
+          </button>
         ) : (
           <div className={cn(
             "text-[14px] text-foreground leading-relaxed break-words",

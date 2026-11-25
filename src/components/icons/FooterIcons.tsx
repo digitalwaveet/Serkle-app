@@ -138,7 +138,7 @@ export const CirclesIcon: React.FC<FooterIconProps> = ({
       } ${className}`}
       {...props}
     >
-      <defs>
+      {!isCurrent && <defs>
         {/* Active Serkle Brand Gradients */}
         <linearGradient
           id="circle-gradient-1"
@@ -208,7 +208,7 @@ export const CirclesIcon: React.FC<FooterIconProps> = ({
           <stop offset="0" stopColor="#404040" />
           <stop offset="1" stopColor="#666666" />
         </linearGradient>
-      </defs>
+      </defs>}
       <path
         fill={fill1}
         d="M69.66,40.23c-6.32,0-11.46-5.14-11.46-11.46s5.14-11.46,11.46-11.46,11.46,5.14,11.46,11.46-5.14,11.46-11.46,11.46ZM69.66,22.31c-3.56,0-6.46,2.9-6.46,6.46s2.9,6.46,6.46,6.46,6.46-2.9,6.46-6.46-2.9-6.46-6.46-6.46Z"

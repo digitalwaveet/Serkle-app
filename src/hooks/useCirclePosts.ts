@@ -7,10 +7,10 @@ import { supabase } from '@/integrations/supabase/client';
 export interface CirclePost {
   id: string;
   content: string;
+  headline: string | null;
   cover_image_url: string | null;
   coverReference: string | null;
   mediaUrl: string | null;
-  previewText: string | null;
   previewImage: string | null;
   is_premium: boolean;
   premium_price: number | null;
@@ -82,7 +82,7 @@ export const useCirclePosts = (circleId: string | undefined) => {
         cover_image_url: post.cover_image_url,
         mediaUrl: mediaReferences.get(post.post_id) ?? null,
         coverReference: coverReferences.get(post.post_id) ?? null,
-        previewText: previewMap.get(post.post_id)?.preview_text ?? null,
+        headline: previewMap.get(post.post_id)?.headline ?? null,
         previewImage: previewMap.get(post.post_id)?.preview_image ?? null,
         is_premium: post.is_premium || false,
         premium_price: post.premium_price ?? null,

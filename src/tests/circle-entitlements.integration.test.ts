@@ -73,6 +73,9 @@ before(async () => {
   await db.exec(await sqlFile('../../supabase/migrations/20261113120000_circle_unlock_confirmation_and_preview_recovery.sql'));
   await db.exec(await sqlFile('../../supabase/migrations/20261117120000_circle_owner_author_access.sql'));
   await db.exec(await sqlFile('../../supabase/migrations/20261117130000_circle_owner_post_payloads.sql'));
+  const headlinesMigration = await sqlFile('../../supabase/migrations/20261125120000_circle_post_headlines.sql');
+  await db.exec(headlinesMigration);
+  await db.exec(headlinesMigration);
   frontend = await createServer({
     configFile: false,
     resolve: { alias: { '@': fileURLToPath(new URL('../', import.meta.url)) } },
@@ -164,6 +167,63 @@ test('locked previews are automatic and respect Circle and post visibility', asy
   await q('UPDATE circles SET is_private=true WHERE id=$1', [circle]);
   await login(outsider);
   assert.deepEqual(await preview(true), []);
+});
+
+test('Circle headlines and clear covers are visible while the paid body is returned only to entitled readers', async () => {
+  const cover = 'data:image/webp;base64,BBBB';
+  const body = '<p>Visible opening paragraph.</p><p>PAID BODY</p>';
+  await db.exec('RESET ROLE');
+  await q('UPDATE posts SET content=$2, circle_preview_cover=$3 WHERE id=$1', [post, body, cover]);
+  await q('UPDATE posts SET circle_headline=$2 WHERE id=$1', [post, 'A strong hook']);
+  await login();
+  const preview = (detail: boolean) => q('SELECT * FROM get_circle_post_previews_v2($1, ARRAY[$2]::uuid[], $3)', [circle, post, detail]);
+  const [feed] = await preview(false);
+  assert.equal(feed.headline, 'A strong hook');
+  assert.equal(feed.preview_image, cover);
+  assert.equal(feed.full_frame, false);
+  assert.equal(feed.preview_text, null);
+  assert.equal((await preview(true))[0].preview_text, 'Visible opening paragraph.');
+  assert.equal((await q('SELECT * FROM get_post_details($1)', [post]))[0].content, '');
+  await purchase('post', post);
+  assert.equal((await q('SELECT * FROM get_post_details($1)', [post]))[0].content, body);
+  await db.exec('RESET ROLE');
+  await assert.rejects(
+    q('UPDATE posts SET circle_headline=$2 WHERE id=$1', [post, 'a'.repeat(121)]),
+    { code: '23514' },
+  );
+  await q("UPDATE posts SET visibility='friends' WHERE id=$1", [post]);
+  await login(outsider);
+  assert.deepEqual(await preview(true), []);
+  await db.exec('RESET ROLE');
+  await q("UPDATE posts SET visibility='public', is_premium=false WHERE id=$1", [post]);
+  await login(outsider);
+  assert.equal((await preview(false))[0].headline, 'A strong hook');
+  assert.equal((await q('SELECT * FROM get_post_details($1)', [post]))[0].content, body);
+});
+
+test('full-frame recovery replaces an existing cropped preview only after a valid lease', async () => {
+  const origin = 'https://example.test';
+  const photo = seller + '/legacy-cover.jpg';
+  const oldCover = 'data:image/webp;base64,AAAA';
+  const newCover = 'data:image/webp;base64,BBBB';
+  await assert.rejects(q('SELECT * FROM claim_circle_full_frame_preview($1,$2,$3)', [origin, post, buyer]), { code: '42501' });
+  await db.exec('RESET ROLE');
+  await q('UPDATE posts SET cover_image_url=$2, circle_preview_cover=$3, circle_preview_thumb=$3 WHERE id=$1',
+    [post, origin + '/storage/v1/object/public/post-media/' + photo, oldCover]);
+  await q(`INSERT INTO storage.objects (bucket_id,name,owner_id,metadata)
+    VALUES ('post-media',$1,$2,'{"mimetype":"image/jpeg","size":123}')`, [photo, seller]);
+  const claim = () => q('SELECT * FROM claim_circle_full_frame_preview($1,$2,$3)', [origin, post, buyer]);
+  const [job] = await claim();
+  assert.equal(job.object_path, photo);
+  assert.deepEqual(await claim(), []);
+  const [completed] = await q('SELECT complete_circle_full_frame_preview($1,$2,$3,$4) AS stored', [post, job.lease, newCover, oldCover]);
+  assert.equal(completed.stored, true);
+  assert.deepEqual(await claim(), []);
+  await login();
+  const [preview] = await q('SELECT * FROM get_circle_post_previews_v2($1, ARRAY[$2]::uuid[])', [circle, post]);
+  assert.equal(preview.preview_image, newCover);
+  assert.equal(preview.full_frame, true);
+  assert.equal(preview.headline, null);
 });
 
 test('legacy cover worker only claims author-owned images and rejects outdated leases', async () => {

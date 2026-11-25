@@ -1,5 +1,18 @@
 import DOMPurify from 'dompurify';
 import { supabase } from '@/integrations/supabase/client';
+import { fitImage } from '@/lib/imageAsset';
+
+export const CIRCLE_HEADLINE_MAX_LENGTH = 120;
+
+export function circleHeadlineChange(headline: string, current?: string | null) {
+  const next = headline.trim() || null;
+  return next === (current?.trim() || null) ? {} : { circle_headline: next };
+}
+
+export function isMissingCircleHeadlineColumn(error: { code?: string; message?: string }) {
+  return (error.code === 'PGRST204' || error.code === '42703') &&
+    error.message?.includes('circle_headline') === true;
+}
 
 export function circlePostExcerpt(content: string) {
   const sanitized = DOMPurify.sanitize(content, { RETURN_DOM_FRAGMENT: true });
@@ -10,7 +23,7 @@ export function circlePostExcerpt(content: string) {
   return characters.length <= 280 ? text : characters.slice(0, 279).join('').trimEnd() + '…';
 }
 
-const noImages = { circle_preview_cover: null, circle_preview_thumb: null };
+const noImages = { circle_preview_cover: null, circle_preview_thumb: null, circle_preview_full_frame: false };
 const previewRecovery = new Map<string, Promise<boolean>>();
 const previewRetryAt = new Map<string, number>();
 
@@ -53,19 +66,20 @@ export async function makeCirclePreviewImages(source?: Blob | string) {
     const canvas = document.createElement('canvas');
     const context = canvas.getContext('2d');
     if (!context) return noImages;
-    const encode = (width: number, quality: number, limit: number) => {
-      canvas.width = Math.min(width, image.naturalWidth);
-      canvas.height = Math.max(1, Math.round(canvas.width / 2.24));
-      const scale = Math.max(canvas.width / image.naturalWidth, canvas.height / image.naturalHeight);
-      const scaledWidth = image.naturalWidth * scale;
-      const scaledHeight = image.naturalHeight * scale;
-      context.drawImage(image, (canvas.width - scaledWidth) / 2, (canvas.height - scaledHeight) / 2, scaledWidth, scaledHeight);
+    const encode = (edge: number, quality: number, limit: number) => {
+      const { width, height } = fitImage(image.naturalWidth, image.naturalHeight, edge);
+      canvas.width = width;
+      canvas.height = height;
+      context.drawImage(image, 0, 0, width, height);
       const url = canvas.toDataURL('image/webp', quality);
       return url.startsWith('data:image/webp;base64,') && url.length <= limit ? url : null;
     };
+    const cover = encode(640, 0.72, 100000) ?? encode(480, 0.62, 100000) ?? encode(360, 0.55, 100000);
+    const thumb = encode(24, 0.5, 2000);
     return {
-      circle_preview_cover: encode(640, 0.66, 100000) ?? encode(360, 0.55, 100000),
-      circle_preview_thumb: encode(24, 0.5, 2000),
+      circle_preview_cover: cover,
+      circle_preview_thumb: thumb,
+      circle_preview_full_frame: Boolean(cover && thumb),
     };
   } catch {
     return noImages;
@@ -81,15 +95,28 @@ export async function getCirclePostPreviews(
   recoverMissingIds: string[] = [],
 ) {
   if (!postIds.length) return [];
-  const read = () => supabase.rpc('get_circle_post_previews', {
+  const read = () => supabase.rpc('get_circle_post_previews_v2', {
     _circle_id: circleId,
     _post_ids: postIds,
     _detail: detail,
   });
   const { data, error } = await read();
+  if (error?.code === 'PGRST202' || error?.code === '42883') {
+    // A frontend may be ahead of the database during deployment. Keep displaying
+    // safe legacy previews while headlines are unavailable.
+    const { data: legacy } = await supabase.rpc('get_circle_post_previews', {
+      _circle_id: circleId,
+      _post_ids: postIds,
+      _detail: true,
+    });
+    return (legacy ?? []).map(row => ({
+      ...row, headline: null, full_frame: false,
+      preview_text: detail ? row.preview_text : null,
+    }));
+  }
   if (error) return [];
   const rows = data ?? [];
-  const missing = new Set(rows.filter(row => !row.preview_image).map(row => row.post_id));
+  const missing = new Set(rows.filter(row => !row.preview_image || !row.full_frame).map(row => row.post_id));
   const candidates = recoverMissingIds
     .filter(id => missing.has(id) && (previewRetryAt.get(id) ?? 0) <= Date.now())
     .slice(0, 4);

@@ -27,6 +27,8 @@ export interface Post {
   userReaction?: string;
   userHasUnlocked?: boolean;
   circleId?: string;
+  circleHeadline?: string;
+  circlePreviewImage?: string;
   circleName?: string;
   circleAvatar?: string;
   isPremium?: boolean;

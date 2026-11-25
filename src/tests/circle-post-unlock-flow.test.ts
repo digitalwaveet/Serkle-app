@@ -47,12 +47,45 @@ after(async () => {
   await server?.close();
 });
 
-test('CircleLockedCover uses reduced blur so the preview image remains recognizable', async () => {
-  const { CircleLockedCover } = await server.ssrLoadModule('/src/components/circles/CirclePostPreview.tsx');
-  const html = renderToStaticMarkup(React.createElement(CircleLockedCover, { thumbnail: 'data:image/webp;base64,AAAA' }));
-  assert.ok(html.includes('blur-[4px]'), 'expected gentle blur-[4px] class');
-  assert.ok(html.includes('scale-105'), 'expected scale-105 class');
-  assert.equal(html.includes('blur-lg'), false, 'must not use heavy blur-lg');
+test('Circle preview uses the supplied image with no blur, crop, or unlock overlay', async () => {
+  const { CirclePreviewImage } = await server.ssrLoadModule('/src/components/circles/CirclePostPreview.tsx');
+  const src = 'data:image/webp;base64,AAAA';
+  const html = renderToStaticMarkup(React.createElement(CirclePreviewImage, { src }));
+  assert.ok(html.includes(src));
+  assert.ok(html.includes('object-contain'));
+  assert.doesNotMatch(html, /blur|scale-|Unlock/);
+});
+
+test('the headline field displays its enforced limit and unchanged headlines are omitted from edits', async () => {
+  const { CircleHeadlineField } = await server.ssrLoadModule('/src/components/circles/CircleHeadlineField.tsx');
+  const { circleHeadlineChange, isMissingCircleHeadlineColumn } = await server.ssrLoadModule('/src/lib/circlePostPreview.ts');
+  const html = renderToStaticMarkup(React.createElement(CircleHeadlineField, { value: 'A hook', onChange: () => {} }));
+  assert.match(html, /maxLength="120"/i);
+  assert.match(html, /6\/120 characters/);
+  assert.match(html, /aria-describedby="[^"]+-length"/);
+  assert.deepEqual(circleHeadlineChange(' ', null), {});
+  assert.deepEqual(circleHeadlineChange('A hook', 'A hook'), {});
+  assert.deepEqual(circleHeadlineChange(' A hook ', null), { circle_headline: 'A hook' });
+  assert.deepEqual(circleHeadlineChange('', 'A hook'), { circle_headline: null });
+  assert.equal(isMissingCircleHeadlineColumn({ code: 'PGRST204', message: 'Missing circle_headline' }), true);
+  assert.equal(isMissingCircleHeadlineColumn({ code: 'PGRST204', message: 'Missing another column' }), false);
+});
+
+test('a missing v2 preview function falls back to the clear legacy cover and hides the excerpt in feeds', async () => {
+  const { getCirclePostPreviews } = await server.ssrLoadModule('/src/lib/circlePostPreview.ts');
+  const cover = 'data:image/webp;base64,AAAA';
+  (globalThis as any).__circleTestRpc = async (fn: string, params: any) => {
+    if (fn === 'get_circle_post_previews_v2') return { data: null, error: { code: 'PGRST202' } };
+    assert.equal(fn, 'get_circle_post_previews');
+    assert.equal(params._detail, true);
+    return { data: [{ post_id: 'post-1', preview_image: cover, preview_text: 'Teaser', has_tips_enabled: false }], error: null };
+  };
+  const [feed] = await getCirclePostPreviews('circle-1', ['post-1']);
+  assert.equal(feed.headline, null);
+  assert.equal(feed.preview_image, cover);
+  assert.equal(feed.preview_text, null);
+  const [detail] = await getCirclePostPreviews('circle-1', ['post-1'], true);
+  assert.equal(detail.preview_text, 'Teaser');
 });
 
 test('confirmCirclePostAccess retries brief lag and confirms unlocked state without failing', async () => {

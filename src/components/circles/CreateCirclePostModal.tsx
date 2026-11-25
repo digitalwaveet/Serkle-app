@@ -13,6 +13,8 @@ import { CustomFilePicker, useFileManager } from '@/components/CustomFilePicker'
 import { useEffect } from 'react';
 import { uploadImageWithPreviews } from '@/lib/imageStorage';
 import { isImageUpload, imageUploadId } from '@/lib/imageAsset';
+import { makeCirclePreviewImages } from '@/lib/circlePostPreview';
+import { CircleHeadlineField } from './CircleHeadlineField';
 
 interface CreateCirclePostModalProps {
   isOpen: boolean;
@@ -28,6 +30,7 @@ export const CreateCirclePostModal: React.FC<CreateCirclePostModalProps> = ({
   onPostCreated,
 }) => {
   const [content, setContent] = useState('');
+  const [headline, setHeadline] = useState('');
   const mediaManager = useFileManager();
   const [isPremium, setIsPremium] = useState(false);
   const [premiumPrice, setPremiumPrice] = useState<string>('');
@@ -40,7 +43,7 @@ export const CreateCirclePostModal: React.FC<CreateCirclePostModalProps> = ({
   };
 
   const handleSubmit = async () => {
-    if (!content.trim()) {
+    if (!headline.trim() && !content.trim() && !mediaManager.files.length) {
       toast({
         title: "Content required",
         description: "Please write something for your post",
@@ -90,18 +93,24 @@ export const CreateCirclePostModal: React.FC<CreateCirclePostModalProps> = ({
         mediaUrls = await Promise.all(uploadPromises);
       }
 
+      const firstFile = mediaManager.files[0]?.file;
+      const previews = isPremium && firstFile && isImageUpload(firstFile, mediaManager.files[0].name)
+        ? await makeCirclePreviewImages(firstFile)
+        : {};
       // Create post
       const { error: postError } = await supabase
         .from('posts')
         .insert({
           user_id: user.id,
           circle_id: circleId,
+          circle_headline: headline.trim() || null,
           content: content.trim(),
           media_url: mediaUrls[0] || null,
           media_urls: mediaUrls,
           is_premium: isPremium,
           premium_price: isPremium ? parseInt(premiumPrice) : null,
           has_tips_enabled: hasTipsEnabled,
+          ...previews,
         });
 
       if (postError) throw postError;
@@ -112,6 +121,7 @@ export const CreateCirclePostModal: React.FC<CreateCirclePostModalProps> = ({
       });
 
       setContent('');
+      setHeadline('');
       mediaManager.clearAll();
       setIsPremium(false);
       setPremiumPrice('');
@@ -188,11 +198,13 @@ export const CreateCirclePostModal: React.FC<CreateCirclePostModalProps> = ({
             )}
           </div>
 
-          {/* Content */}
+          <CircleHeadlineField value={headline} onChange={setHeadline} disabled={isSubmitting} premium={isPremium} />
+          {/* Body */}
           <div className="space-y-3">
-            <Label className="text-sm font-semibold text-foreground/80 ml-1">Post Content</Label>
+            <Label htmlFor="circle-post-body" className="text-sm font-semibold text-foreground/80 ml-1">Body</Label>
             <div className="relative">
               <Textarea
+                id="circle-post-body"
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
                 placeholder="Share something with your circle..."

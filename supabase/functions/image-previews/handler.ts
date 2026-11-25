@@ -128,13 +128,17 @@ export function createImagePreviewHandler(env: ReadEnv) {
 
       const admin = createClient(url, secret, { auth: authOptions });
       if (body.action === 'claim-circle-cover' || body.action === 'complete-circle-cover') {
+        // Only the trusted processor may receive the signed premium original.
+        if (!maintenance && !maintenanceAuthorized(
+          request.headers.get('x-circle-preview-processor') ?? '', env('IMAGE_PREVIEW_MAINTENANCE_SECRET'),
+        )) {
+          return json({ error: 'Image maintenance authorization required' }, 403);
+        }
         if (body.action === 'claim-circle-cover') {
           if (!maintenance && !isImageId(body.postId)) return json({ error: 'Invalid Circle post' }, 400);
-          const { data, error } = maintenance
-            ? await admin.rpc('claim_circle_cover_preview', { _origin: new URL(url).origin })
-            : await userClient!.rpc('claim_circle_cover_preview_for_viewer', {
-                _post_id: body.postId, _origin: new URL(url).origin,
-              });
+          const { data, error } = await admin.rpc('claim_circle_full_frame_preview', {
+            _origin: new URL(url).origin, _post_id: maintenance ? null : body.postId, _viewer: userId ?? null,
+          });
           if (error) {
             console.error('claim-circle-cover rpc failed', { maintenance, code: error.code, message: error.message });
             const code = safeErrorCode(error);
@@ -160,7 +164,7 @@ export function createImagePreviewHandler(env: ReadEnv) {
           });
           if (accessError || allowed !== true) return json({ error: 'Circle cover lease expired' }, 409);
         }
-        const { data, error } = await admin.rpc('complete_circle_cover_preview', {
+        const { data, error } = await admin.rpc('complete_circle_full_frame_preview', {
           _post_id: body.postId, _lease: body.lease, _cover: body.cover, _thumb: body.thumb,
         });
         if (error) {

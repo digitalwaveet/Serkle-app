@@ -8,7 +8,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, MessageCircle, Share2, Bookmark, Lock, Send } from 'lucide-react';
 import DOMPurify from 'dompurify';
-import { CircleLockedCover, CirclePremiumBadge, CirclePreviewFade } from '@/components/circles/CirclePostPreview';
+import { CirclePreviewImage, CirclePremiumBadge } from '@/components/circles/CirclePostPreview';
 import { SubscribeCircleModal } from '@/components/circles/SubscribeCircleModal';
 import { getCirclePostPreviews } from '@/lib/circlePostPreview';
 import { restoreOwnedCirclePostPayloads } from '@/lib/circleOwnerAccess';
@@ -700,13 +700,18 @@ const CirclePostDetail: React.FC = () => {
       {/* Main Content */}
       <main className="max-w-4xl mx-auto px-4 py-6">
         <article className={cn('mx-auto max-w-3xl', shouldShowPaywall && 'rounded-[20px] border border-border bg-card p-4 shadow-soft sm:p-6')}>
+          {!shouldShowPaywall && post.preview?.headline && (
+            <h2 dir="auto" className="mb-4 text-2xl font-bold leading-tight [overflow-wrap:anywhere]">
+              {post.preview.headline}
+            </h2>
+          )}
           {!shouldShowPaywall && post.post_type === 'pdf' && !!post.media_urls?.length && (
             <PDFCarousel pages={post.media_urls} className="mb-6 aspect-[4/5] shadow-lg" />
           )}
 
           {!shouldShowPaywall && cover && post.post_type !== 'pdf' && (
             <div className="relative mb-5">
-              <OptimizedImage src={cover} alt="Post cover" className="w-full rounded-2xl object-cover" imageClassName="object-cover" size="full" style={{ aspectRatio: '2.24' }} />
+              <OptimizedImage src={cover} alt="Post cover" className="w-full rounded-2xl" imageClassName="object-contain" size="full" style={{ aspectRatio: '16 / 10' }} />
               <OriginalImageDownload src={cover} />
             </div>
           )}
@@ -831,10 +836,11 @@ const CirclePostDetail: React.FC = () => {
 
           {shouldShowPaywall ? (
             <section className="space-y-3">
-              <CircleLockedCover thumbnail={post.preview?.preview_image ?? null} />
-              <h2 className="text-xl font-semibold tracking-tight">Premium post</h2>
-              {post.preview?.preview_text && <p className="break-words leading-relaxed">{post.preview.preview_text}</p>}
-              <CirclePreviewFade />
+              <h2 dir="auto" className="text-2xl font-bold leading-tight [overflow-wrap:anywhere]">
+                {post.preview?.headline || 'Premium post'}
+              </h2>
+              {post.preview?.preview_image && <CirclePreviewImage src={post.preview.preview_image} />}
+              {post.preview?.preview_text && <p dir="auto" className="break-words leading-relaxed">{post.preview.preview_text}</p>}
               {(hasActiveSubscription || isOwner) ? (
                 <div className="space-y-3 rounded-xl border border-border bg-primary/5 p-4">
                   <div className="flex items-center justify-between gap-3">

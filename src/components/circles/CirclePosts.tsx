@@ -6,7 +6,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { CircleLockedCover, CirclePremiumBadge } from './CirclePostPreview';
+import { CirclePreviewImage, CirclePremiumBadge } from './CirclePostPreview';
+import { CircleHeadlineField } from './CircleHeadlineField';
 import { circlePostExcerpt, makeCirclePreviewImages } from '@/lib/circlePostPreview';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
@@ -56,6 +57,7 @@ const CirclePosts: React.FC<CirclePostsProps> = ({ circle, isOwner }) => {
   const canPost = isOwner || (circle?.posting_policy === 'members' && circle?.is_joined);
 
   // Inline Composer State
+  const [headline, setHeadline] = useState('');
   const [content, setContent] = useState('');
   const composerManager = useFileManager();
   const coverImage = composerManager.files[0]?.file as File | undefined;
@@ -95,6 +97,7 @@ const CirclePosts: React.FC<CirclePostsProps> = ({ circle, isOwner }) => {
     },
     editorProps: {
       attributes: {
+        'aria-label': 'Body',
         class: 'prose prose-sm dark:prose-invert max-w-none focus:outline-none min-h-[120px] w-full text-[15px] leading-7 text-foreground prose-headings:mb-2 prose-headings:mt-3 prose-headings:text-foreground prose-h1:text-2xl prose-h2:text-xl prose-p:my-2 prose-p:text-foreground prose-li:my-0.5 prose-li:text-foreground prose-ul:my-2 prose-ol:my-2 prose-a:text-primary',
       },
     },
@@ -174,7 +177,8 @@ const CirclePosts: React.FC<CirclePostsProps> = ({ circle, isOwner }) => {
   };
 
   const handleSubmit = async () => {
-    if (!content.trim() && !coverImage) {
+    if (isSubmitting || !editor) return;
+    if (!headline.trim() && editor.isEmpty && !coverImage) {
       toast({ title: "Content required", description: "Please write something or add an image", variant: "destructive" });
       return;
     }
@@ -194,6 +198,7 @@ const CirclePosts: React.FC<CirclePostsProps> = ({ circle, isOwner }) => {
       const { error: postError } = await supabase.from('posts').insert({
         user_id: user.id,
         circle_id: circleId,
+        circle_headline: headline.trim() || null,
         content: content.trim(),
         cover_image_url: coverImageUrl,
         is_premium: isPremium,
@@ -208,6 +213,7 @@ const CirclePosts: React.FC<CirclePostsProps> = ({ circle, isOwner }) => {
       
       // Reset state
       composerManager.clearAll();
+      setHeadline('');
       setIsPremium(false);
       setHasTipsEnabled(true);
       editor?.commands.setContent('');
@@ -343,6 +349,8 @@ const CirclePosts: React.FC<CirclePostsProps> = ({ circle, isOwner }) => {
 
                 {/* Text Area / Rich Text Editor */}
                 <div className="min-w-0 flex-1 space-y-3">
+                  <CircleHeadlineField value={headline} onChange={setHeadline} disabled={isSubmitting} premium={isPremium} />
+                  <p className="text-sm font-medium">Body</p>
                   {editor && (
                     <div aria-label="Rich text formatting" className="flex items-center gap-0.5 overflow-x-auto rounded-xl border border-border bg-muted/25 p-1.5">
                       <button type="button" aria-label="Bold" title="Bold" onClick={() => editor.chain().focus().toggleBold().run()} className={formatButtonClass(editor.isActive('bold'))}><Bold className="size-4" aria-hidden="true" /></button>
@@ -377,7 +385,7 @@ const CirclePosts: React.FC<CirclePostsProps> = ({ circle, isOwner }) => {
                   )}
 
                   <div className="relative rounded-2xl border border-border/80 bg-background/55 px-3 py-2.5 transition-colors focus-within:border-primary/40 focus-within:bg-background focus-within:ring-2 focus-within:ring-primary/10">
-                    {!content.trim() || content === '<p></p>' ? (
+                    {editor?.isEmpty ? (
                       <div className="pointer-events-none absolute left-3 top-3 text-[15px] text-muted-foreground">
                         What would you like to share?
                       </div>
@@ -463,7 +471,7 @@ const CirclePosts: React.FC<CirclePostsProps> = ({ circle, isOwner }) => {
               <div className="px-4 pb-4 pt-3 sm:px-5 sm:pb-5">
                 <Button
                   onClick={handleSubmit}
-                  disabled={isSubmitting || (!content.trim() && !coverImage)}
+                  disabled={isSubmitting || (!headline.trim() && (!editor || editor.isEmpty) && !coverImage)}
                   className="h-12 w-full rounded-2xl text-sm font-semibold shadow-sm"
                 >
                   {isSubmitting ? (
@@ -516,7 +524,7 @@ const CirclePosts: React.FC<CirclePostsProps> = ({ circle, isOwner }) => {
               {posts.map(post => {
                 const locked = post.is_premium && !post.user_has_unlocked;
                 const detailPath = '/circle/' + circleId + '/post/' + post.id;
-                const excerpt = locked ? post.previewText : circlePostExcerpt(post.content ?? '');
+                const excerpt = locked ? null : circlePostExcerpt(post.content ?? '');
                 const cover = !locked && (post.coverReference || (post.post_type === 'photo' ? post.mediaUrl : null));
 
                 return (
@@ -562,9 +570,9 @@ const CirclePosts: React.FC<CirclePostsProps> = ({ circle, isOwner }) => {
                     {post.pinned_at && <span className="inline-flex items-center gap-1 self-start text-xs font-semibold text-primary"><Pin className="size-3" />Pinned</span>}
 
                     <div className="min-w-0">
-                      <h3 className="text-lg font-semibold leading-tight tracking-tight">
+                      <h3 dir="auto" className="break-words text-lg font-bold leading-tight tracking-tight">
                         <Link to={detailPath} className="rounded-sm hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring">
-                          {locked ? 'Premium post' : circle.name + '’s post'}
+                          {post.headline || (locked ? 'Premium post' : circle.name + '’s post')}
                         </Link>
                       </h3>
                       {excerpt && <p className="mt-1 line-clamp-3 break-words text-sm leading-relaxed text-muted-foreground">{excerpt}</p>}
@@ -572,9 +580,11 @@ const CirclePosts: React.FC<CirclePostsProps> = ({ circle, isOwner }) => {
 
                     {locked ? (
                       <>
-                        <Link to={detailPath} aria-label="Open premium post preview" className="rounded-xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring">
-                          <CircleLockedCover thumbnail={post.previewImage} />
-                        </Link>
+                        {post.previewImage && (
+                          <Link to={detailPath} aria-label="Open premium post preview" className="rounded-xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring">
+                            <CirclePreviewImage src={post.previewImage} />
+                          </Link>
+                        )}
                         {(hasActiveSubscription || isOwner) ? (
                           <div className="flex items-center justify-between gap-2 rounded-xl border border-border bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
                             <span>{isOwner ? 'Author access syncing...' : 'Subscriber access syncing...'}</span>
@@ -599,7 +609,7 @@ const CirclePosts: React.FC<CirclePostsProps> = ({ circle, isOwner }) => {
                       </>
                     ) : (
                       <>
-                        {cover && <OptimizedImage src={cover} alt="Post cover" className="w-full rounded-xl" imageClassName="object-cover" style={{ aspectRatio: '2.24' }} onOpen={() => navigate(detailPath)} openLabel="Open post" />}
+                        {cover && <OptimizedImage src={cover} alt="Post cover" className="w-full rounded-xl" imageClassName="object-contain" style={{ aspectRatio: '16 / 10' }} onOpen={() => navigate(detailPath)} openLabel="Open post" />}
                         <footer className="flex flex-wrap items-center gap-x-3 gap-y-1">
                           <PostReactionButton
                             isLiked={post.user_has_liked}

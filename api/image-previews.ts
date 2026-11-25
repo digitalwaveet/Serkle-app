@@ -36,7 +36,7 @@ export default async function handler(req: IncomingMessage & { body?: { assetId?
   if (assetId && circlePostId) return reply(400, { error: 'Choose one image operation' });
 
   try {
-    const gateway = createImagePreviewGateway(url, key, { authorization });
+    const gateway = createImagePreviewGateway(url, key, { authorization }, process.env.IMAGE_PREVIEW_MAINTENANCE_SECRET);
     if (circlePostId) {
       const claim = await gateway.claimCircleCover(circlePostId);
       if (claim.status === 'idle') return reply(202, { status: 'pending' });

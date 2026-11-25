@@ -28,7 +28,7 @@ const asset = {
   id, owner_id: owner, bucket_id: 'post-media', original_path: owner + '/api-original.png',
   original_bytes: 0, original_sha256: null, processing_token: operation, status: 'failed', lease_until: '',
 };
-const names = ['SUPABASE_URL', 'SUPABASE_PUBLISHABLE_KEY', 'SUPABASE_SERVICE_ROLE_KEY'];
+const names = ['SUPABASE_URL', 'SUPABASE_PUBLISHABLE_KEY', 'SUPABASE_SERVICE_ROLE_KEY', 'IMAGE_PREVIEW_MAINTENANCE_SECRET'];
 const previous = names.map(name => process.env[name]);
 const edge = createImagePreviewHandler(name => ({
   SUPABASE_URL: base,
@@ -81,14 +81,6 @@ before(async () => {
     }
     if (path.startsWith('/rest/v1/rpc/')) {
       const args = JSON.parse(body.toString());
-      if (path.endsWith('claim_circle_cover_preview_for_viewer')) {
-        assert.equal(req.headers.apikey, publishable);
-        assert.equal(req.headers.authorization, 'Bearer fixture-owner');
-        assert.equal(args._post_id, id);
-        assert.equal(args._origin, base);
-        if (failCircleClaim) return json({ code: '42501', message: 'sensitive sql details' }, 403);
-        return json([{ post_id: id, lease: operation, object_path: asset.original_path, original_bytes: original.length }]);
-      }
       if (path.endsWith('can_complete_circle_cover_preview')) {
         assert.equal(req.headers.apikey, publishable);
         assert.equal(req.headers.authorization, 'Bearer fixture-owner');
@@ -97,17 +89,20 @@ before(async () => {
         return json(true);
       }
       assert.equal(req.headers.apikey, adminKey, 'privileged RPCs belong to the Edge Function');
-      if (path.endsWith('claim_circle_cover_preview')) {
+      if (path.endsWith('claim_circle_full_frame_preview')) {
         assert.equal(args._origin, base);
+        assert.equal(args._viewer, args._post_id === null ? null : owner);
+        if (failCircleClaim) return json({ code: '42501', message: 'sensitive sql details' }, 403);
         return json([{ post_id: id, lease: operation, object_path: asset.original_path, original_bytes: original.length }]);
       }
-      if (path.endsWith('complete_circle_cover_preview')) {
+      if (path.endsWith('complete_circle_full_frame_preview')) {
         assert.equal(args._post_id, id);
         assert.equal(args._lease, operation);
         for (const [dataUrl, width] of [[args._cover, 640], [args._thumb, 24]]) {
           const metadata = await sharp(Buffer.from(dataUrl.split(',')[1], 'base64')).metadata();
           assert.equal(metadata.format, 'webp');
           assert.equal(metadata.width, width);
+          assert.equal(metadata.height, width === 640 ? 480 : 18);
         }
         return json(true);
       }
@@ -170,6 +165,7 @@ before(async () => {
   base = 'http://127.0.0.1:' + address.port;
   process.env.SUPABASE_URL = base;
   process.env.SUPABASE_PUBLISHABLE_KEY = publishable;
+  process.env.IMAGE_PREVIEW_MAINTENANCE_SECRET = maintenanceKey;
   delete process.env.SUPABASE_SERVICE_ROLE_KEY;
 });
 after(async () => {
@@ -224,8 +220,8 @@ test('a publishable key or ordinary session cannot start project-wide maintenanc
   const headers = { Authorization: 'Bearer fixture-owner' };
   assert.equal((await edgeRequest({ action: 'claim' }, headers)).status, 400);
   assert.equal((await edgeRequest({ action: 'enqueue-legacy' }, headers)).status, 403);
-  assert.equal((await edgeRequest({ action: 'claim-circle-cover' }, headers)).status, 400);
-  assert.equal((await edgeRequest({ action: 'complete-circle-cover' }, headers)).status, 400);
+  assert.equal((await edgeRequest({ action: 'claim-circle-cover', postId: id }, headers)).status, 403);
+  assert.equal((await edgeRequest({ action: 'complete-circle-cover' }, headers)).status, 403);
   assert.equal((await edgeRequest({ action: 'claim' }, { 'x-image-maintenance-key': 'wrong-key' })).status, 401);
   assert.equal(queued, 0);
   assert.equal(claims, 0);

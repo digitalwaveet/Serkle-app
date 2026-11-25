@@ -19,7 +19,7 @@ The Edge Function verifies the caller's user token through Supabase Auth and che
 
 ### Optional backfill worker
 
-To process existing images or retry interrupted jobs in bulk, set a randomly generated `IMAGE_PREVIEW_MAINTENANCE_SECRET` of at least 32 characters in the Edge Function secrets. Set the same value alongside `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` in the private environment where you run the worker. This secret authorizes the image queue and its associated objects only. Ordinary uploads and interactive recovery use the user's session.
+To process existing images or retry interrupted jobs in bulk, set a randomly generated `IMAGE_PREVIEW_MAINTENANCE_SECRET` of at least 32 characters in the Edge Function secrets and the worker's private environment. For interactive Circle cover recovery, set the same secret in the Vercel server environment. The API forwards it alongside the user's session so the Edge Function can enforce Circle visibility before supplying an original to the trusted processor. Ordinary image uploads and non-Circle recovery use only the user's session.
 
 Run `npm run images:process -- --backfill` to process existing stored images a job at a time. Add `--watch` to keep the worker running for interrupted jobs. Retryable failures back off and stop after five automatic attempts. Legacy images continue to use their stored originals until registered. Previously compressed originals cannot be reconstructed.
 

@@ -27,14 +27,18 @@ export function createImagePreviewGateway(
   supabaseUrl: string,
   publishableKey: string,
   credentials: { authorization: string } | { 'x-image-maintenance-key': string },
+  circleProcessorKey?: string,
 ) {
   const endpoint = new URL('/functions/v1/image-previews', supabaseUrl);
   const headers = { apikey: publishableKey, ...credentials };
 
-  async function post<T>(body: Record<string, unknown>): Promise<T> {
+  async function post<T>(body: Record<string, unknown>, processingCircle = false): Promise<T> {
+    const authorization = processingCircle && circleProcessorKey
+      ? { 'x-circle-preview-processor': circleProcessorKey }
+      : {};
     const response = await fetch(endpoint, {
       method: 'POST',
-      headers: { ...headers, 'Content-Type': 'application/json' },
+      headers: { ...headers, ...authorization, 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
       redirect: 'error',
       signal: AbortSignal.timeout(45_000),
@@ -47,9 +51,9 @@ export function createImagePreviewGateway(
   return {
     claim: (assetId?: string) => post<ImageClaim>({ action: 'claim', assetId }),
     enqueueLegacy: () => post<{ queued: number }>({ action: 'enqueue-legacy' }),
-    claimCircleCover: (postId?: string) => post<CircleCoverClaim>({ action: 'claim-circle-cover', ...(postId ? { postId } : {}) }),
+    claimCircleCover: (postId?: string) => post<CircleCoverClaim>({ action: 'claim-circle-cover', ...(postId ? { postId } : {}) }, true),
     completeCircleCover: (job: CircleCoverJob, cover: string, thumb: string) =>
-      post<{ stored: boolean }>({ action: 'complete-circle-cover', postId: job.postId, lease: job.lease, cover, thumb }),
+      post<{ stored: boolean }>({ action: 'complete-circle-cover', postId: job.postId, lease: job.lease, cover, thumb }, true),
     async download(job: Pick<ImagePreviewJob, 'originalUrl'>) {
       const original = new URL(job.originalUrl);
       if (original.origin !== endpoint.origin || original.username || original.password ||

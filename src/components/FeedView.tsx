@@ -15,38 +15,36 @@ const PostSkeleton = () => (<div className="min-h-64 flex items-center justify-c
 
 const PAGE_SIZE = 10;
 
-const addLockedCirclePreviews = async (rows: any[], viewerId?: string) => {
+const addCirclePreviews = async (rows: any[], viewerId?: string) => {
   const isLockedForViewer = (item: any) =>
     Boolean(item.circle_id && item.is_premium && !item.user_has_unlocked && item.user_id !== viewerId);
-  const byCircle = new Map<string, string[]>();
+  const byCircle = new Map<string, { ids: string[]; recoverIds: string[] }>();
   rows.forEach(item => {
-    if (!isLockedForViewer(item)) return;
-    const postIds = byCircle.get(item.circle_id) ?? [];
-    postIds.push(item.post_id);
-    byCircle.set(item.circle_id, postIds);
+    if (!item.circle_id) return;
+    const group = byCircle.get(item.circle_id) ?? { ids: [], recoverIds: [] };
+    group.ids.push(item.post_id);
+    if (isLockedForViewer(item)) group.recoverIds.push(item.post_id);
+    byCircle.set(item.circle_id, group);
   });
 
   if (!byCircle.size) return rows;
 
   const previewGroups = await Promise.all(
-    [...byCircle.entries()].map(([circleId, postIds]) =>
-      getCirclePostPreviews(circleId, postIds, true, postIds)
+    [...byCircle.entries()].map(([circleId, { ids, recoverIds }]) =>
+      getCirclePostPreviews(circleId, ids, false, recoverIds)
     )
   );
   const previews = new Map(previewGroups.flat().map(preview => [preview.post_id, preview]));
 
   return rows.map(item => {
-    if (!isLockedForViewer(item)) return item;
+    if (!item.circle_id) return item;
     const preview = previews.get(item.post_id);
-    const previewImage = preview?.preview_image || null;
+    const headline = preview?.headline;
+    if (!isLockedForViewer(item)) return { ...item, circle_headline: headline };
+    // Keep the preview separate so it never enters the protected media player.
     return {
-      ...item,
-      content: preview?.preview_text || item.content || '',
-      // Locked viewers receive only the deliberately lossy display preview. The
-      // protected original remains absent until entitlement is verified.
-      media_url: previewImage,
-      media_urls: previewImage ? [previewImage] : [],
-      cover_image_url: previewImage,
+      ...item, circle_headline: headline, circle_preview_image: preview?.preview_image,
+      content: '', media_url: null, media_urls: [], cover_image_url: null, voice_url: null,
     };
   });
 };
@@ -88,6 +86,8 @@ const formatPost = (item: any): Post => ({
   userReaction: item.user_reaction,
   userHasUnlocked: item.user_has_unlocked || false,
   circleId: item.circle_id || undefined,
+  circleHeadline: item.circle_headline || undefined,
+  circlePreviewImage: item.circle_preview_image || undefined,
   circleName: item.circle_name || undefined,
   circleAvatar: item.circle_avatar_url || undefined,
   isPremium: item.is_premium || false,
@@ -126,7 +126,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ onRefresh }) => {
       if (error) throw error;
       
       const rowsWithOwnerAccess = await restoreOwnedCirclePostPayloads(data || []);
-      const rowsWithPreviews = await addLockedCirclePreviews(rowsWithOwnerAccess, user?.id);
+      const rowsWithPreviews = await addCirclePreviews(rowsWithOwnerAccess, user?.id);
       const signedData = await signProtectedMedia(rowsWithPreviews);
       const formatted = signedData.map((item: any) => formatPost(item));
 
