@@ -33,6 +33,7 @@ test("ordinary profile updates retain their previous column mapping", () => {
       bio: "Hello",
       subtitle: "Creator",
       location: "Addis",
+      phone: " +251 911 223 344 ",
       website: ["https://example.test"],
       avatar: "avatar.png",
       coverImage: "cover.png",
@@ -44,6 +45,7 @@ test("ordinary profile updates retain their previous column mapping", () => {
       bio: "Hello",
       subtitle: "Creator",
       location: "Addis",
+      phone: "+251 911 223 344",
       website: "https://example.test",
       avatar_url: "avatar.png",
       cover_image_url: "cover.png",
@@ -51,6 +53,9 @@ test("ordinary profile updates retain their previous column mapping", () => {
   );
   assert.deepEqual(profileUpdatePayload({ website: "https://example.test" }), {
     website: "https://example.test",
+  });
+  assert.deepEqual(profileUpdatePayload({ phone: "   " }), {
+    phone: null,
   });
 });
 test("updates contain only supplied editable fields and exclude privilege flags", () => {

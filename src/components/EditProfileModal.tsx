@@ -84,6 +84,28 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onClose }) 
   };
 
   useEffect(() => {
+    if (!isOpen || !user) return;
+    setName(user.name || '');
+    setUsername(user.username || '');
+    setUsernameStatus('idle');
+    setBio(user.bio || '');
+    setLocation(user.location || '');
+    setPhone(user.phone || '');
+    setBirthday(user.birthday || '');
+    setLinks(
+      Array.isArray(user.website)
+        ? (user.website.length > 0 ? user.website : [''])
+        : user.website
+          ? [user.website]
+          : ['']
+    );
+    setAvatarPreview(null);
+    setCoverPreview(null);
+    setAvatarFile(null);
+    setCoverFile(null);
+  }, [isOpen, user?.id]);
+
+  useEffect(() => {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
@@ -198,13 +220,13 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onClose }) 
 
       await updateProfile({
         name,
-        username: username !== user.username ? username : undefined,
+        ...(username !== user.username ? { username } : {}),
         bio,
         location,
         website: links.filter(link => link.trim() !== ''),
         avatar: avatarUrl,
         coverImage: coverUrl,
-        phone,
+        phone: phone.trim(),
         birthday,
       });
 

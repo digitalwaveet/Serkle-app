@@ -10,10 +10,10 @@ before(async()=>{
   browser=await chromium.launch({channel:'chrome',headless:true,args:['--no-proxy-server']});
 });
 after(async()=>{await browser?.close();await server?.close();});
-async function menuPage(state='',viewport={width:390,height:844}){
+async function menuPage(state='',viewport={width:390,height:844},theme:'light'|'dark'='light'){
   const context=await browser.newContext({viewport,colorScheme:'dark'});context.setDefaultTimeout(15000);
   await context.route('**/*',route=>route.request().url().startsWith(base+'/') ? route.continue() : route.abort());
-  await context.addInitScript(state=>{localStorage.setItem('theme','light');localStorage.setItem('menu-state',state);},state);
+  await context.addInitScript(({state,theme})=>{localStorage.setItem('theme',theme);localStorage.setItem('menu-state',state);},{state,theme});
   const page=await context.newPage();page.on('pageerror',error=>process.stderr.write(`Profile menu fixture: ${error.message}\n`));
   await page.goto(base+'/profile-menu-fixture',{timeout:60000});return page;
 }
@@ -85,4 +85,51 @@ test('menu text and theme choices retain readable contrast in light and dark mod
       });assert.deepEqual(failed,[]);
     }
   }finally{await page.context().close();}
+});
+
+test('the profile opened from a story has readable text and buttons in both themes', async () => {
+  for (const theme of ['light', 'dark'] as const) {
+    const page = await menuPage('story-profile', { width: 390, height: 844 }, theme);
+    try {
+      await page.getByRole('button', { name: 'Open story' }).click();
+      const story = page.getByRole('dialog', { name: 'Story preview' });
+      const openProfile = story.getByRole('button', { name: 'Open author profile' });
+      await expect(openProfile).toHaveCSS('color', 'rgb(255, 255, 255)');
+      await openProfile.click();
+      await expect(story.getByRole('heading', { name: 'Story author' })).toBeVisible();
+
+      for (const element of [
+        story.getByRole('heading', { name: 'Story author' }),
+        story.getByText('The author’s bio'),
+        story.getByRole('button', { name: 'Unfollow' }),
+        story.getByRole('button', { name: 'Message' }),
+        story.getByRole('button', { name: 'More options' }),
+        story.getByRole('button', { name: 'Close profile' }),
+      ]) {
+        const contrast = await element.evaluate(node => {
+          const rgb = (value: string) => value.match(/[\d.]+/g)?.map(Number) ?? [];
+          const luminance = (value: number[]) => value.slice(0, 3).reduce((sum, channel, index) => {
+            const s = channel / 255;
+            return sum + [0.2126, 0.7152, 0.0722][index] * (s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4);
+          }, 0);
+          const text = luminance(rgb(getComputedStyle(node).color));
+          let surface: Element | null = node;
+          while (surface) {
+            const fill = rgb(getComputedStyle(surface).backgroundColor);
+            if (fill.length === 3 || fill[3] === 1) {
+              const background = luminance(fill);
+              return (Math.max(text, background) + 0.05) / (Math.min(text, background) + 0.05);
+            }
+            surface = surface.parentElement;
+          }
+          return 0;
+        });
+        assert.ok(contrast >= 4.5, `Expected readable ${theme} contrast for ${await element.textContent()}. Measured ${contrast}.`);
+      }
+      await story.getByRole('button', { name: 'Close profile' }).click();
+      await expect(openProfile).toBeVisible();
+    } finally {
+      await page.context().close();
+    }
+  }
 });

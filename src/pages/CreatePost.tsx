@@ -76,6 +76,7 @@ const CreatePost: React.FC<{ shareId?: string }> = ({ shareId }) => {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const submittingRef = useRef(false);
   const requestRef = useRef<{ snapshot: string; id: string } | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     if (!voiceBlob) {
@@ -377,29 +378,43 @@ const CreatePost: React.FC<{ shareId?: string }> = ({ shareId }) => {
     creating: isPublishing,
     shareReady: shareState === 'ready',
   });
+  const imageCount = fileManager.files.filter((item) => item.kind === 'image').length;
+  const videoCount = fileManager.files.filter((item) => item.kind === 'video').length;
+  const hasAttachments =
+    (isPreviewMode && pdfPages.length > 0) ||
+    fileManager.files.length > 0 ||
+    Boolean(locationText) ||
+    recording ||
+    Boolean(voiceBlob) ||
+    isProcessingPdf;
+  const toolStatusHint = pdfFile
+    ? 'Remove PDF to attach photos or videos'
+    : fileManager.files.length > 0
+      ? `${fileManager.files.length} media ${fileManager.files.length === 1 ? 'item' : 'items'} attached`
+      : null;
 
   return (
-    <div className="min-h-[100dvh] bg-muted/20 pb-[calc(6.5rem+env(safe-area-inset-bottom))]">
-      <header className="sticky top-0 z-30 border-b border-border/70 bg-background/92 pt-[env(safe-area-inset-top)] backdrop-blur-xl">
-        <div className="mx-auto flex h-16 max-w-2xl items-center justify-between px-3 sm:px-5">
+    <div className="flex min-h-[100dvh] flex-col bg-muted/30">
+      <header className="sticky top-0 z-30 shrink-0 border-b border-border/70 bg-background/95 pt-[env(safe-area-inset-top)] backdrop-blur-xl">
+        <div className="mx-auto flex h-[60px] max-w-2xl items-center justify-between gap-2 px-3 sm:px-5">
           <button
             type="button"
             onClick={() => navigate('/')}
             disabled={isPublishing}
             aria-label="Back to home"
-            className="inline-flex min-h-11 items-center gap-2 rounded-full px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
+            className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-full px-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:opacity-40 sm:px-3"
           >
-            <ArrowLeft className="size-5" />
+            <ArrowLeft className="size-5" aria-hidden="true" />
             <span className="hidden sm:inline">Back</span>
           </button>
-          <div className="text-center">
-            <h1 className="text-base font-bold tracking-tight sm:text-lg">Create post</h1>
-            <p className="text-[11px] text-muted-foreground">Share with your Serkle</p>
+          <div className="min-w-0 text-center">
+            <h1 className="truncate text-base font-bold tracking-tight text-foreground sm:text-lg">Create post</h1>
+            <p className="truncate text-[11px] font-medium text-muted-foreground">Share with your Serkle</p>
           </div>
           <Button
             onClick={handlePost}
             disabled={!canPublish}
-            className="h-10 min-w-[74px] rounded-full px-4 text-sm font-bold shadow-sm"
+            className="h-10 min-w-[78px] rounded-full px-5 text-sm font-bold shadow-sm transition-all disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100 disabled:shadow-none"
             aria-label={isPublishing ? 'Publishing post' : 'Publish post'}
           >
             {isPublishing ? <span className="flex items-center gap-2"><InlineVideoLoader />Posting</span> : 'Post'}
@@ -407,9 +422,9 @@ const CreatePost: React.FC<{ shareId?: string }> = ({ shareId }) => {
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-2xl space-y-4 px-3 py-4 sm:px-5">
+      <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-3.5 px-3.5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3.5 sm:gap-4 sm:px-5 sm:py-5">
         {shareId && (
-          <section className="rounded-2xl border border-primary/20 bg-primary/5 p-4 text-sm" aria-live="polite">
+          <section className="shrink-0 rounded-2xl border border-primary/20 bg-primary/5 p-4 text-sm" aria-live="polite">
             <p>{shareState === 'loading' ? 'Preparing your shared draft…' : shareState === 'error' ? 'This shared draft expired, is unavailable, or belongs to another account.' : 'Shared draft ready. Review the content and audience before posting.'}</p>
             <Button variant="ghost" className="mt-2 h-10 px-3" disabled={isPublishing} onClick={async () => {
               try { if (user) await removeShareDraft(shareId, user.id); navigate('/'); }
@@ -418,15 +433,24 @@ const CreatePost: React.FC<{ shareId?: string }> = ({ shareId }) => {
           </section>
         )}
 
-        <section className="overflow-hidden rounded-[1.75rem] border border-border/80 bg-background shadow-[0_14px_40px_-30px_rgba(73,40,23,0.45)]">
-          <div className="flex items-start gap-3 border-b border-border/60 px-4 py-4">
-            <Avatar className="size-11 shrink-0 border border-primary/10 shadow-sm">
+        {/* Composer Card — owns the primary vertical space gracefully on mobile and desktop */}
+        <section
+          aria-label="Post composer"
+          className="flex flex-1 flex-col rounded-[1.5rem] border border-border/80 bg-card shadow-[0_14px_38px_-28px_rgba(73,40,23,0.42)] sm:flex-none sm:min-h-[340px]"
+        >
+          {/* Author + Audience Bar */}
+          <div className="flex items-center gap-3 border-b border-border/60 px-4 py-3.5">
+            <Avatar className="size-11 shrink-0 border border-primary/15 shadow-sm">
               <AvatarImage src={user?.avatar} alt={user?.name} />
               <AvatarFallback className="bg-primary font-bold text-primary-foreground">{user?.initials || 'U'}</AvatarFallback>
             </Avatar>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-bold text-foreground">{user?.name || 'Your Name'}</p>
-              <div className="mt-2 flex flex-wrap gap-2" role="group" aria-label="Post audience">
+              <p className="truncate text-sm font-bold leading-snug text-foreground">{user?.name || 'Your Name'}</p>
+              <div
+                className="mt-1.5 inline-flex items-center gap-1 rounded-full border border-border/70 bg-muted/60 p-0.5"
+                role="group"
+                aria-label="Post audience"
+              >
                 {privacyOptions.map((option) => {
                   const IconComponent = option.icon;
                   const selected = privacy === option.value;
@@ -437,9 +461,13 @@ const CreatePost: React.FC<{ shareId?: string }> = ({ shareId }) => {
                       onClick={() => setPrivacy(option.value as 'public' | 'friends')}
                       disabled={composerDisabled}
                       aria-pressed={selected}
-                      className={`inline-flex min-h-9 items-center gap-1.5 rounded-full border px-3 text-xs font-semibold transition-all ${selected ? 'border-primary bg-primary text-primary-foreground shadow-sm' : 'border-border bg-background text-muted-foreground hover:border-primary/30 hover:bg-primary/5'} disabled:opacity-50`}
+                      className={`inline-flex min-h-8 items-center gap-1.5 rounded-full px-3 text-xs font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 ${
+                        selected
+                          ? 'bg-primary text-primary-foreground shadow-sm'
+                          : 'text-muted-foreground hover:text-foreground'
+                      } disabled:opacity-50`}
                     >
-                      <IconComponent className="size-3.5" />
+                      <IconComponent className="size-3.5" aria-hidden="true" />
                       {option.label}
                     </button>
                   );
@@ -448,144 +476,281 @@ const CreatePost: React.FC<{ shareId?: string }> = ({ shareId }) => {
             </div>
           </div>
 
-          <div className="px-4 pb-4 pt-3">
+          {/* Spacious Writing Surface */}
+          <div
+            className="flex flex-1 cursor-text flex-col px-4 pb-3 pt-4"
+            onClick={(event) => {
+              if ((event.target as HTMLElement).closest('button, a, input, textarea, audio')) return;
+              textareaRef.current?.focus();
+            }}
+          >
             <MentionTextarea
+              textareaRef={textareaRef}
               placeholder="What would you like to share?"
               value={postText}
               onChange={setPostText}
               disabled={composerDisabled}
               ariaLabel="Post text"
-              className="w-full min-h-[132px] border-none bg-transparent p-0 text-[17px] leading-7 outline-none resize-none placeholder:text-muted-foreground/55 disabled:opacity-60"
+              className="w-full min-h-[168px] border-none bg-transparent p-0 text-[17px] leading-relaxed text-foreground outline-none resize-none placeholder:text-muted-foreground/75 disabled:opacity-60 sm:min-h-[196px] sm:text-[18px]"
               dir="auto"
-              rows={5}
+              rows={6}
             />
           </div>
 
-          {isPreviewMode && pdfPages.length > 0 ? (
-            <div className="border-t border-border/60 p-3">
-              <PDFPreview
-                pages={pdfPages}
-                fileName={pdfFile?.name || 'document.pdf'}
-                onRemove={() => {
-                  setPdfPages([]);
-                  setPdfFile(null);
-                  setIsPreviewMode(false);
-                }}
-              />
-            </div>
-          ) : fileManager.files.length > 0 && (
-            <div className="border-t border-border/60 p-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
-              <div className="mb-3 flex items-center justify-between px-1">
-                <h2 className="text-xs font-bold text-foreground">Media</h2>
-                <span className="rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-bold text-primary">
-                  {fileManager.files.length} {fileManager.files.length === 1 ? 'item' : 'items'}
-                </span>
-              </div>
-              <div className="grid grid-cols-2 gap-2.5">
-                {fileManager.files.map((item) => (
-                  <article key={item.id} className="group relative aspect-square overflow-hidden rounded-2xl border border-border/70 bg-muted">
-                    {item.kind === 'video' ? (
-                      <video src={item.url} className="size-full object-cover" muted playsInline preload="metadata" />
-                    ) : (
-                      <img src={item.url} className="size-full object-cover" alt={`Preview of ${item.name}`} />
-                    )}
-                    <div className="absolute inset-x-0 top-0 flex items-center justify-between bg-gradient-to-b from-black/55 to-transparent p-2">
-                      <span className="rounded-full bg-black/45 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-white backdrop-blur-sm">
-                        {item.kind}
-                      </span>
-                      <div className="flex gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => item.kind === 'image'
-                            ? setEditingImage({ id: item.id, url: item.url })
-                            : setEditingVideo({ id: item.id, url: item.url, file: item.file as File })}
-                          disabled={composerDisabled}
-                          aria-label={`Edit ${item.kind}`}
-                          className="inline-flex size-11 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-md transition hover:bg-black/70 disabled:opacity-50"
-                        >
-                          <Pencil className="size-4.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => fileManager.removeFile(item.id)}
-                          disabled={composerDisabled}
-                          aria-label={`Remove ${item.name}`}
-                          className="inline-flex size-11 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-md transition hover:bg-destructive disabled:opacity-50"
-                        >
-                          <X className="size-4.5" />
-                        </button>
-                      </div>
+          {/* Subtle Composer Footer Meta */}
+          <div className="flex items-center justify-between gap-2 px-4 pb-3 pt-1 text-[11px] font-medium text-muted-foreground">
+            <span>Type @ to mention friends</span>
+            {postText.length > 0 && (
+              <span aria-live="polite" className="tabular-nums">
+                {postText.length} {postText.length === 1 ? 'char' : 'chars'}
+              </span>
+            )}
+          </div>
+
+          {/* Unified Attachments Area inside the Composer Card */}
+          {hasAttachments && (
+            <div className="space-y-3 border-t border-border/60 p-3.5">
+              {isPreviewMode && pdfPages.length > 0 ? (
+                <PDFPreview
+                  pages={pdfPages}
+                  fileName={pdfFile?.name || 'document.pdf'}
+                  onRemove={() => {
+                    setPdfPages([]);
+                    setPdfFile(null);
+                    setIsPreviewMode(false);
+                  }}
+                />
+              ) : fileManager.files.length > 0 && (
+                <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+                  <div className="mb-2.5 flex items-center justify-between px-0.5">
+                    <h2 className="text-xs font-bold text-foreground">Media</h2>
+                    <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-[11px] font-bold text-primary">
+                      {fileManager.files.length} {fileManager.files.length === 1 ? 'item' : 'items'}
+                    </span>
+                  </div>
+                  <div className={`grid gap-2.5 ${fileManager.files.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
+                    {fileManager.files.map((item) => (
+                      <article
+                        key={item.id}
+                        className={`group relative overflow-hidden rounded-2xl border border-border/70 bg-muted ${
+                          fileManager.files.length === 1 ? 'aspect-[16/10]' : 'aspect-square'
+                        }`}
+                      >
+                        {item.kind === 'video' ? (
+                          <video src={item.url} className="size-full object-cover" muted playsInline preload="metadata" />
+                        ) : (
+                          <img src={item.url} className="size-full object-cover" alt={`Preview of ${item.name}`} />
+                        )}
+                        <div className="absolute inset-x-0 top-0 flex items-center justify-between bg-gradient-to-b from-black/55 to-transparent p-2">
+                          <span className="rounded-full bg-black/50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-white backdrop-blur-sm">
+                            {item.kind}
+                          </span>
+                          <div className="flex gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => item.kind === 'image'
+                                ? setEditingImage({ id: item.id, url: item.url })
+                                : setEditingVideo({ id: item.id, url: item.url, file: item.file as File })}
+                              disabled={composerDisabled}
+                              aria-label={`Edit ${item.kind}`}
+                              className="inline-flex size-11 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-md transition hover:bg-black/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-50"
+                            >
+                              <Pencil className="size-4" aria-hidden="true" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => fileManager.removeFile(item.id)}
+                              disabled={composerDisabled}
+                              aria-label={`Remove ${item.name}`}
+                              className="inline-flex size-11 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-md transition hover:bg-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-50"
+                            >
+                              <X className="size-4" aria-hidden="true" />
+                            </button>
+                          </div>
+                        </div>
+                        {videoEdits.has(item.id) && (
+                          <div className="absolute bottom-2 left-2 inline-flex items-center gap-1 rounded-full bg-primary px-2.5 py-1 text-[10px] font-bold text-primary-foreground shadow">
+                            <Check className="size-3" aria-hidden="true" /> Edited
+                          </div>
+                        )}
+                      </article>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {(locationText || recording || voiceBlob || isProcessingPdf) && (
+                <div className="space-y-2" aria-label="Post additions">
+                  {locationText && (
+                    <div className="flex min-h-12 items-center gap-3 rounded-2xl border border-primary/20 bg-primary/5 px-3 py-2">
+                      <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary"><MapPin className="size-4" aria-hidden="true" /></span>
+                      <div className="min-w-0 flex-1"><p className="text-xs font-bold text-foreground">Location added</p><p className="truncate text-xs text-muted-foreground">{locationText}</p></div>
+                      <button type="button" onClick={() => setLocationText(null)} disabled={composerDisabled} aria-label="Remove location" className="inline-flex size-11 items-center justify-center rounded-full text-muted-foreground hover:bg-muted"><X className="size-4" aria-hidden="true" /></button>
                     </div>
-                    {videoEdits.has(item.id) && (
-                      <div className="absolute bottom-2 left-2 inline-flex items-center gap-1 rounded-full bg-primary px-2 py-1 text-[10px] font-bold text-primary-foreground shadow">
-                        <Check className="size-3" /> Edited
-                      </div>
-                    )}
-                  </article>
-                ))}
-              </div>
+                  )}
+                  {recording && (
+                    <button type="button" onClick={stopRecording} className="flex min-h-12 w-full items-center gap-3 rounded-2xl border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-left transition hover:bg-destructive/10 active:scale-[0.99]" aria-label={`Stop voice recording. ${recordingTime} seconds recorded`}>
+                      <span className="relative inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-destructive/15 text-destructive"><span className="absolute size-2 animate-ping rounded-full bg-destructive" /><Mic className="size-4" aria-hidden="true" /></span>
+                      <div className="flex-1"><p className="text-xs font-bold text-foreground">Recording voice memo</p><p className="text-xs text-muted-foreground" aria-live="polite">{recordingTime}s of 30s · tap here or Voice to stop</p></div>
+                    </button>
+                  )}
+                  {voiceBlob && !recording && voicePreviewUrl && (
+                    <div className="flex min-h-14 items-center gap-2 rounded-2xl border border-primary/20 bg-primary/5 px-3 py-2">
+                      <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary"><Mic className="size-4" aria-hidden="true" /></span>
+                      <audio src={voicePreviewUrl} controls className="h-9 min-w-0 flex-1" aria-label="Voice memo preview" />
+                      <button type="button" onClick={() => setVoiceBlob(null)} disabled={composerDisabled} aria-label="Remove voice memo" className="inline-flex size-11 items-center justify-center rounded-full text-muted-foreground hover:bg-muted"><X className="size-4" aria-hidden="true" /></button>
+                    </div>
+                  )}
+                  {isProcessingPdf && (
+                    <div className="flex min-h-12 items-center gap-3 rounded-2xl border border-amber-500/25 bg-amber-500/5 px-3 py-2.5" role="status" aria-live="polite">
+                      <SerkleLoader size="xs" className="text-amber-600 dark:text-amber-400" />
+                      <div><p className="text-xs font-bold text-foreground">Preparing document preview</p><p className="text-xs text-muted-foreground">Page {pdfProgress.current} of {pdfProgress.total || '…'}</p></div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </section>
 
-        {(locationText || recording || voiceBlob || isProcessingPdf) && (
-          <section className="space-y-2" aria-label="Post additions">
-            {locationText && (
-              <div className="flex min-h-12 items-center gap-3 rounded-2xl border border-primary/20 bg-primary/5 px-3 py-2.5">
-                <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary"><MapPin className="size-4" /></span>
-                <div className="min-w-0 flex-1"><p className="text-xs font-bold text-foreground">Location added</p><p className="truncate text-xs text-muted-foreground">{locationText}</p></div>
-                <button type="button" onClick={() => setLocationText(null)} disabled={composerDisabled} aria-label="Remove location" className="inline-flex size-11 items-center justify-center rounded-full text-muted-foreground hover:bg-muted"><X className="size-4" /></button>
-              </div>
-            )}
-            {recording && (
-              <button type="button" onClick={stopRecording} className="flex min-h-12 w-full items-center gap-3 rounded-2xl border border-[#4F69C4]/20 bg-[#4F69C4]/5 px-3 py-2.5 text-left transition hover:bg-[#4F69C4]/10 active:scale-[0.99]" aria-label={`Stop voice recording. ${recordingTime} seconds recorded`}>
-                <span className="relative inline-flex size-9 items-center justify-center rounded-full bg-[#4F69C4]/10 text-[#4F69C4]"><span className="absolute size-2 animate-ping rounded-full bg-[#4F69C4]" /><Mic className="size-4" /></span>
-                <div className="flex-1"><p className="text-xs font-bold text-foreground">Recording voice memo</p><p className="text-xs text-muted-foreground" aria-live="polite">{recordingTime}s of 30s · tap here or Voice to stop</p></div>
-              </button>
-            )}
-            {voiceBlob && !recording && voicePreviewUrl && (
-              <div className="flex min-h-14 items-center gap-2 rounded-2xl border border-primary/20 bg-primary/5 px-3 py-2.5">
-                <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary"><Mic className="size-4" /></span>
-                <audio src={voicePreviewUrl} controls className="h-9 min-w-0 flex-1" aria-label="Voice memo preview" />
-                <button type="button" onClick={() => setVoiceBlob(null)} disabled={composerDisabled} aria-label="Remove voice memo" className="inline-flex size-11 items-center justify-center rounded-full text-muted-foreground hover:bg-muted"><X className="size-4" /></button>
-              </div>
-            )}
-            {isProcessingPdf && (
-              <div className="flex min-h-12 items-center gap-3 rounded-2xl border border-orange-500/20 bg-orange-500/5 px-3 py-2.5" role="status" aria-live="polite">
-                <SerkleLoader size="xs" className="text-orange-500" />
-                <div><p className="text-xs font-bold text-foreground">Preparing document preview</p><p className="text-xs text-muted-foreground">Page {pdfProgress.current} of {pdfProgress.total || '…'}</p></div>
-              </div>
-            )}
-          </section>
-        )}
-
         {isPublishing && (
-          <section className="flex items-center gap-3 rounded-2xl border border-primary/20 bg-primary/5 p-4" role="status" aria-live="assertive">
+          <section className="shrink-0 flex items-center gap-3 rounded-2xl border border-primary/20 bg-primary/5 p-4" role="status" aria-live="assertive">
             <SerkleLoader size="sm" className="text-primary" />
             <div><p className="text-sm font-bold text-foreground">{publishStage === 'preparing' ? 'Preparing your post' : publishStage === 'uploading' ? 'Uploading media' : 'Publishing your post'}</p><p className="text-xs text-muted-foreground">Keep this screen open. A repeated tap cannot create a duplicate.</p></div>
           </section>
         )}
-      </main>
 
-      <div className="fixed inset-x-0 bottom-0 z-20 border-t border-border/70 bg-background/94 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl">
-        <div className="mx-auto max-w-2xl px-3 pb-2 pt-2">
-          <div className="mb-1 flex items-center gap-1.5 px-1 text-[11px] font-semibold text-muted-foreground"><Sparkles className="size-3.5 text-primary" /> Add to your post</div>
-          <div className="grid grid-cols-5 gap-1" role="toolbar" aria-label="Post tools">
-            <CustomFilePicker manager={fileManager} hideUploadButton hidePreviewList accept="image/*" multiple maxFiles={10} disabled={!!pdfFile || composerDisabled}>
-              <button type="button" disabled={!!pdfFile || composerDisabled} className="flex min-h-14 w-full flex-col items-center justify-center gap-1 rounded-2xl text-primary transition hover:bg-primary/8 active:scale-95 disabled:opacity-35" aria-label="Add photos"><Image className="size-5" /><span className="text-[10px] font-semibold text-foreground">Photo</span></button>
-            </CustomFilePicker>
-            <CustomFilePicker manager={fileManager} hideUploadButton hidePreviewList accept="video/*" multiple maxFiles={5} disabled={!!pdfFile || composerDisabled}>
-              <button type="button" disabled={!!pdfFile || composerDisabled} className="flex min-h-14 w-full flex-col items-center justify-center gap-1 rounded-2xl text-[#4F69C4] transition hover:bg-[#4F69C4]/8 active:scale-95 disabled:opacity-35" aria-label="Add videos"><Video className="size-5" /><span className="text-[10px] font-semibold text-foreground">Video</span></button>
-            </CustomFilePicker>
-            <div>
-              <input type="file" id="pdf-upload" accept="application/pdf" className="sr-only" onChange={handlePdfUpload} disabled={fileManager.files.length > 0 || isProcessingPdf || composerDisabled} />
-              <button type="button" onClick={() => document.getElementById('pdf-upload')?.click()} disabled={fileManager.files.length > 0 || isProcessingPdf || composerDisabled} className={`flex min-h-14 w-full flex-col items-center justify-center gap-1 rounded-2xl transition hover:bg-orange-500/8 active:scale-95 disabled:opacity-35 ${pdfFile ? 'bg-orange-500/10 text-orange-600' : 'text-orange-500'}`} aria-label="Add PDF file"><FileText className="size-5" /><span className="text-[10px] font-semibold text-foreground">File</span></button>
+        {/* Balanced, Accessible Post Tools Card */}
+        <section
+          aria-label="Add to your post"
+          className="shrink-0 rounded-[1.5rem] border border-border/80 bg-card p-3.5 shadow-[0_10px_30px_-22px_rgba(73,40,23,0.35)] sm:p-4"
+        >
+          <div className="mb-3 flex items-center justify-between gap-2 px-0.5">
+            <div className="flex items-center gap-2">
+              <span className="inline-flex size-6 items-center justify-center rounded-full bg-primary/10 text-primary">
+                <Sparkles className="size-3.5" aria-hidden="true" />
+              </span>
+              <h2 className="text-xs font-bold tracking-wide text-foreground">Add to your post</h2>
             </div>
-            <button type="button" onClick={openLocationPicker} disabled={loadingLocation || composerDisabled} aria-pressed={!!locationText} className={`flex min-h-14 flex-col items-center justify-center gap-1 rounded-2xl transition hover:bg-primary/8 active:scale-95 disabled:opacity-35 ${locationText ? 'bg-primary/10 text-primary' : 'text-muted-foreground'}`} aria-label={locationText ? 'Edit location' : 'Add location'}>{loadingLocation ? <SerkleLoader size="xs" className="text-current" /> : <MapPin className="size-5" />}<span className="text-[10px] font-semibold text-foreground">Location</span></button>
-            <button type="button" onClick={recording ? stopRecording : startRecording} disabled={(!!voiceBlob && !recording) || composerDisabled} aria-pressed={recording} className={`flex min-h-14 flex-col items-center justify-center gap-1 rounded-2xl transition hover:bg-[#4F69C4]/8 active:scale-95 disabled:opacity-35 ${recording ? 'bg-[#4F69C4]/10 text-[#4F69C4]' : voiceBlob ? 'bg-primary/10 text-primary' : 'text-muted-foreground'}`} aria-label={recording ? 'Stop voice recording' : 'Record voice memo'}><Mic className="size-5" /><span className="text-[10px] font-semibold text-foreground">Voice</span></button>
+            {toolStatusHint && (
+              <span className="truncate text-[11px] font-medium text-muted-foreground">
+                {toolStatusHint}
+              </span>
+            )}
           </div>
-        </div>
-      </div>
+
+          <div className="space-y-2.5" role="toolbar" aria-label="Post tools">
+            {/* Primary visual media row */}
+            <div className="grid grid-cols-2 gap-2.5">
+              <CustomFilePicker manager={fileManager} hideUploadButton hidePreviewList accept="image/*" multiple maxFiles={10} disabled={!!pdfFile || composerDisabled}>
+                <button
+                  type="button"
+                  disabled={!!pdfFile || composerDisabled}
+                  aria-label="Add photos"
+                  className="flex min-h-[58px] w-full items-center gap-3 rounded-2xl border border-primary/15 bg-primary/[0.05] px-3.5 py-2.5 text-left transition hover:border-primary/30 hover:bg-primary/[0.09] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:opacity-40"
+                >
+                  <span className="inline-flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary">
+                    <Image className="size-5" aria-hidden="true" />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-sm font-bold leading-tight text-foreground">Photo</span>
+                    <span className="mt-0.5 block truncate text-[11px] font-medium text-muted-foreground">
+                      {imageCount > 0 ? `${imageCount} selected` : 'Up to 10'}
+                    </span>
+                  </span>
+                </button>
+              </CustomFilePicker>
+
+              <CustomFilePicker manager={fileManager} hideUploadButton hidePreviewList accept="video/*" multiple maxFiles={5} disabled={!!pdfFile || composerDisabled}>
+                <button
+                  type="button"
+                  disabled={!!pdfFile || composerDisabled}
+                  aria-label="Add videos"
+                  className="flex min-h-[58px] w-full items-center gap-3 rounded-2xl border border-[#4F69C4]/20 bg-[#4F69C4]/[0.06] px-3.5 py-2.5 text-left transition hover:border-[#4F69C4]/35 hover:bg-[#4F69C4]/[0.11] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:opacity-40"
+                >
+                  <span className="inline-flex size-10 shrink-0 items-center justify-center rounded-xl bg-[#4F69C4]/15 text-[#4F69C4] dark:text-[#86A0FF]">
+                    <Video className="size-5" aria-hidden="true" />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-sm font-bold leading-tight text-foreground">Video</span>
+                    <span className="mt-0.5 block truncate text-[11px] font-medium text-muted-foreground">
+                      {videoCount > 0 ? `${videoCount} selected` : 'Up to 5'}
+                    </span>
+                  </span>
+                </button>
+              </CustomFilePicker>
+            </div>
+
+            {/* Secondary enrichment tools row */}
+            <div className="grid grid-cols-3 gap-2.5">
+              <div>
+                <input type="file" id="pdf-upload" accept="application/pdf" className="sr-only" onChange={handlePdfUpload} disabled={fileManager.files.length > 0 || isProcessingPdf || composerDisabled} />
+                <button
+                  type="button"
+                  onClick={() => document.getElementById('pdf-upload')?.click()}
+                  disabled={fileManager.files.length > 0 || isProcessingPdf || composerDisabled}
+                  aria-label="Add PDF file"
+                  aria-pressed={Boolean(pdfFile)}
+                  className={`flex min-h-[64px] w-full flex-col items-center justify-center gap-1.5 rounded-2xl border px-2 py-2.5 transition active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:opacity-40 ${
+                    pdfFile
+                      ? 'border-amber-500/40 bg-amber-500/15'
+                      : 'border-border/75 bg-muted/35 hover:border-amber-500/30 hover:bg-amber-500/[0.07]'
+                  }`}
+                >
+                  <span className="inline-flex size-8 items-center justify-center rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400">
+                    <FileText className="size-4" aria-hidden="true" />
+                  </span>
+                  <span className="text-xs font-semibold text-foreground">{pdfFile ? 'PDF added' : 'PDF File'}</span>
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={openLocationPicker}
+                disabled={loadingLocation || composerDisabled}
+                aria-pressed={!!locationText}
+                aria-label={locationText ? 'Edit location' : 'Add location'}
+                className={`flex min-h-[64px] flex-col items-center justify-center gap-1.5 rounded-2xl border px-2 py-2.5 transition active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:opacity-40 ${
+                  locationText
+                    ? 'border-primary/35 bg-primary/10'
+                    : 'border-border/75 bg-muted/35 hover:border-emerald-500/30 hover:bg-emerald-500/[0.07]'
+                }`}
+              >
+                <span className="inline-flex size-8 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+                  {loadingLocation ? <SerkleLoader size="xs" className="text-current" /> : <MapPin className="size-4" aria-hidden="true" />}
+                </span>
+                <span className="text-xs font-semibold text-foreground">{locationText ? 'Location ✓' : 'Location'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={recording ? stopRecording : startRecording}
+                disabled={(!!voiceBlob && !recording) || composerDisabled}
+                aria-pressed={recording}
+                aria-label={recording ? 'Stop voice recording' : 'Record voice memo'}
+                className={`flex min-h-[64px] flex-col items-center justify-center gap-1.5 rounded-2xl border px-2 py-2.5 transition active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:opacity-40 ${
+                  recording
+                    ? 'border-destructive/40 bg-destructive/10'
+                    : voiceBlob
+                      ? 'border-primary/35 bg-primary/10'
+                      : 'border-border/75 bg-muted/35 hover:border-violet-500/30 hover:bg-violet-500/[0.07]'
+                }`}
+              >
+                <span className={`inline-flex size-8 items-center justify-center rounded-full ${
+                  recording
+                    ? 'bg-destructive/15 text-destructive'
+                    : 'bg-violet-500/15 text-violet-600 dark:text-violet-400'
+                }`}>
+                  <Mic className="size-4" aria-hidden="true" />
+                </span>
+                <span className="text-xs font-semibold text-foreground">
+                  {recording ? `Stop (${recordingTime}s)` : voiceBlob ? 'Voice ✓' : 'Voice'}
+                </span>
+              </button>
+            </div>
+          </div>
+        </section>
+      </main>
 
       <Dialog open={locationPickerOpen} onOpenChange={open => !loadingLocation && setLocationPickerOpen(open)}>
         <DialogContent className="w-[calc(100%-1.5rem)] max-w-md rounded-[1.75rem] p-5">
@@ -673,7 +838,7 @@ const CreatePost: React.FC<{ shareId?: string }> = ({ shareId }) => {
             toast.success('Photo updated!');
           }}
           onCancel={() => setEditingImage(null)}
-          aspectRatio={undefined}
+          aspectRatio={null}
         />
       )}
 

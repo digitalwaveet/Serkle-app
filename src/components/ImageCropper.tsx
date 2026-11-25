@@ -9,7 +9,7 @@ const createFlippedImage = (src: string, flipH: boolean, flipV: boolean): Promis
   return new Promise((resolve) => {
     if (!flipH && !flipV) { resolve(src); return; }
     const img = new Image();
-    img.crossOrigin = 'anonymous';
+    if (/^https?:/i.test(src)) img.crossOrigin = 'anonymous';
     img.onload = () => {
       const canvas = document.createElement('canvas');
       canvas.width = img.width;
@@ -27,11 +27,14 @@ const createFlippedImage = (src: string, flipH: boolean, flipV: boolean): Promis
 
 interface ImageCropperProps {
   imageSrc: string;
-  aspectRatio?: number;
+  /** Numeric ratio (e.g. 1, 16/9), `null` to open directly in Free crop mode, or omit to default to 1:1. */
+  aspectRatio?: number | null;
   onCropComplete: (croppedBlob: Blob) => void;
   onCancel: () => void;
   cropShape?: 'rect' | 'round';
   dimensionLabel?: string;
+  /** Render inside the parent dialog/container instead of portaling to document.body. */
+  inline?: boolean;
 }
 
 const createCroppedImage = async (
@@ -42,7 +45,7 @@ const createCroppedImage = async (
   flipV: boolean
 ): Promise<Blob> => {
   const image = new Image();
-  image.crossOrigin = 'anonymous';
+  if (/^https?:/i.test(imageSrc)) image.crossOrigin = 'anonymous';
 
   return new Promise((resolve, reject) => {
     image.onload = () => {
@@ -106,19 +109,20 @@ interface FreeCropAreaProps {
   onCropPixels: (area: Area | null) => void;
 }
 
-// Resize handles: corners + edge midpoints.
-const FREE_HANDLES: { key: string; mode: string; cls: string }[] = [
-  { key: 'nw', mode: 'nw', cls: '-left-2 -top-2 cursor-nwse-resize' },
-  { key: 'n', mode: 'n', cls: 'left-1/2 -top-2 -translate-x-1/2 cursor-ns-resize' },
-  { key: 'ne', mode: 'ne', cls: '-right-2 -top-2 cursor-nesw-resize' },
-  { key: 'e', mode: 'e', cls: '-right-2 top-1/2 -translate-y-1/2 cursor-ew-resize' },
-  { key: 'se', mode: 'se', cls: '-right-2 -bottom-2 cursor-nwse-resize' },
-  { key: 's', mode: 's', cls: 'left-1/2 -bottom-2 -translate-x-1/2 cursor-ns-resize' },
-  { key: 'sw', mode: 'sw', cls: '-left-2 -bottom-2 cursor-nesw-resize' },
-  { key: 'w', mode: 'w', cls: '-left-2 top-1/2 -translate-y-1/2 cursor-ew-resize' },
+// Resize handles: corners (L-brackets) + edge midpoints (bars), each with a 36px touch target.
+const FREE_HANDLES: { key: string; mode: string; pos: string; visual: string; label: string }[] = [
+  { key: 'nw', mode: 'nw', pos: '-left-4 -top-4 cursor-nwse-resize', visual: 'w-5 h-5 border-t-[3px] border-l-[3px] border-white rounded-tl-[2px] translate-x-[6px] translate-y-[6px]', label: 'Resize top-left corner' },
+  { key: 'n', mode: 'n', pos: 'left-1/2 -top-4 -translate-x-1/2 cursor-ns-resize', visual: 'w-7 h-1.5 rounded-full bg-white shadow', label: 'Resize top edge' },
+  { key: 'ne', mode: 'ne', pos: '-right-4 -top-4 cursor-nesw-resize', visual: 'w-5 h-5 border-t-[3px] border-r-[3px] border-white rounded-tr-[2px] -translate-x-[6px] translate-y-[6px]', label: 'Resize top-right corner' },
+  { key: 'e', mode: 'e', pos: '-right-4 top-1/2 -translate-y-1/2 cursor-ew-resize', visual: 'w-1.5 h-7 rounded-full bg-white shadow', label: 'Resize right edge' },
+  { key: 'se', mode: 'se', pos: '-right-4 -bottom-4 cursor-nwse-resize', visual: 'w-5 h-5 border-b-[3px] border-r-[3px] border-white rounded-br-[2px] -translate-x-[6px] -translate-y-[6px]', label: 'Resize bottom-right corner' },
+  { key: 's', mode: 's', pos: 'left-1/2 -bottom-4 -translate-x-1/2 cursor-ns-resize', visual: 'w-7 h-1.5 rounded-full bg-white shadow', label: 'Resize bottom edge' },
+  { key: 'sw', mode: 'sw', pos: '-left-4 -bottom-4 cursor-nesw-resize', visual: 'w-5 h-5 border-b-[3px] border-l-[3px] border-white rounded-bl-[2px] translate-x-[6px] -translate-y-[6px]', label: 'Resize bottom-left corner' },
+  { key: 'w', mode: 'w', pos: '-left-4 top-1/2 -translate-y-1/2 cursor-ew-resize', visual: 'w-1.5 h-7 rounded-full bg-white shadow', label: 'Resize left edge' },
 ];
 
-const MIN_BOX = 36; // px
+const MIN_BOX = 44; // px
+const FRAME_PAD = 18; // px breathing room so handles are never clipped at container edges
 
 /**
  * Free-form cropper: the image is shown fit-to-view and the user drags any edge
@@ -138,10 +142,12 @@ const FreeCropArea: React.FC<FreeCropAreaProps> = ({ image, onCropPixels }) => {
   const computeLayout = useCallback(() => {
     const c = containerRef.current;
     const im = imgRef.current;
-    if (!c || !im || !im.naturalWidth) return;
+    if (!c || !im || !im.naturalWidth || !im.naturalHeight) return;
     const cw = c.clientWidth;
     const ch = c.clientHeight;
-    const scale = Math.min(cw / im.naturalWidth, ch / im.naturalHeight);
+    const availW = Math.max(1, cw - FRAME_PAD * 2);
+    const availH = Math.max(1, ch - FRAME_PAD * 2);
+    const scale = Math.min(availW / im.naturalWidth, availH / im.naturalHeight);
     const dispW = im.naturalWidth * scale;
     const dispH = im.naturalHeight * scale;
     const offsetX = (cw - dispW) / 2;
@@ -162,26 +168,30 @@ const FreeCropArea: React.FC<FreeCropAreaProps> = ({ image, onCropPixels }) => {
 
   // Report the selected region in source-image pixels whenever it changes.
   useEffect(() => {
-    if (!box || !layout) { onCropPixels(null); return; }
-    onCropPixels({
-      x: Math.max(0, Math.round((box.x - layout.offsetX) / layout.scale)),
-      y: Math.max(0, Math.round((box.y - layout.offsetY) / layout.scale)),
-      width: Math.round(box.w / layout.scale),
-      height: Math.round(box.h / layout.scale),
-    });
+    const im = imgRef.current;
+    if (!box || !layout || !im || !im.naturalWidth || !im.naturalHeight) {
+      onCropPixels(null);
+      return;
+    }
+    const x = clampNum(Math.round((box.x - layout.offsetX) / layout.scale), 0, im.naturalWidth - 1);
+    const y = clampNum(Math.round((box.y - layout.offsetY) / layout.scale), 0, im.naturalHeight - 1);
+    const width = clampNum(Math.round(box.w / layout.scale), 1, im.naturalWidth - x);
+    const height = clampNum(Math.round(box.h / layout.scale), 1, im.naturalHeight - y);
+    onCropPixels({ x, y, width, height });
   }, [box, layout, onCropPixels]);
 
   const beginDrag = (mode: string) => (e: React.PointerEvent) => {
     if (!box) return;
     e.preventDefault();
     e.stopPropagation();
-    try { (e.target as HTMLElement).setPointerCapture(e.pointerId); } catch { /* noop */ }
+    try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* noop */ }
     dragRef.current = { mode, startX: e.clientX, startY: e.clientY, orig: { ...box } };
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
     const d = dragRef.current;
     if (!d || !layout) return;
+    e.preventDefault();
     const dx = e.clientX - d.startX;
     const dy = e.clientY - d.startY;
     const o = d.orig;
@@ -189,6 +199,8 @@ const FreeCropArea: React.FC<FreeCropAreaProps> = ({ image, onCropPixels }) => {
     const minY = layout.offsetY;
     const maxX = layout.offsetX + layout.dispW;
     const maxY = layout.offsetY + layout.dispH;
+    const minW = Math.min(MIN_BOX, layout.dispW);
+    const minH = Math.min(MIN_BOX, layout.dispH);
 
     if (d.mode === 'move') {
       setBox({
@@ -201,16 +213,16 @@ const FreeCropArea: React.FC<FreeCropAreaProps> = ({ image, onCropPixels }) => {
     }
 
     let { x, y, w, h } = o;
-    if (d.mode.includes('e')) w = clampNum(o.w + dx, MIN_BOX, maxX - o.x);
-    if (d.mode.includes('s')) h = clampNum(o.h + dy, MIN_BOX, maxY - o.y);
+    if (d.mode.includes('e')) w = clampNum(o.w + dx, minW, maxX - o.x);
+    if (d.mode.includes('s')) h = clampNum(o.h + dy, minH, maxY - o.y);
     if (d.mode.includes('w')) {
       const right = o.x + o.w;
-      x = clampNum(o.x + dx, minX, right - MIN_BOX);
+      x = clampNum(o.x + dx, minX, right - minW);
       w = right - x;
     }
     if (d.mode.includes('n')) {
       const bottom = o.y + o.h;
-      y = clampNum(o.y + dy, minY, bottom - MIN_BOX);
+      y = clampNum(o.y + dy, minY, bottom - minH);
       h = bottom - y;
     }
     setBox({ x, y, w, h });
@@ -232,30 +244,34 @@ const FreeCropArea: React.FC<FreeCropAreaProps> = ({ image, onCropPixels }) => {
         alt=""
         draggable={false}
         onLoad={computeLayout}
-        className="absolute inset-0 w-full h-full object-contain pointer-events-none select-none"
+        style={layout ? { left: layout.offsetX, top: layout.offsetY, width: layout.dispW, height: layout.dispH } : undefined}
+        className={`absolute pointer-events-none select-none ${layout ? '' : 'inset-4 w-[calc(100%-2rem)] h-[calc(100%-2rem)] object-contain'}`}
       />
 
       {box && layout && (
         <div
           className="absolute border-2 border-white touch-none"
-          style={{ left: box.x, top: box.y, width: box.w, height: box.h, boxShadow: '0 0 0 9999px rgba(0,0,0,0.55)', cursor: 'move' }}
+          style={{ left: box.x, top: box.y, width: box.w, height: box.h, boxShadow: '0 0 0 9999px rgba(0,0,0,0.6)', cursor: 'move' }}
           onPointerDown={beginDrag('move')}
         >
-          {/* Rule-of-thirds grid */}
+          {/* Rule-of-thirds crop grid */}
           <div className="absolute inset-0 pointer-events-none">
-            <div className="absolute top-1/3 inset-x-0 h-px bg-white/30" />
-            <div className="absolute top-2/3 inset-x-0 h-px bg-white/30" />
-            <div className="absolute left-1/3 inset-y-0 w-px bg-white/30" />
-            <div className="absolute left-2/3 inset-y-0 w-px bg-white/30" />
+            <div className="absolute top-1/3 inset-x-0 h-px bg-white/40" />
+            <div className="absolute top-2/3 inset-x-0 h-px bg-white/40" />
+            <div className="absolute left-1/3 inset-y-0 w-px bg-white/40" />
+            <div className="absolute left-2/3 inset-y-0 w-px bg-white/40" />
           </div>
 
-          {/* Handles */}
+          {/* Corner & edge resize handles */}
           {FREE_HANDLES.map((hdl) => (
             <div
               key={hdl.key}
+              aria-label={hdl.label}
               onPointerDown={beginDrag(hdl.mode)}
-              className={`absolute w-4 h-4 bg-white rounded-sm shadow border border-black/20 touch-none ${hdl.cls}`}
-            />
+              className={`absolute w-9 h-9 flex items-center justify-center touch-none ${hdl.pos}`}
+            >
+              <span className={`pointer-events-none block ${hdl.visual}`} />
+            </div>
           ))}
         </div>
       )}
@@ -270,7 +286,9 @@ const ImageCropper: React.FC<ImageCropperProps> = ({
   onCancel,
   cropShape = 'rect',
   dimensionLabel,
+  inline = false,
 }) => {
+  const defaultAspect = initialAspect === null ? undefined : initialAspect;
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const [rotation, setRotation] = useState(0);
@@ -278,7 +296,7 @@ const ImageCropper: React.FC<ImageCropperProps> = ({
   const [flipV, setFlipV] = useState(false);
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [aspect, setAspect] = useState<number | undefined>(initialAspect);
+  const [aspect, setAspect] = useState<number | undefined>(defaultAspect);
   const [activeControl, setActiveControl] = useState<'zoom' | 'rotate'>('zoom');
   const [flippedSrc, setFlippedSrc] = useState<string>(imageSrc);
   const [freeResetKey, setFreeResetKey] = useState(0);
@@ -323,7 +341,7 @@ const ImageCropper: React.FC<ImageCropperProps> = ({
     setRotation(0);
     setFlipH(false);
     setFlipV(false);
-    setAspect(initialAspect);
+    setAspect(defaultAspect);
     setFreeResetKey((k) => k + 1); // reset the free-crop box to the full image
   };
 
@@ -343,9 +361,10 @@ const ImageCropper: React.FC<ImageCropperProps> = ({
 
   const content = (
     <div
-      className="fixed inset-0 z-[200] bg-black/95 flex flex-col select-none"
+      data-editor-controls={inline ? '' : undefined}
+      className={`${inline ? 'absolute inset-0 z-[160]' : 'fixed inset-0 z-[200]'} bg-black/95 flex flex-col select-none`}
       role="dialog"
-      aria-modal="true"
+      aria-modal={!inline}
       aria-labelledby="image-editor-title"
       aria-busy={isSaving}
       onClick={stopAll}
@@ -353,7 +372,7 @@ const ImageCropper: React.FC<ImageCropperProps> = ({
       onTouchStart={stopAll as any}
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 z-10 shrink-0">
+      <div className="flex items-center justify-between px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))] z-10 shrink-0">
         <button
           type="button"
           onClick={onCancel}
@@ -585,6 +604,8 @@ const ImageCropper: React.FC<ImageCropperProps> = ({
       </div>
     </div>
   );
+
+  if (inline) return content;
 
   // Render via portal to escape parent form/label DOM context
   return createPortal(content, document.body);

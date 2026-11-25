@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MoreHorizontal, MessageCircle, Share, Bookmark, Link as LinkIcon, Calendar, Video as VideoIcon, Pencil, Wallet, Play } from 'lucide-react';
+import { MoreHorizontal, MessageCircle, Share, Bookmark, Link as LinkIcon, Phone, Video as VideoIcon, Pencil, Wallet, Play } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -116,16 +116,6 @@ const UserProfile: React.FC<UserProfileProps> = ({
     if (diffDays > 0) return `${diffDays}d`;
     if (diffHours > 0) return `${diffHours}h`;
     return "now";
-  };
-
-  /** Format ISO date to "Joined since YYYY" */
-  const formatJoinedDate = (dateStr: string) => {
-    try {
-      const year = new Date(dateStr).getFullYear();
-      return `Joined since ${year}`;
-    } catch {
-      return dateStr;
-    }
   };
 
   /** Render text with hashtag highlighting */
@@ -285,6 +275,8 @@ const UserProfile: React.FC<UserProfileProps> = ({
   const bio = user.bio || user.subtitle || "Living life to the fullest and sharing my journey with amazing people. Always excited to connect and learn from this incredible community!";
   const shouldTruncateBio = bio.length > 150;
   const displayBio = shouldTruncateBio && !showFullBio ? bio.slice(0, 150) + "..." : bio;
+  const websites = (Array.isArray(user.website) ? user.website : user.website ? [user.website] : []).filter(Boolean);
+  const phone = user.phone?.trim() || '';
 
   // Links Modal Component
   const LinksModal = () => {
@@ -375,22 +367,13 @@ const UserProfile: React.FC<UserProfileProps> = ({
         </div>
 
         <div className="pt-14 px-4 sm:px-6">
-          {/* Name + Badge + edit */}
+          {/* Name + Badge */}
           <div className="mb-0.5">
             <div className="flex items-center gap-1.5 min-w-0">
               <h1 className="text-xl font-bold text-foreground truncate">
                 {user.name}
               </h1>
               {user.isVerified && <ProfileBadge type="verified" />}
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setShowEditProfile(true)}
-                className="h-7 w-7 hover:bg-muted/50 flex-shrink-0"
-                aria-label="Edit profile"
-              >
-                <Pencil className="h-3.5 w-3.5" />
-              </Button>
             </div>
             <p className="text-sm text-muted-foreground truncate">@{user.username}</p>
           </div>
@@ -467,48 +450,42 @@ const UserProfile: React.FC<UserProfileProps> = ({
             </div>
           )}
 
-          {/* Metadata: location, links, joined — compact single block */}
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm text-muted-foreground mb-1">
-            {user.location && <LocationDisplay location={user.location} />}
+          {/* Metadata: location, links, phone — compact single block */}
+          {(user.location || websites.length > 0 || phone) && (
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm text-muted-foreground mb-1">
+              {user.location && <LocationDisplay location={user.location} />}
 
-            {user.website && (
-              <div className="flex items-center gap-1.5 text-primary min-w-0">
-                <LinkIcon className="h-3.5 w-3.5 flex-shrink-0" />
-                {(() => {
-                  const links = Array.isArray(user.website) ? user.website : [user.website];
-                  const firstLink = links[0];
-                  if (!firstLink) return null;
-                  const displayLink = firstLink.replace(/^https?:\/\//, '');
-
-                  if (links.length === 1) {
-                    return (
-                      <a
-                        href={firstLink}
-                        className="hover:underline truncate"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        {displayLink}
-                      </a>
-                    );
-                  }
-                  return (
+              {websites.length > 0 && (
+                <div className="flex items-center gap-1.5 text-primary min-w-0">
+                  <LinkIcon className="h-3.5 w-3.5 flex-shrink-0" />
+                  {websites.length === 1 ? (
+                    <a
+                      href={websites[0]}
+                      className="hover:underline truncate"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      {websites[0].replace(/^https?:\/\//, '')}
+                    </a>
+                  ) : (
                     <button
                       onClick={() => setShowLinksModal(true)}
                       className="hover:underline text-left"
                     >
-                      {displayLink} +{links.length - 1} more
+                      {websites[0].replace(/^https?:\/\//, '')} +{websites.length - 1} more
                     </button>
-                  );
-                })()}
-              </div>
-            )}
+                  )}
+                </div>
+              )}
 
-            <div className="flex items-center gap-1.5">
-              <Calendar className="h-3.5 w-3.5 flex-shrink-0" />
-              <span>{formatJoinedDate(user.joinedDate)}</span>
+              {phone && (
+                <div className="flex items-center gap-1.5">
+                  <Phone className="h-3.5 w-3.5 flex-shrink-0" />
+                  <span>{phone}</span>
+                </div>
+              )}
             </div>
-          </div>
+          )}
         </div>
 
         {/* Clear Tabs: Posts | Videos | Saved */}

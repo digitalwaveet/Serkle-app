@@ -75,6 +75,7 @@ export function StoryCanvas({ state, className = '', children, videoRef, onVideo
     if (!background) return <div className="absolute inset-0 bg-black" />;
 
     const fitMode = background.objectFit || 'cover';
+    const activeFilter = background.filterCss && background.filterCss !== 'none' ? background.filterCss : '';
     const transform = `translate(-50%, -50%) scale(${background.scale ?? 1}) rotate(${background.rotation ?? 0}deg)`;
     const bgStyle: React.CSSProperties = {
       position: 'absolute',
@@ -86,89 +87,79 @@ export function StoryCanvas({ state, className = '', children, videoRef, onVideo
       transformOrigin: 'center center',
       pointerEvents: 'none'
     };
+    const fixedBackdropStyle: React.CSSProperties = {
+      position: 'absolute',
+      inset: 0,
+      width: '100%',
+      height: '100%',
+      transform: 'scale(1.15)',
+      transformOrigin: 'center center',
+      pointerEvents: 'none',
+      filter: `blur(30px) brightness(0.6)${activeFilter ? ` ${activeFilter}` : ''}`,
+    };
+    const isTransformed =
+      (background.x ?? 50) !== 50 ||
+      (background.y ?? 50) !== 50 ||
+      (background.scale ?? 1) !== 1 ||
+      (background.rotation ?? 0) !== 0;
 
     switch (background.type) {
       case 'color':
         return <div style={{ ...bgStyle, backgroundColor: background.value }} />;
       case 'gradient':
-        return <div style={{ ...bgStyle, background: background.value }} />;
+        return <div style={{ ...bgStyle, background: background.value, filter: activeFilter || 'none' }} />;
       case 'image':
-        if (fitMode === 'contain') {
-          return (
-            <>
-              {/* Blurred backdrop — fills canvas, always object-cover */}
+        return (
+          <>
+            {/* Fixed blurred backdrop — detached from foreground pan/zoom/rotation */}
+            {(fitMode === 'contain' || isTransformed) && (
               <img
+                key="story-bg-image-backdrop"
                 src={background.value}
                 alt=""
+                aria-hidden="true"
                 className="object-cover"
-                style={{
-                  ...bgStyle,
-                  filter: `blur(30px) brightness(0.6) ${background.filterCss || ''}`.trim(),
-                  transform: `translate(-50%, -50%) scale(${(background.scale ?? 1) * 1.15}) rotate(${background.rotation ?? 0}deg)`,
-                }}
+                style={fixedBackdropStyle}
               />
-              {/* Main image — no cropping, object-contain */}
-              <img
-                src={background.value}
-                alt="background"
-                onLoad={onMediaReady}
-                onError={onMediaError}
-                className="object-contain"
-                style={{ ...bgStyle, filter: background.filterCss || 'none' }}
-              />
-            </>
-          );
-        }
-        return (
-          <img 
-            src={background.value} 
-            alt="background" 
-            onLoad={onMediaReady}
-            onError={onMediaError}
-            className="object-cover" 
-            style={{ ...bgStyle, filter: background.filterCss || 'none' }}
-          />
+            )}
+            {/* Main image — moves, scales, and rotates freely over the fixed backdrop */}
+            <img
+              key="story-bg-image-foreground"
+              src={background.value}
+              alt="background"
+              onLoad={onMediaReady}
+              onError={onMediaError}
+              className={fitMode === 'contain' ? 'object-contain' : 'object-cover'}
+              style={{ ...bgStyle, filter: activeFilter || 'none' }}
+            />
+          </>
         );
       case 'video':
-        if (fitMode === 'contain') {
-          return (
-            <>
+        return (
+          <>
+            {(fitMode === 'contain' || isTransformed) && (
               <video
+                key="story-bg-video-backdrop"
                 src={background.value}
+                aria-hidden="true"
                 className="object-cover"
                 autoPlay={!paused} loop muted playsInline
-                style={{
-                  ...bgStyle,
-                  filter: `blur(30px) brightness(0.6) ${background.filterCss || ''}`.trim(),
-                  transform: `translate(-50%, -50%) scale(${(background.scale ?? 1) * 1.15}) rotate(${background.rotation ?? 0}deg)`,
-                }}
+                style={fixedBackdropStyle}
               />
-              <video 
-                ref={videoRef}
-                src={background.value} 
-                className="object-contain" 
-                autoPlay={!paused} loop muted={muted} playsInline
-                style={{ ...bgStyle, filter: background.filterCss || 'none' }}
-                onLoadedMetadata={onVideoLoadedMetadata}
-                onCanPlay={onMediaReady}
-                onError={onMediaError}
-                onWaiting={onMediaWaiting}
-              />
-            </>
-          );
-        }
-        return (
-          <video 
-            ref={videoRef}
-            src={background.value} 
-            className="object-cover" 
-            autoPlay={!paused} loop muted={muted} playsInline
-            style={{ ...bgStyle, filter: background.filterCss || 'none' }}
-            onLoadedMetadata={onVideoLoadedMetadata}
-            onCanPlay={onMediaReady}
-            onError={onMediaError}
-            onWaiting={onMediaWaiting}
-          />
+            )}
+            <video
+              key="story-bg-video-foreground"
+              ref={videoRef}
+              src={background.value}
+              className={fitMode === 'contain' ? 'object-contain' : 'object-cover'}
+              autoPlay={!paused} loop muted={muted} playsInline
+              style={{ ...bgStyle, filter: activeFilter || 'none' }}
+              onLoadedMetadata={onVideoLoadedMetadata}
+              onCanPlay={onMediaReady}
+              onError={onMediaError}
+              onWaiting={onMediaWaiting}
+            />
+          </>
         );
       default:
         return <div className="absolute inset-0 bg-black" />;

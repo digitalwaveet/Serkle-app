@@ -1,7 +1,7 @@
 import { signProtectedMedia } from '@/lib/protectedMedia';
 import { SerkleLoader } from '@/components/ui/SerkleLoader';
 import React, { useState, useEffect } from 'react';
-import { Calendar, Link as LinkIcon, MessageCircle, ExternalLink, Lock, X, Play, FileText } from 'lucide-react';
+import { Phone, Link as LinkIcon, MessageCircle, ExternalLink, Lock, X, Play, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card } from '@/components/ui/card';
@@ -98,6 +98,7 @@ const PublicUserProfile: React.FC<PublicUserProfileProps> = ({
             bio: profileData.bio,
             subtitle: profileData.subtitle,
             location: profileData.location,
+            phone: profileData.phone || '',
             website: profileData.website ? [profileData.website] : [],
             joinedDate: profileData.joined_date,
             isVerified: profileData.is_verified,
@@ -227,6 +228,7 @@ const PublicUserProfile: React.FC<PublicUserProfileProps> = ({
             bio: profileData.bio,
             subtitle: profileData.subtitle,
             location: profileData.location,
+            phone: profileData.phone || '',
             website: profileData.website ? [profileData.website] : [],
             joinedDate: profileData.joined_date,
             isVerified: profileData.is_verified,
@@ -417,7 +419,7 @@ const PublicUserProfile: React.FC<PublicUserProfileProps> = ({
   );
 
   const LinksModal = () => {
-    const websites = Array.isArray(user.website) ? user.website : user.website ? [user.website] : [];
+    const websites = (Array.isArray(user.website) ? user.website : user.website ? [user.website] : []).filter(Boolean);
     
     return (
       <Dialog open={showLinksModal} onOpenChange={setShowLinksModal}>
@@ -456,7 +458,9 @@ const PublicUserProfile: React.FC<PublicUserProfileProps> = ({
     ? user.bio.slice(0, bioLimit) + '...' 
     : user.bio;
 
-  const websites = Array.isArray(user.website) ? user.website : user.website ? [user.website] : [];
+  const websites = (Array.isArray(user.website) ? user.website : user.website ? [user.website] : []).filter(Boolean);
+  const phone = user.phone?.trim() || '';
+  const telHref = phone.replace(/[^\d+]/g, '');
 
   return (
     <div className={`w-full pb-32 ${className}`}>
@@ -582,38 +586,52 @@ const PublicUserProfile: React.FC<PublicUserProfileProps> = ({
           </div>
         )}
 
-        {/* Metadata: location, links, joined — single compact block */}
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm text-muted-foreground">
-          {user.location && <LocationDisplay location={user.location} />}
+        {/* Metadata: location, links, phone — single compact block */}
+        {(user.location || websites.length > 0 || phone) && (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm text-muted-foreground">
+            {user.location && <LocationDisplay location={user.location} />}
 
-          {websites.length > 0 && (
-            <div className="flex items-center gap-1.5 text-primary min-w-0">
-              <LinkIcon className="h-3.5 w-3.5 flex-shrink-0" />
-              {websites.length === 1 ? (
+            {websites.length > 0 && (
+              <div className="flex items-center gap-1.5 text-primary min-w-0">
+                <LinkIcon className="h-3.5 w-3.5 flex-shrink-0" />
+                {websites.length === 1 ? (
+                  <a
+                    href={websites[0]}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="hover:underline truncate"
+                  >
+                    {websites[0].replace(/^https?:\/\//, '')}
+                  </a>
+                ) : (
+                  <button
+                    onClick={() => setShowLinksModal(true)}
+                    className="hover:underline"
+                  >
+                    {websites.length} links
+                  </button>
+                )}
+              </div>
+            )}
+
+            {phone && (
+              telHref ? (
                 <a
-                  href={websites[0]}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="hover:underline truncate"
+                  href={`tel:${telHref}`}
+                  className="flex items-center gap-1.5 hover:text-foreground hover:underline transition-colors"
                 >
-                  {websites[0].replace(/^https?:\/\//, '')}
+                  <Phone className="h-3.5 w-3.5 flex-shrink-0" />
+                  <span>{phone}</span>
                 </a>
               ) : (
-                <button
-                  onClick={() => setShowLinksModal(true)}
-                  className="hover:underline"
-                >
-                  {websites.length} links
-                </button>
-              )}
-            </div>
-          )}
-
-          <div className="flex items-center gap-1.5">
-            <Calendar className="h-3.5 w-3.5 flex-shrink-0" />
-            <span>Joined {new Date(user.joinedDate).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</span>
+                <div className="flex items-center gap-1.5">
+                  <Phone className="h-3.5 w-3.5 flex-shrink-0" />
+                  <span>{phone}</span>
+                </div>
+              )
+            )}
           </div>
-        </div>
+        )}
       </div>
 
       {/* Tabs */}

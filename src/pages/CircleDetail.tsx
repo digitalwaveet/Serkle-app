@@ -7,7 +7,7 @@ import { circleLoginPath } from '@/lib/authReturnPath';
 import React, { useState, useEffect, useRef } from 'react';
 import PublicProfileModal from '@/components/PublicProfileModal';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, MapPin, Users, Bell, MoreVertical, BadgeCheck, Pencil, Settings, Crown, Mail, ChevronDown, Share2, LayoutDashboard } from 'lucide-react';
+import { ArrowLeft, MapPin, Users, Bell, MoreVertical, BadgeCheck, Pencil, Settings, Crown, Mail, ChevronDown, Share2, LayoutDashboard, ShieldPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
@@ -62,7 +62,7 @@ const CircleDetail: React.FC<CircleDetailProps> = ({
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [subscribeModalOpen, setSubscribeModalOpen] = useState(false);
   const [leaveConfirmOpen, setLeaveConfirmOpen] = useState(false);
-  const [ownershipOptionsOpen, setOwnershipOptionsOpen] = useState(false);
+  const [managementView, setManagementView] = useState<'menu' | 'admin' | null>(null);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [bannerLoaded, setBannerLoaded] = useState(false);
   const [showMiniHeader, setShowMiniHeader] = useState(false);
@@ -265,6 +265,12 @@ const CircleDetail: React.FC<CircleDetailProps> = ({
           <Users className="h-4 w-4 mr-2" />
           Members
         </DropdownMenuItem>
+        {circle.is_owned && (
+          <DropdownMenuItem onSelect={() => setManagementView('admin')}>
+            <ShieldPlus className="h-4 w-4 mr-2" />
+            Add Admin
+          </DropdownMenuItem>
+        )}
         {messagesEnabled && (
           <DropdownMenuItem onClick={() => selectTab('messages')}>
             <Mail className="h-4 w-4 mr-2" />
@@ -280,7 +286,7 @@ const CircleDetail: React.FC<CircleDetailProps> = ({
           <Settings className="h-4 w-4 mr-2" />
           Settings
         </DropdownMenuItem>
-        {circle.is_owned && <DropdownMenuItem onClick={() => setOwnershipOptionsOpen(true)}>Transfer ownership or delete Circle</DropdownMenuItem>}
+        {circle.is_owned && <DropdownMenuItem onClick={() => setManagementView('menu')}>Transfer ownership or delete Circle</DropdownMenuItem>}
         {membership.canLeave && <><DropdownMenuSeparator /><DropdownMenuItem onClick={() => setLeaveConfirmOpen(true)} disabled={isLeaving} className="text-destructive">Leave Circle</DropdownMenuItem></>}
       </DropdownMenuContent>
     </DropdownMenu>
@@ -402,7 +408,7 @@ const CircleDetail: React.FC<CircleDetailProps> = ({
               {circle.is_owned ? (
                 <>
                   <DropdownMenuItem onClick={() => setSettingsModalOpen(true)}>Circle Settings</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setOwnershipOptionsOpen(true)}>Transfer ownership or delete Circle</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setManagementView('menu')}>Transfer ownership or delete Circle</DropdownMenuItem>
                 </>
               ) : membership.canLeave ? (
                 <DropdownMenuItem onClick={() => setLeaveConfirmOpen(true)} disabled={isLeaving} className="text-destructive">Leave Circle</DropdownMenuItem>
@@ -614,7 +620,15 @@ const CircleDetail: React.FC<CircleDetailProps> = ({
         circleName={circle.name} isPrivate={circle.is_private} canLeave={membership.canLeave}
         subscriptionRequired={!!circle.subscription_enabled && circle.subscription_method === 'before_join'}
         onConfirm={handleLeave} onLeft={handleBack} />
-      {circle.is_owned && <CircleManageModal circle={circle} open={ownershipOptionsOpen} onOpenChange={setOwnershipOptionsOpen} />}
+      {circle.is_owned && managementView && (
+        <CircleManageModal
+          key={circle.id}
+          circle={circle}
+          open
+          initialView={managementView}
+          onOpenChange={(open) => { if (!open) setManagementView(null); }}
+        />
+      )}
 
       {/* Public Profile Modal */}
       {profileModalUserId && (

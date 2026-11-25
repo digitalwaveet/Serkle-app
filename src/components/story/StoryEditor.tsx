@@ -7,12 +7,20 @@ import { StoryDrawingOverlay } from './StoryDrawingOverlay';
 import StoryTextOverlay from './StoryTextOverlay';
 import StoryStickerPicker from './StoryStickerPicker';
 import StoryFilterPicker from './StoryFilterPicker';
+import StoryBackgroundPicker from './StoryBackgroundPicker';
+import ImageCropper from '@/components/ImageCropper';
 import { StoryDialog } from './StoryDialog';
 import { inspectStoryFile, validateStoryFile } from '@/lib/storyMedia';
+import {
+  DEFAULT_STORY_GRADIENT,
+  StoryGradientPreset,
+  findStoryGradientByCss,
+  renderStoryGradientBlob,
+} from '@/lib/storyGradients';
 import { AlertDialog, AlertDialogContent, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from '@/components/ui/alert-dialog';
 
 interface Props {
-  previewUrl: string;
+  previewUrl?: string;
   mediaType?: 'image' | 'video';
   startWithText?: boolean;
   initialPostElements?: { postCardImageUrl?: string };
@@ -21,14 +29,18 @@ interface Props {
   onCancel: () => void;
 }
 
-export function StoryEditor({ previewUrl, mediaType = 'image', startWithText = false, initialPostElements, resharedPostId, onDone, onCancel }: Props) {
+export function StoryEditor({ previewUrl = '', mediaType = 'image', startWithText = false, initialPostElements, resharedPostId, onDone, onCancel }: Props) {
+  const isInitialGradient = Boolean(startWithText && !previewUrl);
   const [state, setState] = useState<StoryState>({
-    background: { type: mediaType, value: previewUrl, x: 50, y: 50, scale: 1, rotation: 0 },
+    background: isInitialGradient
+      ? { type: 'gradient', value: DEFAULT_STORY_GRADIENT.css, x: 50, y: 50, scale: 1, rotation: 0, objectFit: 'cover' }
+      : { type: mediaType, value: previewUrl, x: 50, y: 50, scale: 1, rotation: 0 },
     elements: [],
     drawingPaths: []
   });
 
-  const [activeTool, setActiveTool] = useState<'text' | 'sticker' | 'filter' | 'draw' | null>(startWithText ? 'text' : null);
+  const [activeTool, setActiveTool] = useState<'text' | 'sticker' | 'filter' | 'draw' | 'background' | 'crop' | null>(startWithText ? 'text' : null);
+  const [cropTarget, setCropTarget] = useState<{ kind: 'background' } | { kind: 'element'; id: string } | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showLayerControls, setShowLayerControls] = useState(false);
   const [isPreviewMode, setIsPreviewMode] = useState(false);
@@ -47,7 +59,7 @@ export function StoryEditor({ previewUrl, mediaType = 'image', startWithText = f
   }, []);
   const requestClose = () => {
     if (publishing.current) return;
-    if (activeTool) { setActiveTool(null); return; }
+    if (activeTool) { setActiveTool(null); setCropTarget(null); return; }
     if (isPreviewMode) { setIsPreviewMode(false); return; }
     setConfirmDiscard(true);
   };
@@ -226,10 +238,18 @@ export function StoryEditor({ previewUrl, mediaType = 'image', startWithText = f
   // ─── Pointer handlers (all at canvas level for reliable multi-touch) ───
 
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
-    if (isPreviewMode || activeTool) return;
+    if (isPreviewMode) return;
 
     // Don't interfere with UI buttons / toolbars
     if ((e.target as HTMLElement).closest('[data-editor-controls]')) return;
+
+    if (activeTool === 'background' || activeTool === 'filter') {
+      e.preventDefault();
+      setActiveTool(null);
+      return;
+    }
+
+    if (activeTool) return;
 
     e.preventDefault();
     // Capture so the whole gesture (incl. dragging over the bottom toolbar to the
@@ -287,15 +307,18 @@ export function StoryEditor({ previewUrl, mediaType = 'image', startWithText = f
     const g = gestureStateRef.current;
 
     // Mark the gesture as a real move (vs. a tap) once it travels past a threshold.
+    const isLockedGradient = g.id === 'background' && stateRef.current.background.type === 'gradient';
     if (g.gestureStartCenter) {
       const moved = Math.hypot(pts[0].x - g.gestureStartCenter.x, pts[0].y - g.gestureStartCenter.y);
       if (moved > 6) {
-        if (!gestureMovedRef.current) {
+        if (!gestureMovedRef.current && !isLockedGradient) {
           pushUndo(stateRef.current);
         }
         gestureMovedRef.current = true;
       }
     }
+
+    if (isLockedGradient) return;
 
     if (!canvasRef.current) return;
     const rect = (canvasRef.current.querySelector('.story-canvas-inner') || canvasRef.current).getBoundingClientRect();
@@ -399,13 +422,16 @@ export function StoryEditor({ previewUrl, mediaType = 'image', startWithText = f
 
     // All fingers lifted.
     if (!gestureMovedRef.current && !usedSecondFingerRef.current) {
-      // It was a tap: on an overlay → keep it selected; on empty → de-select.
+      // It was a tap: on an overlay → keep it selected; on empty → de-select (and open gradient picker for gradient stories).
       if (downHitOverlayRef.current) {
         setSelectedId(downHitOverlayRef.current);
         selectedIdRef.current = downHitOverlayRef.current;
       } else {
         setSelectedId(null);
         selectedIdRef.current = null;
+        if (stateRef.current.background.type === 'gradient') {
+          setActiveTool('background');
+        }
       }
     }
 
@@ -503,20 +529,59 @@ export function StoryEditor({ previewUrl, mediaType = 'image', startWithText = f
     selectedIdRef.current = newElement.id;
   };
 
+  const handleSelectBackground = useCallback((gradient: StoryGradientPreset) => {
+    if (stateRef.current.background.type === 'gradient' && stateRef.current.background.value === gradient.css) return;
+    pushUndo(stateRef.current);
+    setState(prev => ({
+      ...prev,
+      background: {
+        ...prev.background,
+        type: 'gradient',
+        value: gradient.css,
+        x: 50,
+        y: 50,
+        scale: 1,
+        rotation: 0,
+        objectFit: 'cover',
+      },
+    }));
+  }, [pushUndo]);
+
   const handleDone = async () => {
     if (publishing.current) return;
     publishing.current = true;
     setIsSharing(true);
     setPublishError('');
     try {
-      const response = await fetch(previewUrl);
-      if (!response.ok) throw new Error('Could not read this media. Please try another file.');
-      const blob = await response.blob();
+      let blob: Blob;
+      let exportState = state;
+      if (state.background.type === 'gradient') {
+        const preset = findStoryGradientByCss(state.background.value) || DEFAULT_STORY_GRADIENT;
+        blob = await renderStoryGradientBlob(preset);
+        exportState = {
+          ...state,
+          background: {
+            ...state.background,
+            type: 'image',
+            value: '',
+            x: 50,
+            y: 50,
+            scale: 1,
+            rotation: 0,
+            objectFit: 'cover',
+          },
+        };
+      } else {
+        const sourceUrl = state.background.value || previewUrl;
+        const response = await fetch(sourceUrl);
+        if (!response.ok) throw new Error('Could not read this media. Please try another file.');
+        blob = await response.blob();
+      }
       validateStoryFile(blob);
       const mentionedUserIds = [...new Set(state.elements.filter(e => e.infoType === 'mention' && e.mentionUserId).map(e => e.mentionUserId!))];
       await onDone(blob, mentionedUserIds, {
         mediaType, originalVideoUrl: mediaType === 'video' ? previewUrl : undefined,
-        story_state: state, publicationId: publicationId.current, reshared_post_id: resharedPostId,
+        story_state: exportState, publicationId: publicationId.current, reshared_post_id: resharedPostId,
       });
     } catch (error) {
       setPublishError(error instanceof Error ? error.message : 'Could not share your story. Your edits are still here—try again.');
@@ -526,7 +591,75 @@ export function StoryEditor({ previewUrl, mediaType = 'image', startWithText = f
     }
   };
 
+  const isGradientBackground = state.background.type === 'gradient';
   const selected = state.elements.find(el => el.id === selectedId);
+  const canCropImage = state.background.type === 'image' || selected?.type === 'image';
+
+  const openCrop = () => {
+    if (selected?.type === 'image' && selected.content) {
+      setCropTarget({ kind: 'element', id: selected.id });
+      setActiveTool('crop');
+      return;
+    }
+    if (state.background.type === 'image' && state.background.value) {
+      setCropTarget({ kind: 'background' });
+      setActiveTool('crop');
+    }
+  };
+
+  const handleCropComplete = (croppedBlob: Blob) => {
+    const url = URL.createObjectURL(croppedBlob);
+    stickerUrls.current.push(url);
+    const target = cropTarget;
+    setCropTarget(null);
+    setActiveTool(null);
+
+    if (target?.kind === 'element') {
+      pushUndo(stateRef.current);
+      setState(prev => ({
+        ...prev,
+        elements: prev.elements.map(el =>
+          el.id === target.id ? { ...el, content: url, file: croppedBlob } : el
+        ),
+      }));
+      return;
+    }
+
+    const applyBackgroundCrop = (width?: number, height?: number) => {
+      const canvasRatio = CANVAS_W / CANVAS_H;
+      const needsContain = width && height ? Math.abs(width / height - canvasRatio) > 0.08 : true;
+      pushUndo(stateRef.current);
+      setState(prev => ({
+        ...prev,
+        background: {
+          ...prev.background,
+          type: 'image',
+          value: url,
+          mediaWidth: width ?? prev.background.mediaWidth,
+          mediaHeight: height ?? prev.background.mediaHeight,
+          objectFit: needsContain ? 'contain' : 'cover',
+          x: 50,
+          y: 50,
+          scale: 1,
+          rotation: 0,
+        },
+      }));
+    };
+
+    const img = new Image();
+    img.onload = () => applyBackgroundCrop(img.width, img.height);
+    img.onerror = () => applyBackgroundCrop();
+    img.src = url;
+  };
+
+  const cropImageSrc =
+    activeTool === 'crop'
+      ? cropTarget?.kind === 'element'
+        ? state.elements.find(el => el.id === cropTarget.id)?.content
+        : state.background.type === 'image'
+          ? state.background.value
+          : undefined
+      : undefined;
   const adjustSelected = (patch: Partial<StoryElement>) => {
     if (!selectedId) return;
     pushUndo();
@@ -559,13 +692,14 @@ export function StoryEditor({ previewUrl, mediaType = 'image', startWithText = f
         }}
         onCancel={() => setActiveTool(null)}
       />
-          {!isPreviewMode && state.elements.length > 0 && <div className="studio-selection" data-editor-controls>
+          {!isPreviewMode && activeTool !== 'background' && activeTool !== 'filter' && state.elements.length > 0 && <div className="studio-selection" data-editor-controls>
             <select aria-label="Select a story layer" value={selectedId || ''} disabled={isSharing} onChange={e => setSelectedId(e.target.value || null)}>
               <option value="">Select layer</option>
               {state.elements.map((el, index) => <option key={el.id} value={el.id}>{index + 1}. {el.type === 'text' ? el.content?.slice(0, 18) : el.type}</option>)}
             </select>
             {selected && <>
               {selected.type === 'text' && <button disabled={isSharing} onClick={() => { setEditingText(selected); setActiveTool('text'); }}>Edit text</button>}
+              {selected.type === 'image' && selected.content && <button disabled={isSharing} onClick={() => { setCropTarget({ kind: 'element', id: selected.id }); setActiveTool('crop'); }}>Crop</button>}
               <button disabled={isSharing} aria-expanded={showLayerControls} onClick={() => setShowLayerControls(value => !value)}>Adjust</button>
               {showLayerControls && <><button disabled={isSharing} aria-label="Move selected layer left" onClick={() => adjustSelected({ x: Math.max(5, selected.x - 5) })}>←</button>
               <button disabled={isSharing} aria-label="Move selected layer right" onClick={() => adjustSelected({ x: Math.min(95, selected.x + 5) })}>→</button>
@@ -580,6 +714,21 @@ export function StoryEditor({ previewUrl, mediaType = 'image', startWithText = f
         </div>
         {!isPreviewMode && <div data-editor-controls className="studio-tools" aria-label="Story editing tools">
           <button disabled={isSharing} className="studio-tool" onClick={() => { setEditingText(null); setActiveTool('text'); }}><b className="text-xl font-semibold" aria-hidden="true">Aa</b><span>Text</span></button>
+          {isGradientBackground && (
+            <button
+              disabled={isSharing}
+              className="studio-tool"
+              aria-pressed={activeTool === 'background'}
+              onClick={() => setActiveTool(prev => prev === 'background' ? null : 'background')}
+            >
+              <div
+                aria-hidden="true"
+                className="w-6 h-6 rounded-full border-2 border-white shadow-sm"
+                style={{ background: state.background.value }}
+              />
+              <span>Background</span>
+            </button>
+          )}
           <button disabled={isSharing} className="studio-tool" onClick={() => setActiveTool('sticker')}><Sticker /><span>Stickers</span></button>
           <button disabled={isSharing} className="studio-tool" onClick={() => photoInput.current?.click()}><ImageIcon /><span>Photo</span></button>
           <input ref={photoInput} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={async event => {
@@ -590,7 +739,11 @@ export function StoryEditor({ previewUrl, mediaType = 'image', startWithText = f
           }} />
           <button disabled={isSharing} className="studio-tool" onClick={() => setActiveTool('draw')}><PenTool /><span>Draw</span></button>
           <button disabled={isSharing} className="studio-tool" onClick={() => setActiveTool('filter')}><Sparkles /><span>Filters</span></button>
-          <button disabled={isSharing} className="studio-tool" onClick={() => { pushUndo(); setState(prev => ({ ...prev, background: { ...prev.background, objectFit: prev.background.objectFit === 'cover' ? 'contain' : 'cover', x: 50, y: 50, scale: 1, rotation: 0 } })); }}><Crop /><span>{state.background.objectFit === 'cover' ? 'Fit' : 'Fill'}</span></button>
+          {canCropImage ? (
+            <button disabled={isSharing} className="studio-tool" onClick={openCrop}><Crop /><span>Crop</span></button>
+          ) : !isGradientBackground ? (
+            <button disabled={isSharing} className="studio-tool" onClick={() => { pushUndo(); setState(prev => ({ ...prev, background: { ...prev.background, objectFit: prev.background.objectFit === 'cover' ? 'contain' : 'cover', x: 50, y: 50, scale: 1, rotation: 0 } })); }}><Crop /><span>{state.background.objectFit === 'cover' ? 'Fit' : 'Fill'}</span></button>
+          ) : null}
         </div>}
       </div>
       {publishError && <div className="studio-publish-status"><p className="story-error" role="alert">{publishError}</p></div>}
@@ -612,12 +765,30 @@ export function StoryEditor({ previewUrl, mediaType = 'image', startWithText = f
       </div>
 
       {/* Tool Overlays */}
-      {activeTool === 'text' && <StoryTextOverlay initialElement={editingText || undefined} onAdd={handleAddText} onClose={() => setActiveTool(null)} />}
+      {activeTool === 'text' && (
+        <StoryTextOverlay
+          initialElement={editingText || undefined}
+          activeGradientCss={isGradientBackground ? state.background.value : undefined}
+          onSelectGradient={isGradientBackground ? handleSelectBackground : undefined}
+          onAdd={handleAddText}
+          onClose={() => setActiveTool(null)}
+        />
+      )}
+      {activeTool === 'background' && isGradientBackground && (
+        <div data-editor-controls className="absolute inset-x-0 bottom-0 z-[150]">
+          <StoryBackgroundPicker
+            selectedCss={state.background.value}
+            onSelect={handleSelectBackground}
+            onClose={() => setActiveTool(null)}
+          />
+        </div>
+      )}
       {activeTool === 'sticker' && <StoryStickerPicker onAdd={handleAddSticker} onClose={() => setActiveTool(null)} />}
       {activeTool === 'filter' && (
-        <div className="absolute inset-x-0 bottom-0 z-[150]">
+        <div data-editor-controls className="absolute inset-x-0 bottom-0 z-[150]">
           <StoryFilterPicker 
-            previewUrl={mediaType === 'image' ? previewUrl : undefined}
+            previewUrl={!isGradientBackground && mediaType === 'image' ? (state.background.value || previewUrl) : undefined}
+            backgroundCss={isGradientBackground ? state.background.value : undefined}
             selectedId={state.background.filterCss || 'none'} 
             onSelect={(id, css) => {
               pushUndo(stateRef.current);
@@ -626,6 +797,16 @@ export function StoryEditor({ previewUrl, mediaType = 'image', startWithText = f
             onClose={() => setActiveTool(null)} 
           />
         </div>
+      )}
+      {activeTool === 'crop' && cropImageSrc && (
+        <ImageCropper
+          imageSrc={cropImageSrc}
+          aspectRatio={null}
+          cropShape="rect"
+          inline
+          onCropComplete={handleCropComplete}
+          onCancel={() => { setActiveTool(null); setCropTarget(null); }}
+        />
       )}
       
 

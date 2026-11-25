@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Type, Bold, Italic, AlignLeft, AlignCenter, AlignRight, Check, X, Palette } from 'lucide-react';
+import { AlignLeft, AlignCenter, AlignRight, Check, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { StoryElement } from '@/types/storyTypes';
+import { STORY_GRADIENTS, StoryGradientPreset } from '@/lib/storyGradients';
 
 const TEXT_COLORS = [
   '#FFFFFF', '#000000', '#FF3B30', '#FF9500', '#FFCC00',
@@ -23,6 +24,8 @@ const FONTS = [
 
 interface Props {
   initialElement?: StoryElement;
+  activeGradientCss?: string;
+  onSelectGradient?: (gradient: StoryGradientPreset) => void;
   onAdd: (overlay: any) => void;
   onClose: () => void;
 }
@@ -33,7 +36,7 @@ export interface TextOverlay {
   textAlign: 'left' | 'center' | 'right'; color: string; bgColor: string;
 }
 
-const StoryTextOverlay: React.FC<Props> = ({ onAdd, onClose, initialElement }) => {
+const StoryTextOverlay: React.FC<Props> = ({ onAdd, onClose, initialElement, activeGradientCss, onSelectGradient }) => {
   const [text, setText] = useState(initialElement?.content || '');
   const [fontSize, setFontSize] = useState(initialElement?.fontSize || 60);
   const [fontFamily, setFontFamily] = useState(initialElement?.fontFamily || FONTS[0].value);
@@ -42,6 +45,7 @@ const StoryTextOverlay: React.FC<Props> = ({ onAdd, onClose, initialElement }) =
   const [textAlign, setTextAlign] = useState<'left' | 'center' | 'right'>(initialElement?.textAlign || 'center');
   const [color, setColor] = useState(initialElement?.color || '#FFFFFF');
   const [bgColor, setBgColor] = useState(initialElement?.bgColor || 'transparent');
+  const [swatchMode, setSwatchMode] = useState<'text' | 'background'>('text');
 
   const handleConfirm = () => {
     if (!text.trim()) return;
@@ -60,7 +64,12 @@ const StoryTextOverlay: React.FC<Props> = ({ onAdd, onClose, initialElement }) =
   };
 
   return (
-    <div className="absolute inset-0 z-[150] bg-black/60 flex flex-col pointer-events-auto backdrop-blur-sm">
+    <div
+      data-editor-controls
+      className={`absolute inset-0 z-[150] flex flex-col pointer-events-auto ${
+        onSelectGradient ? 'bg-black/15' : 'bg-black/60 backdrop-blur-sm'
+      }`}
+    >
       {/* Top bar */}
       <div className="flex items-center justify-between p-4">
         <button aria-label="Cancel text editing" onClick={onClose} className="p-2 rounded-full bg-black/40 text-white hover:bg-black/60 transition-colors">
@@ -138,20 +147,77 @@ const StoryTextOverlay: React.FC<Props> = ({ onAdd, onClose, initialElement }) =
           
           {/* Background pills toggle */}
           <button aria-label="Change text background" onClick={() => setBgColor(bgColor === 'transparent' ? 'rgba(0,0,0,0.6)' : bgColor === 'rgba(0,0,0,0.6)' ? 'rgba(255,255,255,0.8)' : 'transparent')}
-            className={`p-2.5 rounded-full text-white ${bgColor !== 'transparent' ? 'bg-white text-black' : 'bg-white/10'}`}>
+            className={`p-2.5 rounded-full ${bgColor !== 'transparent' ? 'bg-white text-black' : 'bg-white/10 text-white'}`}>
             <span className="font-serif font-bold px-1">A**</span>
           </button>
         </div>
 
-        {/* Text colors */}
-        <div className="flex items-center gap-3 justify-center overflow-x-auto px-2 snap-x py-2">
-          {TEXT_COLORS.map((c) => (
-            <button aria-label={`Text color ${c}`} aria-pressed={color === c} key={c} onClick={() => setColor(c)}
-              className={`w-8 h-8 rounded-full flex-shrink-0 snap-center border-2 ${color === c ? 'border-white scale-110' : 'border-transparent'} transition-transform`}
-              style={{ backgroundColor: c, boxShadow: '0 2px 8px rgba(0,0,0,0.3)' }}
-            />
-          ))}
-        </div>
+        {/* Swatch mode selector for text/gradient stories */}
+        {onSelectGradient && (
+          <div className="flex items-center justify-center gap-2">
+            <button
+              type="button"
+              aria-pressed={swatchMode === 'text'}
+              onClick={() => setSwatchMode('text')}
+              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
+                swatchMode === 'text' ? 'bg-white text-black' : 'bg-white/15 text-white hover:bg-white/25'
+              }`}
+            >
+              <span
+                className="w-3.5 h-3.5 rounded-full border border-black/20 shrink-0"
+                style={{ backgroundColor: color }}
+              />
+              Text color
+            </button>
+            <button
+              type="button"
+              aria-pressed={swatchMode === 'background'}
+              onClick={() => setSwatchMode('background')}
+              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
+                swatchMode === 'background' ? 'bg-white text-black' : 'bg-white/15 text-white hover:bg-white/25'
+              }`}
+            >
+              <span
+                className="w-3.5 h-3.5 rounded-full border border-white/70 shrink-0"
+                style={{ background: activeGradientCss || STORY_GRADIENTS[0].css }}
+              />
+              Background
+            </button>
+          </div>
+        )}
+
+        {/* Text colors or Background gradients */}
+        {onSelectGradient && swatchMode === 'background' ? (
+          <div className="flex items-center gap-3 overflow-x-auto px-2 snap-x py-2 scrollbar-hide">
+            {STORY_GRADIENTS.map((gradient) => {
+              const isSelected = gradient.css === activeGradientCss;
+              return (
+                <button
+                  type="button"
+                  key={gradient.id}
+                  aria-label={`Background gradient ${gradient.name}`}
+                  aria-pressed={isSelected}
+                  onClick={() => onSelectGradient(gradient)}
+                  className={`relative w-9 h-9 rounded-full flex-shrink-0 snap-center border-2 flex items-center justify-center ${
+                    isSelected ? 'border-white scale-110' : 'border-white/30'
+                  } transition-transform`}
+                  style={{ background: gradient.css, boxShadow: '0 2px 8px rgba(0,0,0,0.35)' }}
+                >
+                  {isSelected && <Check className="w-4 h-4 text-white drop-shadow" strokeWidth={3} />}
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="flex items-center gap-3 justify-center overflow-x-auto px-2 snap-x py-2">
+            {TEXT_COLORS.map((c) => (
+              <button aria-label={`Text color ${c}`} aria-pressed={color === c} key={c} onClick={() => setColor(c)}
+                className={`w-8 h-8 rounded-full flex-shrink-0 snap-center border-2 ${color === c ? 'border-white scale-110' : 'border-transparent'} transition-transform`}
+                style={{ backgroundColor: c, boxShadow: '0 2px 8px rgba(0,0,0,0.3)' }}
+              />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

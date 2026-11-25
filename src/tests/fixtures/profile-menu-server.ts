@@ -12,6 +12,7 @@ export async function startProfileMenuServer(){
       resolveId(raw){
         const path=raw.replace(/\\/g,'/');
         if(raw==='virtual:profile-menu-client' || /\/integrations\/supabase\/client(?:\.ts)?$/.test(path))return '\0profile-menu-client';
+        if(/\/components\/PublicUserProfile(?:\.tsx)?$/.test(path))return '\0story-profile-content';
         const modal=/(?:^|\/)(ProfileModal|SettingsModal|SearchModal|WalletModal|NotificationPanel)(?:\.tsx)?$/.exec(path);
         if(modal)return '\0menu-modal:'+modal[1];
         if(/\/contexts\/UserContext(?:\.tsx)?$/.test(path))return '\0menu-user';
@@ -20,6 +21,19 @@ export async function startProfileMenuServer(){
         if(/\/utils\/cacheManager(?:\.ts)?$/.test(path))return '\0menu-cache';
       },
       async load(id){
+        if (id === '\0story-profile-content') return `
+          import React from 'react';
+          import { Ellipsis } from 'lucide-react';
+          import { Button } from '@/components/ui/button';
+          export default function ProfileContent() {
+            return React.createElement('section', { className: 'p-4' },
+              React.createElement('h2', { className: 'text-xl font-bold' }, 'Story author'),
+              React.createElement('p', null, 'The author’s bio'),
+              React.createElement(Button, { variant: 'outline' }, 'Unfollow'),
+              React.createElement(Button, { variant: 'outline' }, 'Message'),
+              React.createElement(Button, { variant: 'outline', 'aria-label': 'More options' },
+                React.createElement(Ellipsis)));
+          }`;
         if(id==='\0profile-menu-client')return (await transformWithEsbuild(source,'profile-menu-client.ts',{loader:'ts',target:'es2020'})).code;
         if(id==='\0menu-user')return "import {fixture} from 'virtual:profile-menu-client';export const useUser=()=>({user:fixture.user,isLoading:false});";
         if(id==='\0menu-wallet')return "import {fixture} from 'virtual:profile-menu-client';export const useCoinWallet=()=>({balance:fixture.balance,isWalletLoading:localStorage.getItem('menu-state')==='loading',isWalletError:localStorage.getItem('menu-state')==='error'});";

@@ -19,6 +19,9 @@ export function profileUpdatePayload(updates: Partial<UserProfile>) {
     ...(updates.bio !== undefined && { bio: updates.bio }),
     ...(updates.subtitle !== undefined && { subtitle: updates.subtitle }),
     ...(updates.location !== undefined && { location: updates.location }),
+    ...(updates.phone !== undefined && {
+      phone: updates.phone.trim() || null,
+    }),
     ...(updates.website !== undefined && {
       website: Array.isArray(updates.website)
         ? updates.website[0]

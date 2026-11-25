@@ -24,12 +24,13 @@ export const STORY_FILTERS: StoryFilter[] = [
 
 interface Props {
   previewUrl?: string;
+  backgroundCss?: string;
   selectedId: string;
   onSelect: (filterId: string, filterCss: string) => void;
   onClose: () => void;
 }
 
-const StoryFilterPicker: React.FC<Props> = ({ previewUrl, selectedId, onSelect, onClose }) => {
+const StoryFilterPicker: React.FC<Props> = ({ previewUrl, backgroundCss, selectedId, onSelect, onClose }) => {
   // Find the currently selected filter ID — selectedId might be a CSS string from older code
   const currentId = STORY_FILTERS.find(f => f.id === selectedId)?.id
     || STORY_FILTERS.find(f => f.css === selectedId)?.id
@@ -62,7 +63,7 @@ const StoryFilterPicker: React.FC<Props> = ({ previewUrl, selectedId, onSelect, 
                 <div
                   className="w-full h-full"
                   style={{
-                    background: 'linear-gradient(135deg, #6342bc 0%, #f19753 100%)',
+                    background: backgroundCss || 'linear-gradient(135deg, #6342bc 0%, #f19753 100%)',
                     filter: filter.css,
                   }}
                 />

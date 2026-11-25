@@ -20,6 +20,7 @@ import { CIRCLE_OWNER_EXIT_POLICY } from '@/lib/circleLeave';
 interface CircleManageModalProps {
   circle: Circle;
   open: boolean;
+  initialView?: 'menu' | 'admin';
   onOpenChange: (open: boolean) => void;
 }
 
@@ -34,13 +35,13 @@ interface SelectedFriend {
 
 type ModalView = 'menu' | 'transfer' | 'transfer-confirm' | 'admin';
 
-const CircleManageModal: React.FC<CircleManageModalProps> = ({ circle, open, onOpenChange }) => {
+const CircleManageModal: React.FC<CircleManageModalProps> = ({ circle, open, initialView = 'menu', onOpenChange }) => {
   const navigate = useNavigate();
   const { user } = useUser();
   const { deleteCircle } = useCircleMutations();
   const { sendInvitation } = useSendCircleInvitation();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [view, setView] = useState<ModalView>('menu');
+  const [view, setView] = useState<ModalView>(initialView);
   const [selectedFriends, setSelectedFriends] = useState<SelectedFriend[]>([]);
   const [sending, setSending] = useState(false);
   const [password, setPassword] = useState('');
@@ -137,7 +138,7 @@ const CircleManageModal: React.FC<CircleManageModalProps> = ({ circle, open, onO
   };
 
   const resetView = () => {
-    setView('menu');
+    setView(initialView);
     setSelectedFriends([]);
     setPassword('');
     setPasswordError('');
@@ -293,8 +294,13 @@ const CircleManageModal: React.FC<CircleManageModalProps> = ({ circle, open, onO
                   onSelect={setSelectedFriends}
                 />
                 <div className="flex gap-2">
-                  <Button variant="outline" size="sm" className="flex-1" onClick={() => setView('menu')}>
-                    Back
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="flex-1"
+                    onClick={() => initialView === 'admin' ? onOpenChange(false) : setView('menu')}
+                  >
+                    {initialView === 'admin' ? 'Cancel' : 'Back'}
                   </Button>
                   <Button
                     size="sm"

@@ -25,7 +25,7 @@ function StoryComposer({ onClose, onCreateStory }: Omit<CreateStoryModalProps, '
   const mounted = useRef(true);
   const operation = useRef(0);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; operation.current++; }; }, []);
-  useEffect(() => () => { if (media) URL.revokeObjectURL(media.url); }, [media]);
+  useEffect(() => () => { if (media?.url) URL.revokeObjectURL(media.url); }, [media]);
 
   const chooseFile = async (file?: File) => {
     if (!file) return;
@@ -40,14 +40,8 @@ function StoryComposer({ onClose, onCreateStory }: Omit<CreateStoryModalProps, '
   };
 
   const startText = () => {
-    const canvas = document.createElement('canvas');
-    canvas.width = 1080; canvas.height = 1920;
-    const context = canvas.getContext('2d');
-    if (!context) { setError('Your device could not open the story canvas.'); return; }
-    const gradient = context.createLinearGradient(0, 0, 1080, 1920);
-    gradient.addColorStop(0, '#6342bc'); gradient.addColorStop(0.55, '#b63788'); gradient.addColorStop(1, '#f19753');
-    context.fillStyle = gradient; context.fillRect(0, 0, 1080, 1920);
-    canvas.toBlob(blob => { if (blob && mounted.current) setMedia({ url: URL.createObjectURL(blob), type: 'image', text: true }); }, 'image/jpeg', .92);
+    setError('');
+    setMedia({ url: '', type: 'image', text: true });
   };
 
   if (media) return <StoryEditor previewUrl={media.url} mediaType={media.type} startWithText={media.text}

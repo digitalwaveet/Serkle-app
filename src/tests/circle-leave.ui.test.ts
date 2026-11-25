@@ -104,13 +104,24 @@ test('pending leave disables repeated clicks and only confirmed success updates 
 test('non-owner admins can leave from Manage while owners get explicit transfer/deletion options',async()=>{
   const admin=await pageFor('?role=admin');
   try {
-    await confirmFor(admin,true);
+    await admin.getByRole('button',{name:'Manage',exact:true}).click();
+    await expect(admin.getByRole('menuitem',{name:'Add Admin',exact:true})).toHaveCount(0);
+    await admin.getByRole('menuitem',{name:'Leave Circle',exact:true}).click();
+    await expect(admin.getByRole('alertdialog')).toBeVisible();
     await admin.getByRole('button',{name:'Stay',exact:true}).click();
   } finally {await admin.context().close();}
   const owner=await pageFor('?role=owner');
   try {
     await owner.getByRole('button',{name:'Manage',exact:true}).click();
     await expect(owner.getByRole('menuitem',{name:'Leave Circle',exact:true})).toHaveCount(0);
+    await owner.getByRole('menuitem',{name:'Add Admin',exact:true}).click();
+    const adminDialog = owner.getByRole('dialog',{name:'Add Admin',exact:true});
+    await expect(adminDialog).toBeVisible();
+    await expect(adminDialog.getByRole('button',{name:'Send Invite',exact:true})).toBeDisabled();
+    await adminDialog.getByRole('button',{name:'Cancel',exact:true}).click();
+    await expect(adminDialog).toHaveCount(0);
+
+    await owner.getByRole('button',{name:'Manage',exact:true}).click();
     await owner.getByRole('menuitem',{name:'Transfer ownership or delete Circle',exact:true}).click();
     await expect(owner.getByText(/Transfer ownership and wait for the new owner to accept/)).toBeVisible();
     await owner.getByRole('button',{name:/Transfer Ownership/}).click();
