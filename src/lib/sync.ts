@@ -1,5 +1,11 @@
 import { supabase } from "@/integrations/supabase/client";
-import { chatDb, LocalMessage, sanitizeMessage } from "./db";
+import {
+  chatDb,
+  isDexieDecryptionError,
+  LocalMessage,
+  recoverCorruptedEncryptedCache,
+  sanitizeMessage,
+} from "./db";
 import { countUnreadMessages } from "./chatUnread";
 import { submitChatMessageBatch, chatDeliveryFailure } from "./chatDelivery";
 
@@ -332,6 +338,10 @@ export const syncConversations = async (
         );
       }
     } catch (err) {
+      if (isDexieDecryptionError(err)) {
+        await recoverCorruptedEncryptedCache();
+        return;
+      }
       console.error("[Sync] Unexpected error during list sync:", err);
       throw err;
     } finally {
@@ -514,6 +524,10 @@ async function processSyncQueueBatch() {
 
       console.log(`[Sync] Successfully batched ${batch.length} messages.`);
     } catch (err: any) {
+      if (isDexieDecryptionError(err)) {
+        await recoverCorruptedEncryptedCache();
+        break;
+      }
       const failure = chatDeliveryFailure(err);
       console.error(
         `[Sync] Failed to process message batch starting with ${batch[0].id}:`,

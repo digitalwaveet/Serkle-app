@@ -3,7 +3,7 @@ import { UserProfile, UserPreferences, UserContextType } from '@/types/user';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { Session } from '@supabase/supabase-js';
-import { chatDb } from '@/lib/db';
+import { chatDb, clearLocalEncryptionSeeds } from '@/lib/db';
 import { registerSyncListeners } from '@/lib/sync';
 import { isPrivacyUpdate, profileUpdatePayload } from '@/lib/profileUpdates';
 import {
@@ -125,11 +125,12 @@ export const UserProvider: React.FC<UserProviderProps> = ({ children }) => {
         setSession(null);
         setUserAndCache(null);
         setIsLoading(false);
+        clearLocalEncryptionSeeds();
         chatDb.delete(); // Delete local encrypted database on logout
         window.location.href = '/login';
         return;
       }
-      
+
       if (event === 'TOKEN_REFRESHED' && !session) {
         if (navigator.onLine) {
           await supabase.auth.signOut();
@@ -146,11 +147,11 @@ export const UserProvider: React.FC<UserProviderProps> = ({ children }) => {
       }
 
       setSession(session);
-      if (session?.access_token) {
-        chatDb.initEncryption(session.access_token);
+      if (session?.user?.id) {
+        void chatDb.initEncryptionForUser(session.user.id);
         registerSyncListeners();
       }
-      
+
       if (session?.user) {
         setTimeout(() => {
           fetchUserProfile(session.user.id);
@@ -183,11 +184,16 @@ export const UserProvider: React.FC<UserProviderProps> = ({ children }) => {
       }
 
       setSession(session);
-      if (session?.access_token) {
-        chatDb.initEncryption(session.access_token);
+      if (session?.user?.id) {
+        void chatDb.initEncryptionForUser(session.user.id);
         registerSyncListeners();
+      } else if (!navigator.onLine && hadSession()) {
+        const cached = getCachedProfile();
+        if (cached?.id) {
+          void chatDb.initEncryptionForUser(cached.id);
+        }
       }
-      
+
       if (session?.user) {
         fetchUserProfile(session.user.id);
       } else if (!navigator.onLine && hadSession()) {
@@ -380,20 +386,20 @@ export const UserProvider: React.FC<UserProviderProps> = ({ children }) => {
   const updateProfile = async (updates: Partial<UserProfile>) => {
     if (!user) return;
     const privacyOnly = isPrivacyUpdate(updates);
-    
+
     try {
       if (!privacyOnly) setIsLoading(true);
-      
+
       const { error } = await supabase
         .from('profiles')
         .update(profileUpdatePayload(updates))
         .eq('id', user.id);
 
       if (error) throw error;
-      
+
       const updatedUser = { ...user, ...updates };
       setUserAndCache(updatedUser);
-      
+
       toast({
         title: privacyOnly ? "Settings saved" : "Profile updated",
         description: "Your profile has been successfully updated.",
@@ -415,9 +421,9 @@ export const UserProvider: React.FC<UserProviderProps> = ({ children }) => {
     try {
       // Simulate API call
       await new Promise(resolve => setTimeout(resolve, 200));
-      
+
       setPreferences(prev => ({ ...prev, ...updates }));
-      
+
       toast({
         title: "Preferences updated",
         description: "Your preferences have been saved.",
@@ -434,7 +440,7 @@ export const UserProvider: React.FC<UserProviderProps> = ({ children }) => {
 
   const refreshUser = async () => {
     if (!session?.user) return;
-    
+
     try {
       setIsLoading(true);
       await fetchUserProfile(session.user.id);

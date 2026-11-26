@@ -47,14 +47,14 @@ const VideoDetail: React.FC = () => {
           description: found.description,
           tags: found.tags || [],
           stats: {
-            likes: found.likes_count,
-            comments: found.comments_count,
-            shares: found.shares_count,
-            saves: found.saves_count,
-            views: found.views_count,
+            likes: Number(found.likes_count ?? 0),
+            comments: Number(found.comments_count ?? 0),
+            shares: Number(found.shares_count ?? 0),
+            saves: Number(found.saves_count ?? 0),
+            views: Number(found.views_count ?? 0),
           },
-          liked: found.user_has_liked,
-          saved: found.user_has_saved,
+          liked: Boolean(found.user_has_liked),
+          saved: Boolean(found.user_has_saved),
           createdAt: found.created_at,
         });
       } catch (err: any) {

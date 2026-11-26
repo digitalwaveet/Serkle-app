@@ -3,7 +3,12 @@ import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useUser } from '@/contexts/UserContext';
 import { playMessageSound } from '@/utils/notificationSound';
-import { chatDb, sanitizeMessage } from '@/lib/db';
+import {
+  chatDb,
+  isDexieDecryptionError,
+  recoverCorruptedEncryptedCache,
+  sanitizeMessage,
+} from '@/lib/db';
 import { syncConversations } from '@/lib/sync';
 
 /**
@@ -27,25 +32,37 @@ const GlobalRealtimeListener = () => {
           const msg = payload.new as any;
           if (!msg.conversation_id || !msg.sender_id) return;
           if (msg.sender_id !== user.id) playMessageSound();
-          await chatDb.transaction('rw', chatDb.messages, chatDb.conversations_meta, chatDb.read_receipts, async () => {
-            const existing = await chatDb.messages.get(msg.id);
-            const receipt = await chatDb.read_receipts.get([msg.conversation_id, user.id]);
-            const conv = await chatDb.conversations_meta.get(msg.conversation_id);
-            const arrivedSeq = Number(msg.created_seq ?? msg.seq ?? 0);
-            const unread = !existing && msg.sender_id !== user.id && !msg.deleted_for_everyone
-              && arrivedSeq > (receipt?.last_read_seq || 0);
-            await chatDb.messages.put(sanitizeMessage({ ...msg, seq: Number(msg.seq), created_seq: arrivedSeq, sync_status: 'sent' }));
-            if (conv) {
-              await chatDb.conversations_meta.put({
-                ...conv,
-                unread_count: (conv.unread_count || 0) + (unread ? 1 : 0),
-                unread_latest_seq: Math.max(conv.unread_latest_seq || 0, Number(msg.seq || 0)),
-                ...(msg.created_at >= (conv.last_message_at || '') ? {
-                  last_message: msg.content, last_message_at: msg.created_at, last_message_sender_id: msg.sender_id
-                } : {}),
-              });
+          const persistIncoming = async () => {
+            await chatDb.transaction('rw', chatDb.messages, chatDb.conversations_meta, chatDb.read_receipts, async () => {
+              const existing = await chatDb.messages.get(msg.id);
+              const receipt = await chatDb.read_receipts.get([msg.conversation_id, user.id]);
+              const conv = await chatDb.conversations_meta.get(msg.conversation_id);
+              const arrivedSeq = Number(msg.created_seq ?? msg.seq ?? 0);
+              const unread = !existing && msg.sender_id !== user.id && !msg.deleted_for_everyone
+                && arrivedSeq > (receipt?.last_read_seq || 0);
+              await chatDb.messages.put(sanitizeMessage({ ...msg, seq: Number(msg.seq), created_seq: arrivedSeq, sync_status: 'sent' }));
+              if (conv) {
+                await chatDb.conversations_meta.put({
+                  ...conv,
+                  unread_count: (conv.unread_count || 0) + (unread ? 1 : 0),
+                  unread_latest_seq: Math.max(conv.unread_latest_seq || 0, Number(msg.seq || 0)),
+                  ...(msg.created_at >= (conv.last_message_at || '') ? {
+                    last_message: msg.content, last_message_at: msg.created_at, last_message_sender_id: msg.sender_id
+                  } : {}),
+                });
+              }
+            });
+          };
+          try {
+            await persistIncoming();
+          } catch (error) {
+            if (isDexieDecryptionError(error)) {
+              await recoverCorruptedEncryptedCache();
+              await persistIncoming().catch(console.error);
+            } else {
+              throw error;
             }
-          });
+          }
           // Reconcile unknown conversations and counts from the server; never
           // mark read merely because the conversation route is open.
           void syncConversations(user.id).catch(console.error);

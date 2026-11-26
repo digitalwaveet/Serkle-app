@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
 import { useHapticFeedback } from '@/hooks/useHapticFeedback';
 import { useFollowMutations } from '@/hooks/useFollowMutations';
+import { useVideoMutations } from '@/hooks/useVideoMutations';
 import { useUser } from '@/contexts/UserContext';
 import { toast } from 'sonner';
 import { videoLogger, loadHlsJs, isHlsSource, supportsNativeHls } from '@/utils/videoUtils';
@@ -57,7 +58,9 @@ export const OptimizedRelaxVideoCard = memo<OptimizedRelaxVideoCardProps>(({
   const reducedMotion = useReducedMotion();
   const { triggerHaptic } = useHapticFeedback();
   const { toggleFollow, checkFollowStatus } = useFollowMutations();
+  const { toggleSave, incrementShare } = useVideoMutations();
   const { user } = useUser();
+  const isSavingRef = useRef(false);
   const lastTapTime = useRef<number>(0);
   const tapCount = useRef<number>(0);
 
@@ -208,22 +211,53 @@ export const OptimizedRelaxVideoCard = memo<OptimizedRelaxVideoCardProps>(({
     }
   }, [isMuted]);
 
-  const handleSave = useCallback((e: React.MouseEvent) => {
+  const handleSave = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation();
-    const newSavedState = !isSaved;
-    
-    // Optimistic UI update
+    if (!user) {
+      toast.error('Please login to save videos');
+      return;
+    }
+    if (isSavingRef.current) return;
+
+    const previousSaved = isSaved;
+    const previousSavesCount = optimisticStats.saves;
+    const newSavedState = !previousSaved;
+    const optimisticSavesCount = Math.max(0, previousSavesCount + (newSavedState ? 1 : -1));
+
+    isSavingRef.current = true;
     setIsSaved(newSavedState);
     setOptimisticStats(prev => ({
       ...prev,
-      saves: newSavedState ? prev.saves + 1 : prev.saves - 1
+      saves: optimisticSavesCount,
     }));
-    
-    // Haptic feedback
     triggerHaptic('medium');
-    
-    // TODO: Send to backend in background
-  }, [isSaved, triggerHaptic]);
+
+    try {
+      const result = await toggleSave(String(video.id), previousSaved);
+      if (!result.ok) {
+        setIsSaved(previousSaved);
+        setOptimisticStats(prev => ({ ...prev, saves: previousSavesCount }));
+      } else {
+        setIsSaved(typeof result.saved === 'boolean' ? result.saved : newSavedState);
+        setOptimisticStats(prev => ({
+          ...prev,
+          saves: typeof result.savesCount === 'number' ? result.savesCount : optimisticSavesCount,
+        }));
+      }
+    } finally {
+      isSavingRef.current = false;
+    }
+  }, [user, isSaved, optimisticStats.saves, triggerHaptic, toggleSave, video.id]);
+
+  const handleShareConfirmed = useCallback(async () => {
+    setOptimisticStats(prev => ({ ...prev, shares: prev.shares + 1 }));
+    const persistedCount = await incrementShare(String(video.id));
+    if (typeof persistedCount === 'number') {
+      setOptimisticStats(prev => ({ ...prev, shares: persistedCount }));
+    } else {
+      setOptimisticStats(prev => ({ ...prev, shares: Math.max(0, prev.shares - 1) }));
+    }
+  }, [incrementShare, video.id]);
 
   const handleAction = useCallback((action: string) => (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -534,6 +568,8 @@ export const OptimizedRelaxVideoCard = memo<OptimizedRelaxVideoCardProps>(({
         onClose={() => setShowShareMenu(false)}
         videoId={String(video.id)}
         videoUrl={video.url}
+        videoTitle={video.title || video.description}
+        onShareConfirmed={handleShareConfirmed}
       />
     </div>
   );

@@ -73,15 +73,17 @@ export const VideoFullscreenModal: React.FC<VideoFullscreenModalProps> = ({
 }) => {
   const initialIndex = videos.findIndex(v => v.id === initialVideo.id);
   const [showHeartBurst, setShowHeartBurst] = useState(false);
-  const { toggleLike, toggleSave } = useVideoMutations();
+  const { toggleLike, toggleSave, incrementShare } = useVideoMutations();
   const [lastTap, setLastTap] = useState(0);
   const [expandedCaption, setExpandedCaption] = useState(false);
   const [showComments, setShowComments] = useState(false);
   const [shareVideoId, setShareVideoId] = useState<string | null>(null);
   const [shareVideoUrl, setShareVideoUrl] = useState<string>('');
+  const [shareVideoTitle, setShareVideoTitle] = useState<string>('');
   const [commentModalHeight, setCommentModalHeight] = useState(60);
   const containerRef = useRef<HTMLDivElement>(null);
   const allVideoRefs = useRef<Map<number, HTMLVideoElement>>(new Map());
+  const isSavingRef = useRef(false);
   const reducedMotion = useReducedMotion();
 
   const { 
@@ -102,12 +104,16 @@ export const VideoFullscreenModal: React.FC<VideoFullscreenModalProps> = ({
   const currentVideo = videos[currentIndex];
   const [isLiked, setIsLiked] = useState(currentVideo?.liked || false);
   const [isSaved, setIsSaved] = useState(currentVideo?.saved || false);
+  const [savesCount, setSavesCount] = useState(currentVideo?.stats.saves || 0);
+  const [sharesCount, setSharesCount] = useState(currentVideo?.stats.shares || 0);
 
-  // Update like/save state when video changes
+  // Update like/save/share state when video changes
   useEffect(() => {
     if (currentVideo) {
       setIsLiked(currentVideo.liked);
       setIsSaved(currentVideo.saved);
+      setSavesCount(currentVideo.stats.saves);
+      setSharesCount(currentVideo.stats.shares);
     }
   }, [currentVideo]);
 
@@ -274,16 +280,43 @@ export const VideoFullscreenModal: React.FC<VideoFullscreenModalProps> = ({
 
   const handleSave = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!currentVideo) return;
-    
-    setIsSaved(!isSaved);
+    if (!currentVideo || isSavingRef.current) return;
+
+    const previousSaved = isSaved;
+    const previousSavesCount = savesCount;
+    const nextSaved = !previousSaved;
+    const optimisticSavesCount = Math.max(0, previousSavesCount + (nextSaved ? 1 : -1));
+
+    isSavingRef.current = true;
+    setIsSaved(nextSaved);
+    setSavesCount(optimisticSavesCount);
     try {
-      await toggleSave(currentVideo.id);
+      const result = await toggleSave(currentVideo.id, previousSaved);
+      if (!result.ok) {
+        setIsSaved(previousSaved);
+        setSavesCount(previousSavesCount);
+      } else {
+        setIsSaved(typeof result.saved === 'boolean' ? result.saved : nextSaved);
+        setSavesCount(typeof result.savesCount === 'number' ? result.savesCount : optimisticSavesCount);
+      }
     } catch (error) {
       console.error('Error toggling save:', error);
-      setIsSaved(isSaved);
+      setIsSaved(previousSaved);
+      setSavesCount(previousSavesCount);
+    } finally {
+      isSavingRef.current = false;
     }
-  }, [isSaved, currentVideo, toggleSave]);
+  }, [isSaved, savesCount, currentVideo, toggleSave]);
+
+  const handleShareConfirmed = useCallback(async (videoId: string) => {
+    setSharesCount(prev => prev + 1);
+    const persistedCount = await incrementShare(videoId);
+    if (typeof persistedCount === 'number') {
+      setSharesCount(persistedCount);
+    } else {
+      setSharesCount(prev => Math.max(0, prev - 1));
+    }
+  }, [incrementShare]);
 
   const handleAction = useCallback((action: string) => (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -512,6 +545,7 @@ export const VideoFullscreenModal: React.FC<VideoFullscreenModalProps> = ({
                       e.stopPropagation();
                       setShareVideoId(video.id);
                       setShareVideoUrl(video.url);
+                      setShareVideoTitle(video.title || video.description || '');
                     }}
                     aria-label={`Share video by ${video.user.name}`}
                     className="flex flex-col items-center gap-1 text-white"
@@ -520,7 +554,7 @@ export const VideoFullscreenModal: React.FC<VideoFullscreenModalProps> = ({
                       <Share className="size-5" />
                     </div>
                     <span className="text-xs font-medium">
-                      {formatCount(video.stats.shares)}
+                      {formatCount(sharesCount)}
                     </span>
                   </button>
 
@@ -541,7 +575,7 @@ export const VideoFullscreenModal: React.FC<VideoFullscreenModalProps> = ({
                       />
                     </div>
                     <span className="text-xs font-medium">
-                      {formatCount(video.stats.saves + (isSaved ? 1 : 0))}
+                      {formatCount(savesCount)}
                     </span>
                   </button>
 
@@ -594,9 +628,12 @@ export const VideoFullscreenModal: React.FC<VideoFullscreenModalProps> = ({
           onClose={() => {
             setShareVideoId(null);
             setShareVideoUrl('');
+            setShareVideoTitle('');
           }}
           videoId={shareVideoId}
           videoUrl={shareVideoUrl}
+          videoTitle={shareVideoTitle}
+          onShareConfirmed={() => handleShareConfirmed(shareVideoId)}
         />
       )}
     </div>

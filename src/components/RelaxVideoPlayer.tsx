@@ -56,7 +56,7 @@ export const RelaxVideoPlayer: React.FC<RelaxVideoPlayerProps> = ({
   initialOpenComments = false
 }) => {
   // Fetch videos from database
-  const { videos: relaxVideosRaw, loading: videosLoading, error: videosError, hasMore, loadMore, refetch } = useVideoFeed();
+  const { videos: relaxVideosRaw, loading: videosLoading, error: videosError, hasMore, loadMore, refetch, updateVideo } = useVideoFeed();
   const relaxVideos = useMemo(() => relaxVideosRaw ?? [], [relaxVideosRaw]);
   const { toggleLike, toggleSave, incrementShare } = useVideoMutations();
   const { toggleFollow, checkFollowStatus } = useFollowMutations();
@@ -78,6 +78,8 @@ export const RelaxVideoPlayer: React.FC<RelaxVideoPlayerProps> = ({
   const [selectedUserId, setSelectedUserId] = useState<string>('');
   const [shareVideoId, setShareVideoId] = useState<string | null>(null);
   const [shareVideoUrl, setShareVideoUrl] = useState<string>('');
+  const [shareVideoTitle, setShareVideoTitle] = useState<string>('');
+  const [savingVideoIds, setSavingVideoIds] = useState<Set<string>>(new Set());
   const [videoHeight, setVideoHeight] = useState(() => Math.max(1, window.innerHeight - 50));
   const [isConstrainedConnection, setIsConstrainedConnection] = useState(false);
   const [showQualityLabel, setShowQualityLabel] = useState(false);
@@ -85,6 +87,7 @@ export const RelaxVideoPlayer: React.FC<RelaxVideoPlayerProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const lastTapRef = useRef<{ time: number; x: number; y: number }>({ time: 0, x: 0, y: 0 });
+  const savingVideoIdsRef = useRef<Set<string>>(new Set());
   const videoRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
   const hlsRefs = useRef<Map<string, Hls>>(new Map());
   const touchStartY = useRef<number>(0);
@@ -543,23 +546,93 @@ export const RelaxVideoPlayer: React.FC<RelaxVideoPlayerProps> = ({
     }
   }, [handleDoubleTap, togglePlayPause]);
 
-  const handleAction = useCallback(async (action: string, videoId?: string) => {
-    console.log(`${action} action triggered`);
-    triggerHaptic('light');
-    
-    if (action === 'save' && videoId) {
-      await toggleSave(videoId);
-    } else if (action === 'share' && videoId) {
-      await incrementShare(videoId);
-      // Trigger native share if available
-      if (navigator.share) {
-        navigator.share({
-          title: relaxVideos.find(v => v.id === videoId)?.title,
-          url: window.location.href
-        });
-      }
+  const handleSave = useCallback(async (videoId: string) => {
+    if (!user) {
+      toast.error('Please login to save videos');
+      return;
     }
-  }, [triggerHaptic, toggleSave, incrementShare, relaxVideos]);
+    if (savingVideoIdsRef.current.has(videoId)) return;
+
+    const targetVideo = relaxVideos.find(v => v.id === videoId);
+    if (!targetVideo) return;
+
+    const previousSaved = targetVideo.saved;
+    const previousSavesCount = targetVideo.stats.saves;
+    const nextSaved = !previousSaved;
+    const optimisticSavesCount = Math.max(0, previousSavesCount + (nextSaved ? 1 : -1));
+
+    triggerHaptic('light');
+    savingVideoIdsRef.current.add(videoId);
+    setSavingVideoIds(prev => new Set(prev).add(videoId));
+
+    updateVideo(videoId, video => ({
+      ...video,
+      saved: nextSaved,
+      stats: {
+        ...video.stats,
+        saves: optimisticSavesCount,
+      },
+    }));
+
+    try {
+      const result = await toggleSave(videoId, previousSaved);
+      if (!result.ok) {
+        updateVideo(videoId, video => ({
+          ...video,
+          saved: previousSaved,
+          stats: {
+            ...video.stats,
+            saves: previousSavesCount,
+          },
+        }));
+      } else {
+        updateVideo(videoId, video => ({
+          ...video,
+          saved: typeof result.saved === 'boolean' ? result.saved : nextSaved,
+          stats: {
+            ...video.stats,
+            saves: typeof result.savesCount === 'number' ? result.savesCount : optimisticSavesCount,
+          },
+        }));
+      }
+    } finally {
+      savingVideoIdsRef.current.delete(videoId);
+      setSavingVideoIds(prev => {
+        const next = new Set(prev);
+        next.delete(videoId);
+        return next;
+      });
+    }
+  }, [user, relaxVideos, triggerHaptic, updateVideo, toggleSave]);
+
+  const handleShareConfirmed = useCallback(async (videoId: string) => {
+    updateVideo(videoId, video => ({
+      ...video,
+      stats: {
+        ...video.stats,
+        shares: video.stats.shares + 1,
+      },
+    }));
+
+    const persistedCount = await incrementShare(videoId);
+    if (typeof persistedCount === 'number') {
+      updateVideo(videoId, video => ({
+        ...video,
+        stats: {
+          ...video.stats,
+          shares: persistedCount,
+        },
+      }));
+    } else {
+      updateVideo(videoId, video => ({
+        ...video,
+        stats: {
+          ...video.stats,
+          shares: Math.max(0, video.stats.shares - 1),
+        },
+      }));
+    }
+  }, [incrementShare, updateVideo]);
 
   const toggleCaptionExpansion = useCallback((videoId: string) => {
     setExpandedCaptions(prev => {
@@ -881,9 +954,12 @@ export const RelaxVideoPlayer: React.FC<RelaxVideoPlayerProps> = ({
                     </button>
 
                     <button 
+                      type="button"
                       onClick={() => {
+                        triggerHaptic('light');
                         setShareVideoId(video.id);
                         setShareVideoUrl(video.url);
+                        setShareVideoTitle(video.title || video.description || '');
                       }}
                       className="relax-action group flex flex-col gap-0.5 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
                       aria-label={`Share video, ${formatCount(video.stats.shares)} shares`}
@@ -895,11 +971,17 @@ export const RelaxVideoPlayer: React.FC<RelaxVideoPlayerProps> = ({
                     </button>
 
                     <button 
-                      onClick={() => handleAction('save', video.id)}
-                      className="relax-action group grid place-items-center rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
-                      aria-label={video.saved ? "Remove video from saved" : "Save video"}
+                      type="button"
+                      onClick={() => handleSave(video.id)}
+                      disabled={savingVideoIds.has(video.id)}
+                      className="relax-action group flex flex-col gap-0.5 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 disabled:opacity-70"
+                      aria-label={`${video.saved ? 'Remove video from saved' : 'Save video'}, ${formatCount(video.stats.saves)} saves`}
+                      aria-pressed={video.saved}
                     >
-                      <Bookmark className={cn("size-5 text-white transition-transform duration-200 ease-out motion-safe:group-hover:-translate-y-0.5 motion-safe:group-active:scale-75", video.saved && "fill-secondary text-secondary")} />
+                      <Bookmark className={cn("size-5 text-white transition-transform duration-200 ease-out motion-safe:group-hover:-translate-y-0.5 motion-safe:group-active:scale-75", video.saved && "scale-110 fill-secondary text-secondary")} />
+                      <span className="relax-action__count font-semibold text-white/90 tabular-nums">
+                        {formatCount(video.stats.saves)}
+                      </span>
                     </button>
 
                     <button 
@@ -985,9 +1067,12 @@ export const RelaxVideoPlayer: React.FC<RelaxVideoPlayerProps> = ({
           onClose={() => {
             setShareVideoId(null);
             setShareVideoUrl('');
+            setShareVideoTitle('');
           }}
           videoId={shareVideoId}
           videoUrl={shareVideoUrl}
+          videoTitle={shareVideoTitle}
+          onShareConfirmed={() => handleShareConfirmed(shareVideoId)}
         />
       )}
     </div>

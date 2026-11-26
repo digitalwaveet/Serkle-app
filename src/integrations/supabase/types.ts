@@ -5175,6 +5175,10 @@ export type Database = {
         Args: { _post_id: string }
         Returns: number | null
       }
+      increment_relax_video_shares: {
+        Args: { _video_id: string }
+        Returns: number | null
+      }
       is_any_admin: { Args: { _user_id: string }; Returns: boolean }
       is_circle_member: {
         Args: { _circle_id: string; _user_id: string }

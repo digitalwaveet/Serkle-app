@@ -3,7 +3,12 @@ import { supabase } from "@/integrations/supabase/client";
 import { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useLiveQuery } from "dexie-react-hooks";
-import { chatDb, sanitizeMessage } from "@/lib/db";
+import {
+  chatDb,
+  isDexieDecryptionError,
+  recoverCorruptedEncryptedCache,
+  sanitizeMessage,
+} from "@/lib/db";
 import { syncConversation, processSyncQueue } from "@/lib/sync";
 import { useNotifications } from "./useNotifications";
 
@@ -45,16 +50,28 @@ export const useMessages = (
   const localMessages = useLiveQuery(async () => {
     if (!conversationId) return [];
 
-    const msgs = await chatDb.messages
-      .where("[conversation_id+created_at]")
-      .between([conversationId, ""], [conversationId, "\uffff"])
-      .reverse()
-      .limit(limit)
-      .toArray();
+    try {
+      const msgs = await chatDb.messages
+        .where("[conversation_id+created_at]")
+        .between([conversationId, ""], [conversationId, "\uffff"])
+        .reverse()
+        .limit(limit)
+        .toArray();
 
-    const sorted = msgs.reverse();
-    setHasMore(msgs.length === limit);
-    return sorted;
+      const sorted = msgs.reverse();
+      setHasMore(msgs.length === limit);
+      return sorted;
+    } catch (queryError) {
+      if (isDexieDecryptionError(queryError)) {
+        void recoverCorruptedEncryptedCache().then(() => {
+          if (conversationId) {
+            void syncConversation(conversationId).catch(console.error);
+          }
+        });
+        return [];
+      }
+      throw queryError;
+    }
   }, [conversationId, limit]);
 
   // 2. Resolve missing sender profiles via Dexie Cache

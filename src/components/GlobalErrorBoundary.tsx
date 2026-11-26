@@ -1,6 +1,7 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { isRouteLoadError, recoverStaleApp, reloadAppPage } from '@/utils/routeRecovery';
 import { isFilePickerActive } from '@/utils/cacheManager';
+import { isDexieDecryptionError, recoverCorruptedEncryptedCache } from '@/lib/db';
 
 interface Props {
   children: ReactNode;
@@ -13,6 +14,8 @@ interface State {
 }
 
 class GlobalErrorBoundary extends Component<Props, State> {
+  private decryptionAutoRecoverAttempted = false;
+
   constructor(props: Props) {
     super(props);
     this.state = { hasError: false, error: null, errorInfo: null };
@@ -26,12 +29,25 @@ class GlobalErrorBoundary extends Component<Props, State> {
     this.setState({ errorInfo });
     // TODO: Send to error tracking service (Sentry, etc.)
     console.error('[GlobalErrorBoundary] Uncaught error:', error, errorInfo);
+    if (isDexieDecryptionError(error) && !this.decryptionAutoRecoverAttempted) {
+      this.decryptionAutoRecoverAttempted = true;
+      void recoverCorruptedEncryptedCache().then(() => {
+        this.setState({ hasError: false, error: null, errorInfo: null });
+      });
+      return;
+    }
     if (import.meta.env.PROD && isRouteLoadError(error) && !isFilePickerActive()) {
       void recoverStaleApp();
     }
   }
 
   handleReset = () => {
+    if (isDexieDecryptionError(this.state.error)) {
+      void recoverCorruptedEncryptedCache().finally(() => {
+        this.setState({ hasError: false, error: null, errorInfo: null });
+      });
+      return;
+    }
     if (isRouteLoadError(this.state.error)) {
       reloadAppPage();
       return;

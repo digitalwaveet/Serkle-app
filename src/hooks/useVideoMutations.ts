@@ -11,6 +11,12 @@ export interface VideoUploadProgress {
   percent: number;
 }
 
+export interface VideoSaveResult {
+  ok: boolean;
+  saved?: boolean;
+  savesCount?: number;
+}
+
 const errorMessage = (error: unknown, fallback: string) =>
   error instanceof Error && error.message ? error.message : fallback;
 
@@ -66,40 +72,72 @@ export const useVideoMutations = () => {
     }
   }, []);
 
-  const toggleSave = useCallback(async (videoId: string) => {
+  const toggleSave = useCallback(async (
+    videoId: string,
+    currentlySaved?: boolean,
+  ): Promise<VideoSaveResult> => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
         toast.error('Please login to save videos');
-        return;
+        return { ok: false };
       }
 
-      // Check if already saved
-      const { data: existingSave } = await supabase
-        .from('video_saves')
-        .select('id')
-        .eq('video_id', videoId)
-        .eq('user_id', user.id)
-        .single();
+      let isCurrentlySaved = currentlySaved;
+      if (typeof isCurrentlySaved !== 'boolean') {
+        const { data: existingSave, error: checkError } = await supabase
+          .from('video_saves')
+          .select('id')
+          .eq('video_id', videoId)
+          .eq('user_id', user.id)
+          .maybeSingle();
 
-      if (existingSave) {
-        // Unsave
-        await supabase
+        if (checkError) throw checkError;
+        isCurrentlySaved = Boolean(existingSave);
+      }
+
+      let nextSaved: boolean;
+      if (isCurrentlySaved) {
+        const { error: deleteError } = await supabase
           .from('video_saves')
           .delete()
           .eq('video_id', videoId)
           .eq('user_id', user.id);
+
+        if (deleteError) throw deleteError;
+        nextSaved = false;
         toast.success('Video removed from saved');
       } else {
-        // Save
-        await supabase
+        const { error: insertError } = await supabase
           .from('video_saves')
           .insert({ video_id: videoId, user_id: user.id });
+
+        if (insertError && insertError.code !== '23505') {
+          throw insertError;
+        }
+        nextSaved = true;
         toast.success('Video saved');
       }
+
+      const { data: statsData, error: statsError } = await supabase
+        .from('video_stats')
+        .select('saves_count')
+        .eq('video_id', videoId)
+        .maybeSingle();
+
+      if (statsError) {
+        console.warn('Could not read updated video saves_count:', statsError);
+      }
+
+      const savesCount = typeof statsData?.saves_count === 'number'
+        ? Math.max(0, statsData.saves_count)
+        : undefined;
+
+      return { ok: true, saved: nextSaved, savesCount };
     } catch (error) {
       console.error('Error toggling save:', error);
       toast.error('Failed to update save');
+      return { ok: false };
     }
   }, []);
 
@@ -131,23 +169,17 @@ export const useVideoMutations = () => {
     }
   }, []);
 
-  const incrementShare = useCallback(async (videoId: string) => {
+  const incrementShare = useCallback(async (videoId: string): Promise<number | null> => {
     try {
-      // First get current count
-      const { data: currentStats } = await supabase
-        .from('video_stats')
-        .select('shares_count')
-        .eq('video_id', videoId)
-        .single();
+      const { data, error } = await supabase.rpc('increment_relax_video_shares', {
+        _video_id: videoId,
+      });
 
-      if (currentStats) {
-        await supabase
-          .from('video_stats')
-          .update({ shares_count: (currentStats.shares_count || 0) + 1 })
-          .eq('video_id', videoId);
-      }
+      if (error) throw error;
+      return typeof data === 'number' ? data : null;
     } catch (error) {
       console.error('Error incrementing share:', error);
+      return null;
     }
   }, []);
 

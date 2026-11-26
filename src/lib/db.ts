@@ -1,9 +1,23 @@
 import { Dexie, type Table } from "dexie";
 import {
   applyEncryptionMiddleware,
-  NON_INDEXED_FIELDS,
+  ENCRYPT_LIST,
   clearAllTables,
 } from "dexie-encrypted";
+import {
+  clearLocalEncryptionSeeds,
+  getOrCreateLocalEncryptionSeed,
+  isDexieDecryptionError,
+} from "./chatEncryption";
+
+export {
+  clearLocalEncryptionSeeds,
+  getOrCreateLocalEncryptionSeed,
+  isDexieDecryptionError,
+};
+
+const ENCRYPTION_VERSION = "v6_premium_profile";
+const ENCRYPTION_VERSION_KEY = "SERKLE_DB_ENCRYPTION_VERSION";
 
 export interface LocalMessage {
   id: string;
@@ -134,6 +148,7 @@ export class ChatDatabase extends Dexie {
   profiles!: Table<LocalProfile, string>;
 
   private resolveEncryptionKey!: (key: Uint8Array) => void;
+  private encryptionInitialized = false;
 
   constructor() {
     super("SerkleChatDB_v4");
@@ -166,7 +181,7 @@ export class ChatDatabase extends Dexie {
         keyPromise,
         {
           messages: {
-            type: "encrypt",
+            type: ENCRYPT_LIST,
             fields: [
               "content",
               "attachment_url",
@@ -188,9 +203,15 @@ export class ChatDatabase extends Dexie {
     }
   }
 
-  // Initialize DB with encryption key derived from session
+  // Initialize DB with a stable per-user local key so JWT refreshes and multiple tabs share the same key.
+  async initEncryptionForUser(userId: string) {
+    if (!userId) return;
+    await this.initEncryption(getOrCreateLocalEncryptionSeed(userId));
+  }
+
+  // Initialize DB with encryption key derived from provided key material
   async initEncryption(sessionToken: string) {
-    if (!sessionToken) return;
+    if (!sessionToken || this.encryptionInitialized) return;
 
     // Request persistent storage if available
     try {
@@ -203,31 +224,36 @@ export class ChatDatabase extends Dexie {
     }
 
     try {
-      // Derive a 32-byte key from the session token using Web Crypto API
+      // Derive a 32-byte key from the key material using Web Crypto API
       const encoder = new TextEncoder();
       const data = encoder.encode(sessionToken);
       const hashBuffer = await crypto.subtle.digest("SHA-256", data);
       const encryptionKey = new Uint8Array(hashBuffer);
 
       // Self-Healing Clear: Wipe corrupted legacy data if version mismatch
-      const ENCRYPTION_VERSION = "v6_premium_profile";
-      const storedVersion = localStorage.getItem(
-        "SERKLE_DB_ENCRYPTION_VERSION",
-      );
+      let storedVersion: string | null = null;
+      try {
+        storedVersion = localStorage.getItem(ENCRYPTION_VERSION_KEY);
+      } catch {
+        storedVersion = ENCRYPTION_VERSION;
+      }
+
       if (storedVersion !== ENCRYPTION_VERSION) {
         console.warn(
           `[Dexie] Encryption version mismatch (${storedVersion} -> ${ENCRYPTION_VERSION}). Nuclear reset...`,
         );
-        localStorage.setItem(
-          "SERKLE_DB_ENCRYPTION_VERSION",
-          ENCRYPTION_VERSION,
-        );
+        try {
+          localStorage.setItem(ENCRYPTION_VERSION_KEY, ENCRYPTION_VERSION);
+        } catch {
+          // Ignore storage write errors in restricted environments.
+        }
         await this.delete(); // Nukes the specific DB name
         window.location.reload(); // Force refresh to re-init with clean DB
         return;
       }
 
       // Release the promise, allowing Dexie to process deferred queries ONLY after version check
+      this.encryptionInitialized = true;
       this.resolveEncryptionKey(encryptionKey);
 
       console.log("Chat local database encryption initialized and unblocked.");
@@ -239,3 +265,40 @@ export class ChatDatabase extends Dexie {
 
 // Export a singleton instance
 export const chatDb = new ChatDatabase();
+
+let decryptionRecoveryPromise: Promise<void> | null = null;
+
+/**
+ * Self-heals local encrypted chat tables when an entity cannot be decrypted
+ * (e.g. a row written by a stale tab or legacy rotating-token key).
+ * Clears encrypted messages and conversation delta cursors so remote sync cleanly repopulates them.
+ */
+export async function recoverCorruptedEncryptedCache(): Promise<void> {
+  if (decryptionRecoveryPromise) return decryptionRecoveryPromise;
+
+  decryptionRecoveryPromise = (async () => {
+    console.warn(
+      "[Dexie] Undecryptable entity detected in local chat cache; clearing encrypted message cache to recover.",
+    );
+    try {
+      await Promise.all([
+        chatDb.messages.clear(),
+        chatDb.conversations.clear(),
+      ]);
+    } catch (clearError) {
+      console.error(
+        "[Dexie] Partial encrypted cache clear failed, clearing all local tables:",
+        clearError,
+      );
+      try {
+        await clearAllTables(chatDb);
+      } catch {
+        await chatDb.delete().catch(() => {});
+      }
+    }
+  })().finally(() => {
+    decryptionRecoveryPromise = null;
+  });
+
+  return decryptionRecoveryPromise;
+}

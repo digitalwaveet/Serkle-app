@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { SerkleLoader } from '@/components/ui/SerkleLoader';
-import { Link2, Send, Download, X, Check, BookImage } from 'lucide-react';
+import { Link2, Send, Download, X, Check, BookImage, Share2 } from 'lucide-react';
 import { VideoLoader } from '@/components/ui/VideoLoader';
 import { supabase } from '@/integrations/supabase/client';
 import { useUser } from '@/contexts/UserContext';
@@ -9,14 +10,22 @@ import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import StoryEditor from '@/components/story/StoryEditor';
 import { storyService } from '@/services/storyService';
+import {
+  buildVideoShareUrl,
+  copyTextToClipboard,
+  formatVideoShareMessage,
+  shareViaNativeSheet,
+} from '@/lib/videoShare';
 
-const PUBLISHED_URL = import.meta.env.VITE_APP_URL || window.location.origin;
+const PUBLISHED_URL = import.meta.env.VITE_APP_URL || (typeof window !== 'undefined' ? window.location.origin : '');
 
 interface VideoShareMenuProps {
   isOpen: boolean;
   onClose: () => void;
   videoId: string;
   videoUrl: string;
+  videoTitle?: string | null;
+  onShareConfirmed?: () => Promise<void> | void;
 }
 
 interface Follower {
@@ -33,22 +42,28 @@ export const VideoShareMenu: React.FC<VideoShareMenuProps> = ({
   onClose,
   videoId,
   videoUrl,
+  videoTitle,
+  onShareConfirmed,
 }) => {
   const { user } = useUser();
   const { createConversation } = useCreateConversation();
   const [followers, setFollowers] = useState<Follower[]>([]);
+  const [loadingFriends, setLoadingFriends] = useState(false);
   const [showFriends, setShowFriends] = useState(false);
   const [sendingTo, setSendingTo] = useState<string | null>(null);
   const [sentTo, setSentTo] = useState<Set<string>>(new Set());
+  const [copied, setCopied] = useState(false);
+  const [sharingNative, setSharingNative] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showStoryEditor, setShowStoryEditor] = useState(false);
   const [uploadingStory, setUploadingStory] = useState(false);
 
-  const videoLink = `${PUBLISHED_URL}/video/${videoId}`;
+  const videoLink = buildVideoShareUrl(videoId, PUBLISHED_URL);
+  const canNativeShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
 
   useEffect(() => {
     if (isOpen && showFriends && user) {
-      fetchFollowers();
+      void fetchFollowers();
     }
   }, [isOpen, showFriends, user]);
 
@@ -56,59 +71,106 @@ export const VideoShareMenu: React.FC<VideoShareMenuProps> = ({
     if (!isOpen) {
       setShowFriends(false);
       setSentTo(new Set());
+      setSendingTo(null);
+      setCopied(false);
       setShowStoryEditor(false);
-    }
-  }, [isOpen]);
-
-  const fetchFollowers = async () => {
-    if (!user) return;
-    const { data, error } = await supabase
-      .from('follows')
-      .select('following_id')
-      .eq('follower_id', user.id);
-
-    if (error || !data) return;
-
-    const followingIds = data.map((f) => f.following_id);
-    if (followingIds.length === 0) {
-      setFollowers([]);
       return;
     }
 
-    const { data: profiles } = await supabase
-      .from('profiles')
-      .select('id, name, username, initials, avatar_url, avatar_color')
-      .in('id', followingIds);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !showStoryEditor) {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isOpen, onClose, showStoryEditor]);
 
-    setFollowers((profiles as Follower[]) || []);
-  };
-
-  const handleCopyLink = async () => {
+  const fetchFollowers = async () => {
+    if (!user) return;
+    setLoadingFriends(true);
     try {
-      await navigator.clipboard.writeText(videoLink);
-      toast({ title: 'Link copied!', description: 'Video link copied to clipboard.' });
-      onClose();
-    } catch {
-      toast({ title: 'Failed to copy link', variant: 'destructive' });
+      const [followingRes, followersRes] = await Promise.all([
+        supabase.from('follows').select('following_id').eq('follower_id', user.id),
+        supabase.from('follows').select('follower_id').eq('following_id', user.id),
+      ]);
+
+      const ids = new Set<string>();
+      followingRes.data?.forEach((f) => { if (f.following_id) ids.add(f.following_id); });
+      followersRes.data?.forEach((f) => { if (f.follower_id) ids.add(f.follower_id); });
+      ids.delete(user.id);
+
+      if (ids.size === 0) {
+        setFollowers([]);
+        return;
+      }
+
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('id, name, username, initials, avatar_url, avatar_color')
+        .in('id', [...ids])
+        .limit(50);
+
+      setFollowers((profiles as Follower[]) || []);
+    } catch (error) {
+      console.error('Error loading share recipients:', error);
+      setFollowers([]);
+    } finally {
+      setLoadingFriends(false);
     }
   };
 
+  const handleCopyLink = async () => {
+    const ok = await copyTextToClipboard(videoLink);
+    if (!ok) {
+      toast({ title: 'Failed to copy link', variant: 'destructive' });
+      return;
+    }
+    setCopied(true);
+    toast({ title: 'Link copied!', description: 'Video link copied to clipboard.' });
+    await onShareConfirmed?.();
+    setTimeout(() => onClose(), 300);
+  };
+
   const handleShareToFriend = async (friendId: string) => {
-    if (!user || sendingTo) return;
+    if (!user || sendingTo || sentTo.has(friendId)) return;
     setSendingTo(friendId);
     try {
       const conversationId = await createConversation(user.id, friendId);
-      await supabase.from('messages').insert({
+      const { error } = await supabase.from('messages').insert({
         conversation_id: conversationId,
         sender_id: user.id,
-        content: `Check out this video! ${videoLink}`,
+        content: formatVideoShareMessage(videoLink, videoTitle),
       });
+      if (error) throw error;
+
       setSentTo((prev) => new Set(prev).add(friendId));
       toast({ title: 'Sent!', description: `Video shared with ${followers.find(f => f.id === friendId)?.name}` });
-    } catch {
+      await onShareConfirmed?.();
+    } catch (error) {
+      console.error('Error sharing video to friend:', error);
       toast({ title: 'Failed to send', variant: 'destructive' });
     } finally {
       setSendingTo(null);
+    }
+  };
+
+  const handleNativeShare = async () => {
+    if (sharingNative) return;
+    setSharingNative(true);
+    try {
+      const outcome = await shareViaNativeSheet({
+        title: videoTitle?.trim() || 'Video on Serkle',
+        url: videoLink,
+      });
+      if (outcome === 'shared') {
+        await onShareConfirmed?.();
+        onClose();
+      } else if (outcome === 'error') {
+        toast({ title: 'Could not share video', variant: 'destructive' });
+      }
+    } finally {
+      setSharingNative(false);
     }
   };
 
@@ -116,25 +178,30 @@ export const VideoShareMenu: React.FC<VideoShareMenuProps> = ({
     setSaving(true);
     try {
       const response = await fetch(videoUrl);
+      if (!response.ok) throw new Error('Download failed');
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `HeartLens_${videoId.slice(0, 8)}.mp4`;
+      a.download = `Serkle_${videoId.slice(0, 8)}.mp4`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      toast({ title: 'Video saved!', description: 'Downloaded to your device.' });
+      toast({ title: 'Video downloaded!', description: 'Downloaded to your device.' });
       onClose();
     } catch {
-      toast({ title: 'Failed to save video', variant: 'destructive' });
+      toast({ title: 'Failed to download video', variant: 'destructive' });
     } finally {
       setSaving(false);
     }
   };
 
   const handleShareToStory = () => {
+    if (!user) {
+      toast({ title: 'Please log in', description: 'You must be logged in to share a story.', variant: 'destructive' });
+      return;
+    }
     setShowStoryEditor(true);
   };
 
@@ -142,7 +209,7 @@ export const VideoShareMenu: React.FC<VideoShareMenuProps> = ({
 
   // Show story editor full-screen when selected
   if (showStoryEditor) {
-    return (
+    const storyEditorNode = (
       <>
         <StoryEditor
           previewUrl={videoUrl}
@@ -161,6 +228,7 @@ export const VideoShareMenu: React.FC<VideoShareMenuProps> = ({
                 ...extraData,
               });
 
+              await onShareConfirmed?.();
               toast({ title: 'Shared to story!', description: 'Video has been added to your story.' });
               setShowStoryEditor(false);
               onClose();
@@ -177,16 +245,24 @@ export const VideoShareMenu: React.FC<VideoShareMenuProps> = ({
         )}
       </>
     );
+
+    return typeof document !== 'undefined' ? createPortal(storyEditorNode, document.body) : storyEditorNode;
   }
 
-  return (
-    <div className="fixed inset-0 z-[70]" onClick={onClose}>
+  const sheetNode = (
+    <div
+      className="fixed inset-0 z-[100]"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="video-share-title"
+    >
       {/* Backdrop */}
       <div className="absolute inset-0 bg-black/50" />
 
       {/* Bottom sheet */}
       <div
-        className="absolute bottom-0 left-0 right-0 bg-background rounded-t-2xl animate-in slide-in-from-bottom duration-300 max-h-[70vh] overflow-hidden"
+        className="absolute bottom-0 left-0 right-0 bg-background rounded-t-2xl animate-in slide-in-from-bottom duration-300 max-h-[75vh] overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Handle */}
@@ -195,8 +271,13 @@ export const VideoShareMenu: React.FC<VideoShareMenuProps> = ({
         </div>
 
         <div className="px-4 pb-2 flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-foreground">Share</h3>
-          <button onClick={onClose} className="p-1 rounded-full hover:bg-muted">
+          <h3 id="video-share-title" className="text-lg font-semibold text-foreground">Share</h3>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close share sheet"
+            className="p-1 rounded-full hover:bg-muted"
+          >
             <X className="w-5 h-5 text-muted-foreground" />
           </button>
         </div>
@@ -204,18 +285,27 @@ export const VideoShareMenu: React.FC<VideoShareMenuProps> = ({
         {/* Friend list (shown when Share to Friend is tapped) */}
         {showFriends && (
           <div className="px-4 pb-3">
-            {followers.length === 0 ? (
+            {!user ? (
               <p className="text-sm text-muted-foreground py-4 text-center">
-                You're not following anyone yet
+                Log in to share videos with friends
+              </p>
+            ) : loadingFriends ? (
+              <div className="flex justify-center py-4">
+                <SerkleLoader size="xs" label="Loading friends" />
+              </div>
+            ) : followers.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-4 text-center">
+                Follow people to share videos directly in chat
               </p>
             ) : (
               <div className="flex gap-4 overflow-x-auto py-2 scrollbar-hide">
                 {followers.map((f) => (
                   <button
+                    type="button"
                     key={f.id}
                     onClick={() => handleShareToFriend(f.id)}
                     disabled={sendingTo === f.id || sentTo.has(f.id)}
-                    className="flex flex-col items-center gap-1.5 min-w-[64px]"
+                    className="flex flex-col items-center gap-1.5 min-w-[64px] disabled:opacity-75"
                   >
                     <div className="relative">
                       <div
@@ -245,9 +335,10 @@ export const VideoShareMenu: React.FC<VideoShareMenuProps> = ({
         )}
 
         {/* Action rows */}
-        <div className="px-4 pb-6 space-y-1">
+        <div className="px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] space-y-1">
           {/* Share to Story */}
           <button
+            type="button"
             onClick={handleShareToStory}
             className="flex items-center gap-4 w-full p-3 rounded-xl hover:bg-muted transition-colors"
           >
@@ -258,16 +349,18 @@ export const VideoShareMenu: React.FC<VideoShareMenuProps> = ({
           </button>
 
           <button
+            type="button"
             onClick={handleCopyLink}
             className="flex items-center gap-4 w-full p-3 rounded-xl hover:bg-muted transition-colors"
           >
             <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center">
-              <Link2 className="w-5 h-5 text-foreground" />
+              {copied ? <Check className="w-5 h-5 text-green-600" /> : <Link2 className="w-5 h-5 text-foreground" />}
             </div>
-            <span className="text-sm font-medium text-foreground">Copy Link</span>
+            <span className="text-sm font-medium text-foreground">{copied ? 'Copied' : 'Copy Link'}</span>
           </button>
 
           <button
+            type="button"
             onClick={() => setShowFriends(!showFriends)}
             className={cn(
               "flex items-center gap-4 w-full p-3 rounded-xl hover:bg-muted transition-colors",
@@ -280,20 +373,37 @@ export const VideoShareMenu: React.FC<VideoShareMenuProps> = ({
             <span className="text-sm font-medium text-foreground">Share to Friend</span>
           </button>
 
+          {canNativeShare && (
+            <button
+              type="button"
+              onClick={handleNativeShare}
+              disabled={sharingNative}
+              className="flex items-center gap-4 w-full p-3 rounded-xl hover:bg-muted transition-colors disabled:opacity-60"
+            >
+              <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center">
+                <Share2 className="w-5 h-5 text-foreground" />
+              </div>
+              <span className="text-sm font-medium text-foreground">More apps</span>
+            </button>
+          )}
+
           <button
+            type="button"
             onClick={handleSaveVideo}
             disabled={saving}
-            className="flex items-center gap-4 w-full p-3 rounded-xl hover:bg-muted transition-colors"
+            className="flex items-center gap-4 w-full p-3 rounded-xl hover:bg-muted transition-colors disabled:opacity-60"
           >
             <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center">
-              {saving ? <SerkleLoader size="xs" label="Saving video" /> : <Download className="w-5 h-5 text-foreground" />}
+              {saving ? <SerkleLoader size="xs" label="Downloading video" /> : <Download className="w-5 h-5 text-foreground" />}
             </div>
             <span className="text-sm font-medium text-foreground">
-              {saving ? 'Saving...' : 'Save Video'}
+              {saving ? 'Downloading...' : 'Download Video'}
             </span>
           </button>
         </div>
       </div>
     </div>
   );
+
+  return typeof document !== 'undefined' ? createPortal(sheetNode, document.body) : sheetNode;
 };

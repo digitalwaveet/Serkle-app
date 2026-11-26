@@ -30,7 +30,10 @@ export const RelaxVideoCard: React.FC<RelaxVideoCardProps> = ({
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isLiked, setIsLiked] = useState(false);
-  const [isSaved, setIsSaved] = useState(false);
+  const [isSaved, setIsSaved] = useState(Boolean((video as { saved?: boolean }).saved));
+  const [savesCount, setSavesCount] = useState(video.stats.saves);
+  const [sharesCount, setSharesCount] = useState(video.stats.shares);
+  const isSavingRef = useRef(false);
   const [isMuted, setIsMuted] = useState(true);
   const [followState, setFollowState] = useState<'visible' | 'checked' | 'hidden'>('visible');
   const [showProfileModal, setShowProfileModal] = useState(false);
@@ -102,9 +105,39 @@ export const RelaxVideoCard: React.FC<RelaxVideoCardProps> = ({
       toast.error('Please login to save videos');
       return;
     }
-    setIsSaved(!isSaved);
-    if (video.id) {
-      await toggleSave(String(video.id));
+    if (isSavingRef.current || !video.id) return;
+
+    const previousSaved = isSaved;
+    const previousSavesCount = savesCount;
+    const nextSaved = !previousSaved;
+    const optimisticSavesCount = Math.max(0, previousSavesCount + (nextSaved ? 1 : -1));
+
+    isSavingRef.current = true;
+    setIsSaved(nextSaved);
+    setSavesCount(optimisticSavesCount);
+
+    try {
+      const result = await toggleSave(String(video.id), previousSaved);
+      if (!result.ok) {
+        setIsSaved(previousSaved);
+        setSavesCount(previousSavesCount);
+      } else {
+        setIsSaved(typeof result.saved === 'boolean' ? result.saved : nextSaved);
+        setSavesCount(typeof result.savesCount === 'number' ? result.savesCount : optimisticSavesCount);
+      }
+    } finally {
+      isSavingRef.current = false;
+    }
+  };
+
+  const handleShareConfirmed = async () => {
+    if (!video.id) return;
+    setSharesCount(prev => prev + 1);
+    const persistedCount = await incrementShare(String(video.id));
+    if (typeof persistedCount === 'number') {
+      setSharesCount(persistedCount);
+    } else {
+      setSharesCount(prev => Math.max(0, prev - 1));
     }
   };
 
@@ -268,7 +301,7 @@ export const RelaxVideoCard: React.FC<RelaxVideoCardProps> = ({
             <Share className="size-6 text-white group-active:text-primary transition-colors" />
           </div>
           <span className="text-xs font-medium text-white drop-shadow-sm">
-            {formatCount(video.stats.shares)}
+            {formatCount(sharesCount)}
           </span>
         </button>
 
@@ -289,7 +322,7 @@ export const RelaxVideoCard: React.FC<RelaxVideoCardProps> = ({
             )} />
           </div>
           <span className="text-xs font-medium text-white drop-shadow-sm">
-            {formatCount(video.stats.saves + (isSaved ? 1 : 0))}
+            {formatCount(savesCount)}
           </span>
         </button>
       </div>
@@ -322,6 +355,8 @@ export const RelaxVideoCard: React.FC<RelaxVideoCardProps> = ({
         onClose={() => setShowShareMenu(false)}
         videoId={String(video.id)}
         videoUrl={video.url}
+        videoTitle={video.title || video.description}
+        onShareConfirmed={handleShareConfirmed}
       />
     </div>
   );

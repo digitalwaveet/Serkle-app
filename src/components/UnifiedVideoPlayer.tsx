@@ -30,6 +30,10 @@ export const UnifiedVideoPlayer = memo<UnifiedVideoPlayerProps>(({
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isLiked, setIsLiked] = useState(video.liked);
   const [isSaved, setIsSaved] = useState(video.saved);
+  const [savesCount, setSavesCount] = useState(video.stats.saves);
+  const [sharesCount, setSharesCount] = useState(video.stats.shares);
+  const [isSaving, setIsSaving] = useState(false);
+  const isSavingRef = useRef(false);
   const [isMuted, setIsMuted] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [followState, setFollowState] = useState<'visible' | 'checked' | 'hidden'>('visible');
@@ -37,7 +41,7 @@ export const UnifiedVideoPlayer = memo<UnifiedVideoPlayerProps>(({
   const [showShareMenu, setShowShareMenu] = useState(false);
   const [showCommentsModal, setShowCommentsModal] = useState(false);
   const { triggerHaptic } = useHapticFeedback();
-  const { toggleLike, toggleSave } = useVideoMutations();
+  const { toggleLike, toggleSave, incrementShare } = useVideoMutations();
   const { toggleFollow, checkFollowStatus } = useFollowMutations();
   const { user } = useUser();
 
@@ -56,11 +60,13 @@ export const UnifiedVideoPlayer = memo<UnifiedVideoPlayerProps>(({
     checkInitialFollowStatus();
   }, [video.user.id, user, checkFollowStatus]);
 
-  // Update like/save state when video changes
+  // Update like/save/share state when video changes
   useEffect(() => {
     setIsLiked(video.liked);
     setIsSaved(video.saved);
-  }, [video.liked, video.saved]);
+    setSavesCount(video.stats.saves);
+    setSharesCount(video.stats.shares);
+  }, [video.id, video.liked, video.saved, video.stats.saves, video.stats.shares]);
 
   // Simplified video loading - prevent duplicates by ensuring unique src management
   useEffect(() => {
@@ -125,15 +131,51 @@ export const UnifiedVideoPlayer = memo<UnifiedVideoPlayerProps>(({
   }, [isLiked, triggerHaptic, video.id, toggleLike]);
 
   const handleSave = useCallback(async () => {
-    setIsSaved(!isSaved);
+    if (!user) {
+      toast.error('Please login to save videos');
+      return;
+    }
+    if (isSavingRef.current) return;
+
+    const previousSaved = isSaved;
+    const previousSavesCount = savesCount;
+    const nextSaved = !previousSaved;
+    const optimisticSavesCount = Math.max(0, previousSavesCount + (nextSaved ? 1 : -1));
+
+    isSavingRef.current = true;
+    setIsSaving(true);
+    setIsSaved(nextSaved);
+    setSavesCount(optimisticSavesCount);
     triggerHaptic('light');
+
     try {
-      await toggleSave(video.id);
+      const result = await toggleSave(video.id, previousSaved);
+      if (!result.ok) {
+        setIsSaved(previousSaved);
+        setSavesCount(previousSavesCount);
+      } else {
+        setIsSaved(typeof result.saved === 'boolean' ? result.saved : nextSaved);
+        setSavesCount(typeof result.savesCount === 'number' ? result.savesCount : optimisticSavesCount);
+      }
     } catch (error) {
       console.error('Error toggling save:', error);
-      setIsSaved(isSaved);
+      setIsSaved(previousSaved);
+      setSavesCount(previousSavesCount);
+    } finally {
+      isSavingRef.current = false;
+      setIsSaving(false);
     }
-  }, [isSaved, triggerHaptic, video.id, toggleSave]);
+  }, [user, isSaved, savesCount, triggerHaptic, video.id, toggleSave]);
+
+  const handleShareConfirmed = useCallback(async () => {
+    setSharesCount(prev => prev + 1);
+    const persistedCount = await incrementShare(video.id);
+    if (typeof persistedCount === 'number') {
+      setSharesCount(persistedCount);
+    } else {
+      setSharesCount(prev => Math.max(0, prev - 1));
+    }
+  }, [incrementShare, video.id]);
 
   const handleMute = useCallback(() => {
     const videoElement = videoRef.current;
@@ -281,18 +323,24 @@ export const UnifiedVideoPlayer = memo<UnifiedVideoPlayerProps>(({
         </button>
 
         <button 
+          type="button"
           onClick={() => setShowShareMenu(true)}
+          aria-label={`Share video, ${formatCount(sharesCount)} shares`}
           className="group flex flex-col items-center gap-1 transition-all duration-200 active:bg-transparent"
         >
           <div className="w-14 h-14 rounded-full bg-card/15 backdrop-blur-md border border-white/20 flex items-center justify-center group-active:scale-95 hover:bg-card/25 transition-all duration-200 shadow-lg active:bg-card/15">
             <Share className="w-7 h-7 text-white group-active:text-primary transition-colors" />
           </div>
-          <span className="text-white text-xs font-medium drop-shadow-sm">{formatCount(video.stats.shares)}</span>
+          <span className="text-white text-xs font-medium drop-shadow-sm tabular-nums">{formatCount(sharesCount)}</span>
         </button>
 
         <button 
+          type="button"
           onClick={handleSave}
-          className="group flex flex-col items-center gap-1 transition-all duration-200"
+          disabled={isSaving}
+          aria-label={`${isSaved ? 'Remove video from saved' : 'Save video'}, ${formatCount(savesCount)} saves`}
+          aria-pressed={isSaved}
+          className="group flex flex-col items-center gap-1 transition-all duration-200 disabled:opacity-70"
         >
           <div className={cn(
             "w-14 h-14 rounded-full backdrop-blur-md border flex items-center justify-center group-active:scale-95 transition-all duration-200 shadow-lg",
@@ -305,6 +353,7 @@ export const UnifiedVideoPlayer = memo<UnifiedVideoPlayerProps>(({
               isSaved ? "fill-yellow-500 text-yellow-500" : "text-white"
             )} />
           </div>
+          <span className="text-white text-xs font-medium drop-shadow-sm tabular-nums">{formatCount(savesCount)}</span>
         </button>
 
         <button 
@@ -336,6 +385,8 @@ export const UnifiedVideoPlayer = memo<UnifiedVideoPlayerProps>(({
         onClose={() => setShowShareMenu(false)}
         videoId={video.id}
         videoUrl={video.url}
+        videoTitle={video.title || video.description}
+        onShareConfirmed={handleShareConfirmed}
       />
 
       <CommentsModal
