@@ -1,3 +1,5 @@
+import { generatePseudonym } from "../utils/anonymousIdentity.ts";
+
 const messages = {
   answer: { one: "answer", other: "answers" },
   question: { one: "question", other: "questions" },
@@ -84,4 +86,54 @@ export function askTime(value?: string | null) {
     Math.round(seconds / scale),
     scale === 86400 ? "day" : scale === 3600 ? "hour" : "minute",
   );
+}
+
+export interface AskActivityIdentity {
+  isExpertIdentity: boolean;
+  displayName: string;
+  subtitle: string;
+  pseudonym?: string;
+}
+
+/**
+ * Resolves the identity shown in the Serkle Ask activity profile summary.
+ * Only verified experts display their real account name; all other users
+ * display their given anonymous name (falling back to a deterministic pseudonym).
+ */
+export function resolveAskActivityIdentity(params: {
+  userId: string;
+  realName: string;
+  username?: string | null;
+  isExpert: boolean;
+  questions?: Array<{
+    is_anonymous?: boolean | null;
+    anonymous_name?: string | null;
+  }> | null;
+}): AskActivityIdentity {
+  if (params.isExpert) {
+    return {
+      isExpertIdentity: true,
+      displayName: params.realName,
+      subtitle: params.username ? `@${params.username}` : "Verified expert",
+    };
+  }
+
+  const givenAnonymousName = params.questions
+    ?.find(
+      (q) =>
+        q?.is_anonymous &&
+        typeof q.anonymous_name === "string" &&
+        q.anonymous_name.trim().length > 0,
+    )
+    ?.anonymous_name?.trim();
+
+  const pseudonym =
+    givenAnonymousName || generatePseudonym(params.userId, "ask-activity");
+
+  return {
+    isExpertIdentity: false,
+    displayName: pseudonym,
+    subtitle: "Anonymous identity",
+    pseudonym,
+  };
 }

@@ -610,6 +610,8 @@ class Builder {
     return Promise.resolve({ data, error }).then(resolve, reject);
   }
 }
+export const SUPABASE_URL = "https://example.test";
+export const SUPABASE_PUBLISHABLE_KEY = "test-publishable-key";
 export const supabase = {
   auth: {
     getUser: async () => ({

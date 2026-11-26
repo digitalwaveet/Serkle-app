@@ -416,6 +416,36 @@ test("expert verification keeps its wizard, accessible fields and focus inside A
   }
 });
 
+test("activity profile shows given anonymous name for regular users and real name only for verified experts", async () => {
+  const regularPage = await askPage("", "/ask/profile");
+  try {
+    const summary = regularPage.locator(".ask-profile-summary");
+    await expect(summary).toContainText("River Finch");
+    await expect(summary).toContainText("Anonymous identity");
+    await expect(summary).not.toContainText("Actual Account Name");
+    await expect(summary).not.toContainText("@actual.account");
+    await expect(summary.locator('img[src="/sample/owner.svg"]')).toHaveCount(
+      0,
+    );
+    await expect(
+      summary.getByRole("img", { name: "Anonymous identity: River Finch" }),
+    ).toBeVisible();
+  } finally {
+    await regularPage.context().close();
+  }
+
+  const expertPage = await askPage("expert", "/ask/profile");
+  try {
+    const summary = expertPage.locator(".ask-profile-summary");
+    await expect(summary).toContainText("Actual Account Name");
+    await expect(summary).toContainText("@actual.account");
+    await expect(summary).toContainText("Verified expert");
+    await expect(summary).not.toContainText("Anonymous identity");
+  } finally {
+    await expertPage.context().close();
+  }
+});
+
 test("featured answers navigate to question IDs and expert messaging keeps its existing action", async () => {
   const page = await askPage();
   try {

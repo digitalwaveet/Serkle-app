@@ -25,6 +25,7 @@ import {
   askTime,
   formatAskCount,
   formatAskNumber,
+  resolveAskActivityIdentity,
 } from "@/lib/askPresentation";
 import "@/components/ask/ask.css";
 export default function AskProfile() {
@@ -42,6 +43,18 @@ export default function AskProfile() {
   const active =
     tab === "questions" ? questions : tab === "answers" ? answers : saved;
   const rows = (active.data || []) as any[];
+  const activityIdentity = user
+    ? resolveAskActivityIdentity({
+        userId: user.id,
+        realName: user.name,
+        username: user.username,
+        isExpert: Boolean(expert.data),
+        questions: questions.data as Array<{
+          is_anonymous?: boolean | null;
+          anonymous_name?: string | null;
+        }> | undefined,
+      })
+    : null;
   return (
     <div className="ask-root">
       <Header />
@@ -78,19 +91,30 @@ export default function AskProfile() {
                 className="ask-profile-summary"
                 aria-label="Your Ask profile"
               >
-                <div className="ask-author">
-                  <span className="ask-author-avatar">
-                    {user.avatar ? (
-                      <img src={user.avatar} alt="" />
+                {activityIdentity && (
+                  <div className="ask-author">
+                    {activityIdentity.isExpertIdentity ? (
+                      <span className="ask-author-avatar">
+                        {user.avatar ? (
+                          <img src={user.avatar} alt="" />
+                        ) : (
+                          <span>{user.initials}</span>
+                        )}
+                      </span>
                     ) : (
-                      <span>{user.initials}</span>
+                      <AnonymousAvatar
+                        pseudonym={activityIdentity.pseudonym!}
+                        size={36}
+                      />
                     )}
-                  </span>
-                  <div className="ask-author-copy">
-                    <span className="ask-author-name">{user.name}</span>
-                    <p>@{user.username}</p>
+                    <div className="ask-author-copy">
+                      <span className="ask-author-name">
+                        {activityIdentity.displayName}
+                      </span>
+                      <p>{activityIdentity.subtitle}</p>
+                    </div>
                   </div>
-                </div>
+                )}
                 {expert.isLoading ? (
                   <p className="text-xs text-muted-foreground mt-4">
                     Checking expert status…

@@ -6,6 +6,7 @@ import {
   isAskSummaryReady,
   askCategory,
   anonymousTextColor,
+  resolveAskActivityIdentity,
 } from "../lib/askPresentation.ts";
 test("Ask count labels handle zero, one and multiple counts without changing values", () => {
   for (const [unit, singular, plural] of [
@@ -63,4 +64,54 @@ test("category presentation preserves existing category keys", () => {
 test("anonymous initials remain readable without changing identity colors", () => {
   assert.equal(anonymousTextColor("#713A20"), "#ffffff");
   assert.equal(anonymousTextColor("#FFE2BE"), "#111111");
+});
+test("Ask activity identity displays given anonymous name unless user is a verified expert", () => {
+  const withGiven = resolveAskActivityIdentity({
+    userId: "user-1",
+    realName: "Actual Account Name",
+    username: "actual.account",
+    isExpert: false,
+    questions: [
+      { is_anonymous: false, anonymous_name: null },
+      { is_anonymous: true, anonymous_name: "River Finch" },
+    ],
+  });
+  assert.deepEqual(withGiven, {
+    isExpertIdentity: false,
+    displayName: "River Finch",
+    subtitle: "Anonymous identity",
+    pseudonym: "River Finch",
+  });
+
+  const withoutQuestionsA = resolveAskActivityIdentity({
+    userId: "user-2",
+    realName: "Actual Account Name",
+    username: "actual.account",
+    isExpert: false,
+    questions: [],
+  });
+  const withoutQuestionsB = resolveAskActivityIdentity({
+    userId: "user-2",
+    realName: "Actual Account Name",
+    username: "actual.account",
+    isExpert: false,
+    questions: [],
+  });
+  assert.equal(withoutQuestionsA.isExpertIdentity, false);
+  assert.equal(withoutQuestionsA.displayName, withoutQuestionsB.displayName);
+  assert.notEqual(withoutQuestionsA.displayName, "Actual Account Name");
+  assert.equal(withoutQuestionsA.subtitle, "Anonymous identity");
+
+  const expertIdentity = resolveAskActivityIdentity({
+    userId: "user-3",
+    realName: "Dr. Hana Tesfaye",
+    username: "hana",
+    isExpert: true,
+    questions: [{ is_anonymous: true, anonymous_name: "River Finch" }],
+  });
+  assert.deepEqual(expertIdentity, {
+    isExpertIdentity: true,
+    displayName: "Dr. Hana Tesfaye",
+    subtitle: "@hana",
+  });
 });
