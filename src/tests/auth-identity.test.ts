@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   authMethodForIdentifier,
   authErrorMessage,
+  isExistingEmailSignup,
   isUnverifiedAuthError,
   isValidEmail,
   maskAuthIdentifier,
@@ -15,6 +16,15 @@ test('normalizes email identifiers', () => {
   assert.equal(normalizeEmail('  User@Example.COM '), 'user@example.com');
   assert.equal(isValidEmail('user@example.com'), true);
   assert.equal(isValidEmail('invalid-email'), false);
+});
+
+test('detects duplicate signup errors and obfuscated users without blocking new signups', () => {
+  assert.equal(isExistingEmailSignup({ code: 'user_already_exists' }), true);
+  assert.equal(isExistingEmailSignup({ code: 'email_exists' }), true);
+  assert.equal(isExistingEmailSignup(null, { identities: [] }), true);
+  assert.equal(isExistingEmailSignup(null, { identities: [{}] }), false);
+  assert.equal(isExistingEmailSignup(null, {}), false);
+  assert.equal(isExistingEmailSignup({ code: 'over_email_send_rate_limit' }, { identities: [] }), false);
 });
 
 test('normalizes Ethiopian local and international phone numbers', () => {

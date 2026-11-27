@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Eye, EyeOff } from 'lucide-react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { ArrowLeft, Check, Eye, EyeOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -8,7 +8,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
 import { authReturnPath } from '@/lib/authReturnPath';
 import { beginSignup, hasUsableSession, savePendingAuth } from '@/lib/authFlow';
-import { authErrorMessage, isValidEmail } from '@/lib/authIdentity';
+import { authErrorMessage, isExistingEmailSignup, isValidEmail, normalizeEmail } from '@/lib/authIdentity';
 import {
   PROFILE_GENDER_OPTIONS,
   savePendingSignupGender,
@@ -21,6 +21,7 @@ export default function Signup() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [existingEmail, setExistingEmail] = useState<string | null>(null);
   const [gender, setGender] = useState<ProfileGender | ''>('');
   const [formData, setFormData] = useState({
     fullName: '',
@@ -30,6 +31,8 @@ export default function Signup() {
   });
 
   const loginPath = `/login?returnTo=${encodeURIComponent(returnTo)}`;
+  const emailAlreadyRegistered = existingEmail === normalizeEmail(formData.email);
+  const emailFormatValid = !emailAlreadyRegistered && isValidEmail(formData.email);
 
   const handleGoogleSignIn = async () => {
     if (isLoading) return;
@@ -53,7 +56,7 @@ export default function Signup() {
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (isLoading) return;
+    if (isLoading || emailAlreadyRegistered) return;
     if (!formData.fullName.trim()) {
       toast({ title: 'Name required', description: 'Enter your full name.', variant: 'destructive' });
       return;
@@ -85,6 +88,10 @@ export default function Signup() {
         gender,
         returnTo,
       });
+      if (isExistingEmailSignup(error, data.user)) {
+        setExistingEmail(identifier);
+        return;
+      }
       if (error) throw error;
       if (hasUsableSession(data.session)) {
         navigate(returnTo, { replace: true });
@@ -159,7 +166,33 @@ export default function Signup() {
 
             <div className="space-y-1.5">
               <Label htmlFor="signup-email">Email address</Label>
-              <Input id="signup-email" type="email" autoComplete="email" placeholder="you@example.com" value={formData.email} onChange={(event) => updateField('email', event.target.value)} required />
+              <div className="relative">
+                <Input
+                  id="signup-email"
+                  type="email"
+                  autoComplete="email"
+                  placeholder="you@example.com"
+                  value={formData.email}
+                  onChange={(event) => updateField('email', event.target.value)}
+                  aria-invalid={emailAlreadyRegistered || undefined}
+                  aria-describedby={emailAlreadyRegistered || emailFormatValid ? 'signup-email-feedback' : undefined}
+                  className="pr-10"
+                  required
+                />
+                {emailFormatValid && (
+                  <Check aria-hidden="true" className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-green-700 dark:text-green-400" />
+                )}
+              </div>
+              <div id="signup-email-feedback" aria-live="polite">
+                {emailAlreadyRegistered ? (
+                  <p className="text-sm text-destructive">
+                    This email already has a Serkle account.{' '}
+                    <Link to={loginPath} className="font-semibold underline underline-offset-2">Please log in</Link>.
+                  </p>
+                ) : emailFormatValid ? (
+                  <p className="text-xs text-muted-foreground">Email format looks good.</p>
+                ) : null}
+              </div>
             </div>
 
             <div className="space-y-1.5">
@@ -183,7 +216,7 @@ export default function Signup() {
               </div>
             </div>
 
-            <Button type="submit" disabled={isLoading} className="h-11 w-full rounded-xl text-sm font-medium">
+            <Button type="submit" disabled={isLoading || emailAlreadyRegistered} className="h-11 w-full rounded-xl text-sm font-medium">
               {isLoading ? 'Creating account…' : 'Create account with email'}
             </Button>
           </form>

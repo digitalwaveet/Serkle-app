@@ -84,6 +84,18 @@ export function isUnverifiedAuthError(error: unknown) {
     || message.includes('phone not confirmed');
 }
 
+export function isExistingEmailSignup(
+  error: unknown,
+  user?: { identities?: readonly unknown[] } | null,
+) {
+  const code = authErrorCode(error);
+  if (code === 'user_already_exists' || code === 'email_exists') return true;
+
+  // With confirmation enabled, Supabase can return an obfuscated user for a
+  // duplicate signup. An explicitly empty identity list identifies that result.
+  return !error && Array.isArray(user?.identities) && user.identities.length === 0;
+}
+
 export function authErrorMessage(error: unknown) {
   const code = authErrorCode(error);
   switch (code) {
