@@ -1,16 +1,16 @@
 # Serkle SMTP mailer deployment
 
-Serkle uses Supabase Auth Custom SMTP and the Little Tigers Group cPanel
-mailbox for authentication email. Edge Functions continue to send application
-notifications. Supabase Auth creates, expires, renders and verifies all
-authentication codes.
+Serkle uses Resend through Supabase Auth Custom SMTP for authentication
+email. The application notification functions have separate cPanel SMTP
+settings. Supabase Auth creates, expires, renders and verifies authentication
+codes.
 
 ## Architecture
 
 - **Supabase Auth Custom SMTP** sends signup, invite, magic-link, recovery and
-  email-change messages directly through the cPanel mailbox.
-- `send-email`: legacy Auth worker. Keep its Auth hook disabled and retire its
-  recurring job after verifying direct SMTP delivery with a fresh code.
+  email-change messages through Resend.
+- `send-email`: optional Auth worker for automatic failover. Keep its Auth hook
+  disabled while using direct Resend SMTP.
 - `send-notification-email`: server-to-server endpoint for allowlisted Serkle
   notification templates. It does not accept arbitrary HTML or subjects.
 - `_shared/smtpMailer.ts`: authenticated TLS transport using Nodemailer.
@@ -57,24 +57,17 @@ The notification function requires
 In **Authentication → Email → SMTP Settings**:
 
 1. Enable **Custom SMTP**.
-2. Sender email: `no-reply@littletigersgroup.com`.
+2. Sender email: `no-reply@serkle.app`.
 3. Sender name: `Serkle`.
-4. Host: `pimms.hostns.io`.
+4. Host: `smtp.resend.com`.
 5. Port: `465`.
-6. Username: `no-reply@littletigersgroup.com`.
-7. Enter the mailbox password only in the Supabase Dashboard and save.
+6. Username: `resend`.
+7. Enter a Resend sending API key in the SMTP password field and save.
 
 Keep the Email provider enabled and the **Send Email Auth Hook disabled**.
-Enabling the hook routes authentication email through the legacy Edge worker.
-After confirming delivery of a freshly requested signup code, disable the
-scheduled job that posts to `/functions/v1/send-email`. For a missing code
-after a successful resend response, inspect Supabase Auth logs around that
-request, then check cPanel Track Delivery for the recipient and send time.
-
-Do not use `mail.littletigersgroup.com` until its DNS record is corrected. It
-currently resolves to a web server where port 465 is closed. The hosting
-provider's SMTP endpoint `pimms.hostns.io` resolves to the working mail server
-and presents a certificate valid for that hostname.
+Enabling the hook routes authentication email through the Edge worker.
+For missing auth email, inspect Supabase Auth logs, then search Resend's email
+log by recipient and send time. An accepted delivery can still land in Spam.
 
 ## 4. cPanel domain authentication
 
@@ -120,8 +113,7 @@ runtime before cutover. Configure a scheduled POST to the worker using
 
 After both providers pass a controlled delivery test, enable the signed HTTPS
 Send Email Hook pointing to `/functions/v1/send-email`. Supabase then uses the
-hook for authentication email. Keep the direct cPanel settings available for
-rollback by disabling the hook.
+hook for authentication email. To restore direct Resend SMTP, disable the hook.
 
 The worker uses SMTP when Resend explicitly rejects a request with HTTP 401,
 403, or 429. It retries ambiguous errors using the same Resend idempotency key.

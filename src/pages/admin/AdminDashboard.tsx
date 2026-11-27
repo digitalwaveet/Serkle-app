@@ -1,157 +1,123 @@
+import { ArrowRight, RefreshCw } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { SerkleLoader } from '@/components/ui/SerkleLoader';
-import { useEffect, useState } from 'react';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { supabase } from '@/integrations/supabase/client';
-import { Users, FileText, Video, MessageSquare, TrendingUp, Shield } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts';
+import { useAdminSnapshot } from '@/hooks/useAdminSnapshot';
+import type { AdminSnapshot } from '@/lib/adminSnapshot';
 
-interface Stats {
-  totalUsers: number;
-  totalPosts: number;
-  totalVideos: number;
-  totalMessages: number;
-  totalReports: number;
-  bannedUsers: number;
+type Metric = { key: keyof AdminSnapshot['counts']; label: string; path?: string };
+
+const reviewMetrics: Metric[] = [
+  { key: 'active_sos', label: 'Active SOS alerts', path: 'safety' },
+  { key: 'pending_reports', label: 'Pending reports', path: 'reports' },
+  { key: 'pending_reviews', label: 'Pending content reviews', path: 'content-queue' },
+  { key: 'pending_appeals', label: 'Pending appeals', path: 'appeals' },
+  { key: 'open_disputes', label: 'Open shop disputes', path: 'shop' },
+  { key: 'live_streams', label: 'Live streams on air', path: 'live-streams' },
+];
+
+const activityMetrics: Metric[] = [
+  { key: 'profiles', label: 'Profiles', path: 'users' },
+  { key: 'banned_profiles', label: 'Banned profiles', path: 'users' },
+  { key: 'posts', label: 'Posts', path: 'posts' },
+  { key: 'stories', label: 'Stories' },
+  { key: 'videos', label: 'Videos', path: 'videos' },
+  { key: 'comments', label: 'Comments', path: 'comments' },
+  { key: 'circles', label: 'Circles', path: 'circles' },
+  { key: 'questions', label: 'Ask questions', path: 'ask-moderation' },
+  { key: 'messages', label: 'Message records' },
+  { key: 'orders', label: 'Shop orders', path: 'shop' },
+];
+
+const signupDate = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
+
+function Metrics({ title, metrics, counts }: { title: string; metrics: Metric[]; counts: AdminSnapshot['counts'] }) {
+  return (
+    <section className="space-y-3" aria-label={title}>
+      <h2 className="text-lg font-semibold">{title}</h2>
+      <ul className="grid grid-cols-1 gap-3 min-[360px]:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+        {metrics.map(({ key, label, path }) => {
+          const content = (
+            <>
+              <span className="block text-2xl font-semibold tabular-nums">{counts[key].toLocaleString()}</span>
+              <span className="flex items-center gap-1 text-sm text-muted-foreground">
+                {label}
+                {path && <ArrowRight className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
+              </span>
+            </>
+          );
+          return (
+            <li key={key} className="rounded-xl border bg-card text-card-foreground">
+              {path ? (
+                <Link to={`/admin/${path}`} className="block h-full rounded-xl p-4 transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  {content}
+                </Link>
+              ) : <div className="p-4">{content}</div>}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
 }
 
 export default function AdminDashboard() {
-  const [stats, setStats] = useState<Stats>({
-    totalUsers: 0, totalPosts: 0, totalVideos: 0,
-    totalMessages: 0, totalReports: 0, bannedUsers: 0,
-  });
-  const [signupData, setSignupData] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const fetchStats = async () => {
-      try {
-        const [usersRes, postsRes, videosRes, messagesRes, reportsRes, bannedRes] = await Promise.all([
-          supabase.from('profiles').select('id', { count: 'exact', head: true }),
-          supabase.from('posts').select('id', { count: 'exact', head: true }),
-          supabase.from('videos').select('id', { count: 'exact', head: true }),
-          supabase.from('messages').select('id', { count: 'exact', head: true }),
-          supabase.from('content_reports').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
-          supabase.from('profiles').select('id', { count: 'exact', head: true }).not('banned_at', 'is', null),
-        ]);
-
-        setStats({
-          totalUsers: usersRes.count || 0,
-          totalPosts: postsRes.count || 0,
-          totalVideos: videosRes.count || 0,
-          totalMessages: messagesRes.count || 0,
-          totalReports: reportsRes.count || 0,
-          bannedUsers: bannedRes.count || 0,
-        });
-
-        // Fetch signup data for last 7 days
-        const sevenDaysAgo = new Date();
-        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-        
-        const { data: recentUsers } = await supabase
-          .from('profiles')
-          .select('created_at')
-          .gte('created_at', sevenDaysAgo.toISOString())
-          .order('created_at', { ascending: true });
-
-        if (recentUsers) {
-          const grouped: Record<string, number> = {};
-          for (let i = 6; i >= 0; i--) {
-            const d = new Date();
-            d.setDate(d.getDate() - i);
-            const key = d.toLocaleDateString('en', { weekday: 'short' });
-            grouped[key] = 0;
-          }
-          recentUsers.forEach((u) => {
-            const key = new Date(u.created_at).toLocaleDateString('en', { weekday: 'short' });
-            if (grouped[key] !== undefined) grouped[key]++;
-          });
-          setSignupData(Object.entries(grouped).map(([name, value]) => ({ name, signups: value })));
-        }
-      } catch (err) {
-        console.error('Failed to fetch admin stats:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchStats();
-  }, []);
-
-  const statCards = [
-    { title: 'Total Users', value: stats.totalUsers, icon: Users, color: 'text-blue-600' },
-    { title: 'Total Posts', value: stats.totalPosts, icon: FileText, color: 'text-green-600' },
-    { title: 'Total Videos', value: stats.totalVideos, icon: Video, color: 'text-purple-600' },
-    { title: 'Messages', value: stats.totalMessages, icon: MessageSquare, color: 'text-orange-600' },
-    { title: 'Pending Reports', value: stats.totalReports, icon: Shield, color: 'text-red-600' },
-    { title: 'Banned Users', value: stats.bannedUsers, icon: TrendingUp, color: 'text-destructive' },
-  ];
-
-  if (loading) {
-    return (
-      <div className="space-y-6">
-        <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-          <div className="col-span-full flex min-h-24 w-full items-center justify-center py-8"><SerkleLoader size="md" label="Loading data" /></div>
-        </div>
-      </div>
-    );
-  }
+  const snapshot = useAdminSnapshot();
+  const data = snapshot.isSuccess ? snapshot.data : undefined;
+  const peak = Math.max(1, ...(data?.signups.map(({ count }) => count) ?? []));
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-foreground">Dashboard Overview</h1>
+    <div className="mx-auto max-w-7xl space-y-6">
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div className="space-y-1">
+          <h1 className="text-2xl font-bold">Operations dashboard</h1>
+          {data && <p className="text-sm text-muted-foreground">Updated {data.checkedAt.toLocaleString()}</p>}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button asChild variant="outline" size="sm"><Link to="/admin/platform-health">Platform health</Link></Button>
+          <Button variant="outline" size="sm" disabled={snapshot.isFetching} onClick={() => void snapshot.refetch()}>
+            <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
+            {snapshot.isFetching ? 'Refreshing…' : 'Refresh'}
+          </Button>
+        </div>
+      </header>
 
-      {/* Stat Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-        {statCards.map((stat) => (
-          <Card key={stat.title}>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between mb-2">
-                <stat.icon className={`h-5 w-5 ${stat.color}`} />
-              </div>
-              <p className="text-2xl font-bold text-foreground">{stat.value.toLocaleString()}</p>
-              <p className="text-xs text-muted-foreground">{stat.title}</p>
+      {snapshot.isPending && <SerkleLoader label="Loading operations data" showText />}
+      {snapshot.isError && (
+        <div role="alert" className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm">
+          <p className="font-semibold">Operations data unavailable</p>
+          <p className="mt-1 text-muted-foreground">The admin data request failed. Refresh to try again.</p>
+        </div>
+      )}
+
+      {data && (
+        <>
+          <Metrics title="Review and response" metrics={reviewMetrics} counts={data.counts} />
+          <Metrics title="Platform records" metrics={activityMetrics} counts={data.counts} />
+          <Card>
+            <CardHeader className="gap-1">
+              <CardTitle className="text-base">New profiles</CardTitle>
+              <p className="text-sm text-muted-foreground">Last seven calendar days in UTC</p>
+            </CardHeader>
+            <CardContent>
+              <dl className="space-y-2">
+                {data.signups.map(({ day, count }) => (
+                  <div key={day} className="grid grid-cols-[minmax(5rem,auto)_1fr] items-center gap-3 text-sm">
+                    <dt className="text-muted-foreground">{signupDate.format(new Date(day))}</dt>
+                    <dd className="grid grid-cols-[1fr_auto] items-center gap-3">
+                      <div className="h-2 min-w-0 rounded-full bg-muted" aria-hidden="true">
+                        <div className="h-full rounded-full bg-primary" style={{ width: `${(count / peak) * 100}%` }} />
+                      </div>
+                      <span className="min-w-8 text-right font-medium tabular-nums">{count.toLocaleString()}</span>
+                    </dd>
+                  </div>
+                ))}
+              </dl>
             </CardContent>
           </Card>
-        ))}
-      </div>
-
-      {/* Charts */}
-      <div className="grid md:grid-cols-2 gap-6">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">New Sign-ups (Last 7 Days)</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={250}>
-              <BarChart data={signupData}>
-                <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                <XAxis dataKey="name" className="text-xs" />
-                <YAxis className="text-xs" />
-                <Tooltip />
-                <Bar dataKey="signups" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Sign-up Trend</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={250}>
-              <LineChart data={signupData}>
-                <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                <XAxis dataKey="name" className="text-xs" />
-                <YAxis className="text-xs" />
-                <Tooltip />
-                <Line type="monotone" dataKey="signups" stroke="hsl(var(--primary))" strokeWidth={2} />
-              </LineChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-      </div>
+        </>
+      )}
     </div>
   );
 }

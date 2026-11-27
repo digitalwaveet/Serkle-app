@@ -4842,6 +4842,11 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_admin_operational_snapshot: { Args: Record<never, never>; Returns: Json }
+      resolve_admin_content_review: {
+        Args: { _item_id: string; _action: string; _notes?: string }
+        Returns: undefined
+      }
       accept_circle_invitation: {
         Args: { _invitation_id: string; _user_id: string }
         Returns: boolean

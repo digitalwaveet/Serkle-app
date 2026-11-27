@@ -1,85 +1,41 @@
+import type { ReactNode } from 'react';
+import { Link, Navigate } from 'react-router-dom';
+import { Button } from '@/components/ui/button';
 import { SerkleLoader } from '@/components/ui/SerkleLoader';
-import { useState, useEffect, ReactNode } from 'react';
-import { Navigate } from 'react-router-dom';
-import { useUser } from '@/contexts/UserContext';
-import { supabase } from '@/integrations/supabase/client';
-import { toast } from '@/hooks/use-toast';
+import { useAdminAuth } from '@/hooks/useAdminAuth';
 
-interface AdminRouteProps {
-  children: ReactNode;
-}
+const AdminRoute = ({ children }: { children: ReactNode }) => {
+  const access = useAdminAuth();
 
-const AdminRoute = ({ children }: AdminRouteProps) => {
-  const { user, isLoading: userLoading } = useUser();
-  const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
-  const [isChecking, setIsChecking] = useState(true);
+  if (access.status === 'anonymous') return <Navigate to="/login" replace />;
+  if (access.status === 'allowed') return <>{children}</>;
 
-  useEffect(() => {
-    const checkAdminRole = async () => {
-      if (!user) {
-        setIsAdmin(false);
-        setIsChecking(false);
-        return;
-      }
-
-      try {
-        // Use the existing has_role RPC function
-        const { data, error } = await supabase.rpc('has_role', {
-          _role: 'admin',
-        });
-
-        if (error) {
-          console.error('Error checking admin role:', error);
-          // Fallback: check profiles.role field
-          const { data: profile } = await supabase
-            .from('profiles')
-            .select('role')
-            .eq('id', user.id)
-            .single();
-
-          setIsAdmin(profile?.role === 'admin' || profile?.role === 'super_admin');
-        } else {
-          setIsAdmin(data === true);
-        }
-      } catch (err) {
-        console.error('Admin check failed:', err);
-        setIsAdmin(false);
-      } finally {
-        setIsChecking(false);
-      }
-    };
-
-    checkAdminRole();
-  }, [user]);
-
-  // Still loading user auth
-  if (userLoading || isChecking) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="flex flex-col items-center gap-3">
-          <SerkleLoader size="md" className="text-current" />
-          <p className="text-sm text-muted-foreground">Verifying access...</p>
+  return (
+    <main className="grid min-h-screen place-items-center bg-background p-6">
+      {access.status === 'loading' ? (
+        <SerkleLoader label="Verifying admin access" showText />
+      ) : (
+        <div className="w-full max-w-md space-y-4 rounded-xl border bg-card p-6 text-card-foreground">
+          <h1 className="text-xl font-semibold">
+            {access.status === 'denied' ? 'Admin access required' : 'Could not verify admin access'}
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            {access.status === 'denied'
+              ? 'This account does not have access to the admin panel.'
+              : 'Retry the access check to open the admin panel.'}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {access.status === 'unavailable' && (
+              <Button onClick={() => void access.retry()} disabled={access.isRetrying}>
+                {access.isRetrying ? 'Checking…' : 'Retry'}
+              </Button>
+            )}
+            <Button asChild variant="outline"><Link to="/">Back to Serkle</Link></Button>
+          </div>
         </div>
-      </div>
-    );
-  }
-
-  // Not logged in
-  if (!user) {
-    return <Navigate to="/login" replace />;
-  }
-
-  // Not admin
-  if (!isAdmin) {
-    toast({
-      title: "Access Denied",
-      description: "You don't have permission to access the admin panel.",
-      variant: "destructive",
-    });
-    return <Navigate to="/" replace />;
-  }
-
-  return <>{children}</>;
+      )}
+    </main>
+  );
 };
 
 export default AdminRoute;

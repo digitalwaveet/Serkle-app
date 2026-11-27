@@ -162,6 +162,15 @@ Deno.serve(async (request) => {
       return hookError(401, 'Invalid email worker secret.');
     }
     try {
+      if (new URL(request.url).searchParams.get('check') === 'smtp') {
+        const { verifySmtpConnection } = await import('../_shared/smtpMailer.ts');
+        try {
+          await verifySmtpConnection();
+        } catch {
+          return hookError(503, 'SMTP fallback could not connect or authenticate.');
+        }
+        return new Response(JSON.stringify({ smtp: 'ready' }), { status: 200, headers: jsonHeaders });
+      }
       return new Response(JSON.stringify(await drainOutbox()), { status: 200, headers: jsonHeaders });
     } catch (error) {
       console.error('Authentication email worker failed.', error instanceof Error ? error.message : 'Unknown error');

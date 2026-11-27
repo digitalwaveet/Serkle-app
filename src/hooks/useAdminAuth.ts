@@ -1,55 +1,42 @@
-import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useUser } from '@/contexts/UserContext';
 
+type AdminRole = 'admin' | 'super_admin';
+
 export const useAdminAuth = () => {
-  const { user } = useUser();
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const [adminRole, setAdminRole] = useState<string | null>(null);
+  const { session, isSessionReady } = useUser();
+  const userId = session?.user.id;
+  const role = useQuery({
+    queryKey: ['admin', 'role', userId],
+    enabled: Boolean(userId),
+    gcTime: 0,
+    staleTime: 20_000,
+    networkMode: 'always',
+    retry: false,
+    refetchOnWindowFocus: 'always',
+    refetchInterval: 30_000,
+    queryFn: async ({ signal }): Promise<AdminRole | null> => {
+      const { data, error } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', userId!)
+        .in('role', ['admin', 'super_admin'])
+        .abortSignal(signal);
 
-  useEffect(() => {
-    const checkAdmin = async () => {
-      if (!user) {
-        setIsAdmin(false);
-        setIsLoading(false);
-        return;
-      }
+      if (error) throw error;
+      if (data.some((entry) => entry.role === 'super_admin')) return 'super_admin';
+      return data.some((entry) => entry.role === 'admin') ? 'admin' : null;
+    },
+  });
 
-      try {
-        const { data: session } = await supabase.auth.getSession();
-        if (!session.session) {
-          setIsAdmin(false);
-          setIsLoading(false);
-          return;
-        }
-
-        const { data, error } = await supabase
-          .from('user_roles')
-          .select('role')
-          .eq('user_id', session.session.user.id);
-
-        if (error) {
-          console.error('Error checking admin role:', error);
-          setIsAdmin(false);
-        } else if (data && data.length > 0) {
-          const roles = data.map((r: any) => r.role);
-          const hasAdmin = roles.includes('admin') || roles.includes('super_admin');
-          setIsAdmin(hasAdmin);
-          setAdminRole(roles.includes('super_admin') ? 'super_admin' : roles.includes('admin') ? 'admin' : roles[0]);
-        } else {
-          setIsAdmin(false);
-        }
-      } catch (err) {
-        console.error('Admin auth check failed:', err);
-        setIsAdmin(false);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    checkAdmin();
-  }, [user]);
-
-  return { isAdmin, isLoading, adminRole };
+  if (!userId) {
+    return { status: isSessionReady ? 'anonymous' : 'loading', adminRole: null } as const;
+  }
+  if (role.isPending) return { status: 'loading', adminRole: null } as const;
+  if (role.isError) {
+    return { status: 'unavailable', adminRole: null, retry: role.refetch, isRetrying: role.isFetching } as const;
+  }
+  if (role.data) return { status: 'allowed', adminRole: role.data } as const;
+  return { status: 'denied', adminRole: null } as const;
 };

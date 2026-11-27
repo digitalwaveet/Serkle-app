@@ -276,7 +276,7 @@ test('unknown balance and empty history use explicit states instead of fabricate
   try {await expect(error.getByText('Balance could not be refreshed',{exact:true})).toBeVisible();await expect(error.locator('.wallet-balance-card')).toContainText('Unavailable');await expect(error.getByRole('button',{name:'Retry balance',exact:true})).toBeVisible();}
   finally {await error.context().close();}
   const empty=await pageFor('history-empty',false,'','wallet-fixture');
-  try {await expect(empty.getByRole('heading',{name:'No payment receipts yet',exact:true})).toBeVisible();await empty.getByRole('tab',{name:'Coin activity',exact:true}).click();await expect(empty.getByRole('heading',{name:'No coin movements yet',exact:true})).toBeVisible();}
+  try {await expect(empty.getByRole('heading',{name:'No wallet payments yet',exact:true})).toBeVisible();await empty.getByRole('tab',{name:'Coin activity',exact:true}).click();await expect(empty.getByRole('heading',{name:'Your wallet is ready',exact:true})).toBeVisible();}
   finally {await empty.context().close();}
 });
 

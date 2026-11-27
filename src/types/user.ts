@@ -55,6 +55,7 @@ export interface UserPreferences {
 export interface UserContextType {
   user: UserProfile | null;
   session: Session | null;
+  isSessionReady: boolean;
   preferences: UserPreferences;
   isLoading: boolean;
   error: string | null;

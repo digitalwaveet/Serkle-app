@@ -70,3 +70,7 @@ export async function sendSmtpMail(message: SmtpMessage): Promise<string> {
 
   return info.messageId;
 }
+
+export async function verifySmtpConnection(): Promise<void> {
+  await smtpTransport().verify();
+}

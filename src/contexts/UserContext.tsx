@@ -106,6 +106,7 @@ export const UserProvider: React.FC<UserProviderProps> = ({ children }) => {
   // Initialize from cache for instant offline hydration
   const [user, setUser] = useState<UserProfile | null>(() => getCachedProfile());
   const [session, setSession] = useState<Session | null>(null);
+  const [isSessionReady, setIsSessionReady] = useState(false);
   const [preferences, setPreferences] = useState<UserPreferences>(defaultPreferences);
   const [isLoading, setIsLoading] = useState(() => !getCachedProfile());
   const [error, setError] = useState<string | null>(null);
@@ -213,7 +214,7 @@ export const UserProvider: React.FC<UserProviderProps> = ({ children }) => {
       } else {
         setIsLoading(false);
       }
-    });
+    }).finally(() => setIsSessionReady(true));
 
     return () => subscription.unsubscribe();
   }, []);
@@ -455,6 +456,7 @@ export const UserProvider: React.FC<UserProviderProps> = ({ children }) => {
   const value: UserContextType = {
     user,
     session,
+    isSessionReady,
     preferences,
     isLoading,
     error,

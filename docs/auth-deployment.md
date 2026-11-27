@@ -26,8 +26,8 @@ In Authentication → Sign In / Providers → Email:
 
 1. Keep email/password signup enabled.
 2. Enable **Confirm email**.
-3. Enable Custom SMTP in Authentication → Emails using the Little Tigers Group
-   cPanel mailbox. Follow [the SMTP setup guide](email-smtp-setup.md).
+3. Enable Custom SMTP in Authentication → Emails using Resend and
+   `no-reply@serkle.app`. Follow [the SMTP setup guide](email-smtp-setup.md).
 4. Keep the Send Email Auth Hook disabled so Supabase Auth sends directly via
    Custom SMTP. Supabase Auth issues, expires and validates the codes.
 

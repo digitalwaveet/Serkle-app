@@ -1,5 +1,4 @@
-import { SerkleLoader } from '@/components/ui/SerkleLoader';
-import { Outlet, useNavigate, useLocation, Navigate, Link } from 'react-router-dom';
+import { Outlet, useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
 import {
   SidebarProvider,
@@ -16,6 +15,7 @@ import {
 } from '@/components/ui/sidebar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Toaster } from '@/components/ui/sonner';
 import { LayoutDashboard, Users, FileText, Video, ArrowLeft, Shield, LogOut, Bell, UserCog, MessageSquare, Flag, Scale, BarChart3, Settings, MessageCircle, Brain, Bot, Zap, Webhook, Activity, ClipboardList, ScrollText, HeartPulse, Megaphone, CircleDot, FileBarChart, HelpCircle, Radio, Store, Award } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -119,9 +119,11 @@ function AdminSidebar() {
                   const isActive = location.pathname === item.url;
                   return (
                     <SidebarMenuItem key={item.title}>
-                      <SidebarMenuButton asChild>
+                      <SidebarMenuButton asChild isActive={isActive} tooltip={item.title}>
                         <Link
                           to={item.url}
+                          aria-label={item.title}
+                          aria-current={isActive ? 'page' : undefined}
                           className={`flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${
                             isActive
                               ? 'bg-primary/10 text-primary font-medium'
@@ -164,11 +166,11 @@ function AdminHeader({ adminRole }: { adminRole: string | null }) {
             {adminRole.replace('_', ' ')}
           </Badge>
         )}
-        <Button variant="ghost" size="sm" onClick={() => navigate('/')}>
+        <Button variant="ghost" size="sm" aria-label="Back to Serkle" onClick={() => navigate('/')}>
           <ArrowLeft className="h-4 w-4 mr-1" />
           <span className="hidden sm:inline">Back to App</span>
         </Button>
-        <Button variant="ghost" size="icon" onClick={handleLogout}>
+        <Button variant="ghost" size="icon" aria-label="Sign out" onClick={handleLogout}>
           <LogOut className="h-4 w-4" />
         </Button>
       </div>
@@ -177,19 +179,7 @@ function AdminHeader({ adminRole }: { adminRole: string | null }) {
 }
 
 export default function AdminLayout() {
-  const { isAdmin, isLoading, adminRole } = useAdminAuth();
-
-  if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <SerkleLoader size="md" className="text-current" />
-      </div>
-    );
-  }
-
-  if (!isAdmin) {
-    return <Navigate to="/" replace />;
-  }
+  const { adminRole } = useAdminAuth();
 
   return (
     <SidebarProvider>
@@ -202,6 +192,7 @@ export default function AdminLayout() {
           </main>
         </div>
       </div>
+      <Toaster closeButton />
     </SidebarProvider>
   );
 }
