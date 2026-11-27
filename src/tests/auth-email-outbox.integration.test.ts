@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import { PGlite } from '@electric-sql/pglite';
 
 const migrationUrl = new URL('../../supabase/migrations/20261120143000_auth_email_outbox.sql', import.meta.url);
+const roleMigrationUrl = new URL('../../supabase/migrations/20261127143000_fix_auth_email_outbox_role.sql', import.meta.url);
 
 async function database() {
   const db = new PGlite();
@@ -11,11 +12,12 @@ async function database() {
     DO $$ BEGIN
       IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN CREATE ROLE anon; END IF;
       IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN CREATE ROLE authenticated; END IF;
-      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN CREATE ROLE service_role; END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN CREATE ROLE service_role BYPASSRLS; END IF;
     END $$;
   `);
   await db.exec(await readFile(migrationUrl, 'utf8'));
-  await db.query("select set_config('request.jwt.claim.role', 'service_role', false)");
+  await db.exec(await readFile(roleMigrationUrl, 'utf8'));
+  await db.exec('SET ROLE service_role');
   return db;
 }
 

@@ -26,13 +26,13 @@ In Authentication → Sign In / Providers → Email:
 
 1. Keep email/password signup enabled.
 2. Enable **Confirm email**.
-3. Deploy the Serkle `send-email` Auth Hook backed by the Little Tigers Group
-   cPanel SMTP mailbox. Follow `docs/email-smtp-setup.md`.
-4. The application continues to use Supabase Auth for issuing, expiring and
-   validating email codes; the hook only renders and delivers them.
+3. Enable Custom SMTP in Authentication → Emails using the Little Tigers Group
+   cPanel mailbox. Follow [the SMTP setup guide](email-smtp-setup.md).
+4. Keep the Send Email Auth Hook disabled so Supabase Auth sends directly via
+   Custom SMTP. Supabase Auth issues, expires and validates the codes.
 
-Do not put SMTP credentials in Vercel client environment variables or source
-control. Store them only as Supabase Edge Function secrets.
+Enter the authentication SMTP credentials in the Supabase Auth SMTP settings.
+Keep credentials out of Vercel client environment variables and source control.
 
 ### Confirm signup template
 

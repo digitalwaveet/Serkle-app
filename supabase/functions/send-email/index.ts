@@ -1,4 +1,5 @@
 import { Webhook } from 'https://esm.sh/standardwebhooks@1.0.0';
+import { deliverAuthEmail } from '../_shared/authEmailDelivery.ts';
 import {
   buildAuthEmailMessages,
   type AuthEmailHookPayload,
@@ -90,34 +91,47 @@ async function completeMessage(id: string, workerId: string, error?: string): Pr
 }
 
 async function drainOutbox(): Promise<{ claimed: number; sent: number; failed: number }> {
+  const apiKey = requiredEnv('RESEND_API_KEY');
+  const from = requiredEnv('AUTH_EMAIL_RESEND_FROM');
   const workerId = crypto.randomUUID();
   const response = await adminRequest('rpc/claim_auth_email_outbox', {
     method: 'POST',
-    body: JSON.stringify({ p_worker_id: workerId, p_limit: 4 }),
+    body: JSON.stringify({ p_worker_id: workerId, p_limit: 1 }),
   });
   if (!response.ok) throw new Error(`Could not claim queued email (${response.status}).`);
   const queued = await response.json() as QueuedEmail[];
-  const { sendSmtpMail } = await import('../_shared/smtpMailer.ts');
   let sent = 0;
   let failed = 0;
 
   for (const message of queued) {
     try {
-      await sendSmtpMail({
+      const delivery = await deliverAuthEmail({
         to: message.recipient,
         subject: message.subject,
         html: message.html,
         text: message.text_body,
         messageId: message.message_id,
+      }, {
+        apiKey,
+        from,
+        sendSmtp: async (mail) => {
+          const { sendSmtpMail } = await import('../_shared/smtpMailer.ts');
+          return sendSmtpMail(mail);
+        },
       });
-      await completeMessage(message.id, workerId);
-      sent += 1;
+      console.log('Authentication email accepted by provider.', {
+        queueId: message.id,
+        ...delivery,
+      });
     } catch (error) {
-      const detail = error instanceof Error ? error.message : 'SMTP delivery failed.';
+      const detail = error instanceof Error ? error.message : 'Email delivery failed.';
       console.error('Queued authentication email failed.', detail);
       await completeMessage(message.id, workerId, detail);
       failed += 1;
+      continue;
     }
+    await completeMessage(message.id, workerId);
+    sent += 1;
   }
 
   return { claimed: queued.length, sent, failed };

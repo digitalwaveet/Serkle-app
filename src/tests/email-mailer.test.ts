@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { deliverAuthEmail } from '../../supabase/functions/_shared/authEmailDelivery.ts';
 import {
   buildAuthEmailMessages,
   buildNotificationEmail,
@@ -8,6 +9,40 @@ import {
 } from '../../supabase/functions/_shared/serkleEmail.ts';
 
 const supabaseUrl = 'https://zewcewkqruxlniavsrgj.supabase.co';
+
+test('Resend uses a stable idempotency key and SMTP handles explicit provider rejection', async () => {
+  const [email] = buildAuthEmailMessages(authPayload(), supabaseUrl);
+  const message = { ...email, messageId: '<test@serkle.app>' };
+  for (const [status, expected] of [[200, 'resend'], [429, 'smtp']] as const) {
+    let fallbackCount = 0;
+    const result = await deliverAuthEmail(message, {
+      apiKey: 'test',
+      from: 'Serkle <no-reply@serkle.app>',
+      request: async (_url, init) => {
+        assert.equal(new Headers(init?.headers).get('Idempotency-Key'), message.messageId);
+        assert.deepEqual(JSON.parse(String(init?.body)).to, [email.to]);
+        return new Response(status === 200 ? JSON.stringify({ id: 'resend-id' }) : null, { status });
+      },
+      sendSmtp: async (fallbackMessage) => {
+        fallbackCount++;
+        assert.deepEqual(fallbackMessage, message);
+        return 'smtp-id';
+      },
+    });
+    assert.equal(result.provider, expected);
+    assert.equal(fallbackCount, expected === 'smtp' ? 1 : 0);
+  }
+});
+
+test('uncertain Resend responses retry the primary without invoking SMTP', async () => {
+  const [email] = buildAuthEmailMessages(authPayload(), supabaseUrl);
+  await assert.rejects(deliverAuthEmail({ ...email, messageId: '<test@serkle.app>' }, {
+    apiKey: 'test',
+    from: 'Serkle <no-reply@serkle.app>',
+    request: async () => new Response(null, { status: 503 }),
+    sendSmtp: async () => assert.fail('SMTP would risk delivering a duplicate'),
+  }), /HTTP 503/);
+});
 
 function authPayload(overrides: Partial<AuthEmailHookPayload> = {}): AuthEmailHookPayload {
   return {
