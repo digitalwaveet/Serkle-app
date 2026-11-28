@@ -614,6 +614,8 @@ export type Database = {
       }
       circle_members: {
         Row: {
+          can_invite_members: boolean
+          can_respond_to_requests: boolean
           circle_id: string
           id: string
           joined_at: string | null
@@ -622,6 +624,8 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          can_invite_members?: boolean
+          can_respond_to_requests?: boolean
           circle_id: string
           id?: string
           joined_at?: string | null
@@ -630,6 +634,8 @@ export type Database = {
           user_id: string
         }
         Update: {
+          can_invite_members?: boolean
+          can_respond_to_requests?: boolean
           circle_id?: string
           id?: string
           joined_at?: string | null
@@ -1086,7 +1092,7 @@ export type Database = {
           enabled_features: string[]
           guidelines: string[] | null
           id: string
-          invite_code: string
+          invite_code: string | null
           is_active: boolean | null
           is_expert: boolean | null
           is_online: boolean
@@ -1115,7 +1121,7 @@ export type Database = {
           enabled_features?: string[]
           guidelines?: string[] | null
           id?: string
-          invite_code?: string
+          invite_code?: string | null
           is_active?: boolean | null
           is_expert?: boolean | null
           is_online?: boolean
@@ -1144,7 +1150,7 @@ export type Database = {
           enabled_features?: string[]
           guidelines?: string[] | null
           id?: string
-          invite_code?: string
+          invite_code?: string | null
           is_active?: boolean | null
           is_expert?: boolean | null
           is_online?: boolean
@@ -4842,6 +4848,22 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_circle_member_invite_code: {
+        Args: { _circle_id: string }
+        Returns: string
+      }
+      get_my_circle_admin_permissions: {
+        Args: { _circle_id: string }
+        Returns: Json
+      }
+      list_circle_admins: {
+        Args: { _circle_id: string }
+        Returns: Json
+      }
+      update_circle_admin: {
+        Args: { _circle_id: string; _user_id: string; _action: string; _allowed?: boolean }
+        Returns: undefined
+      }
       get_admin_operational_snapshot: { Args: Record<never, never>; Returns: Json }
       resolve_admin_content_review: {
         Args: { _item_id: string; _action: string; _notes?: string }

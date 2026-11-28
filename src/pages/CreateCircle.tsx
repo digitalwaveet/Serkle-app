@@ -12,6 +12,7 @@ import { useUser } from '@/contexts/UserContext';
 import { toast } from 'sonner';
 import InviteLinkModal from '@/components/circles/InviteLinkModal';
 import { CustomFilePicker, useFileManager } from '@/components/CustomFilePicker';
+import { getCircleMemberInviteCode } from '@/lib/circleAdmin';
 import {
   CIRCLE_TYPES,
   CIRCLE_FEATURES,
@@ -175,12 +176,17 @@ const CreateCircle: React.FC = () => {
         user.id
       );
 
-      if (privacy === 'private' && circle.invite_code) {
-        setCreatedCircle({ id: circle.id, invite_code: circle.invite_code, name: circleName });
-        setShowInviteModal(true);
-      } else {
-        navigate(`/circle/${circle.id}`);
+      if (privacy === 'private') {
+        try {
+          const inviteCode = await getCircleMemberInviteCode(circle.id);
+          setCreatedCircle({ id: circle.id, invite_code: inviteCode, name: circleName });
+          setShowInviteModal(true);
+          return;
+        } catch {
+          toast.error('Circle created. You can get its invite link from Members.');
+        }
       }
+      navigate(`/circle/${circle.id}`);
     } catch (error) {
       // Error already handled in mutation
     }

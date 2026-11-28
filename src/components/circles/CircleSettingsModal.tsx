@@ -11,10 +11,11 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Settings, Coins, Crown, Lock, Users, Trash2, AlertTriangle, Link2, Copy, Check } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { type Circle } from '@/hooks/useCircles';
 import { formatCircleCount } from '@/lib/circleCountFormat';
 import { getCircleInviteUrl } from '@/lib/circleInviteUrl';
+import { getCircleMemberInviteCode } from '@/lib/circleAdmin';
 
 interface CircleSettingsModalProps {
   open: boolean;
@@ -36,7 +37,12 @@ const CircleSettingsModal: React.FC<CircleSettingsModalProps> = ({ open, onOpenC
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
 
-  const inviteLink = circle.invite_code ? getCircleInviteUrl(circle.invite_code) : '';
+  const { data: inviteCode } = useQuery({
+    queryKey: ['circle-owner-invite-code', circle.id, circle.creator_id],
+    queryFn: () => getCircleMemberInviteCode(circle.id),
+    enabled: open && !!circle.is_owned,
+  });
+  const inviteLink = inviteCode ? getCircleInviteUrl(inviteCode) : '';
 
   const handleCopyInviteLink = async () => {
     try {

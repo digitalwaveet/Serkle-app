@@ -2,7 +2,7 @@ import { SerkleLoader } from '@/components/ui/SerkleLoader';
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { DoorOpen, Trash2, ArrowRightLeft, ShieldPlus, Lock } from 'lucide-react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -14,13 +14,14 @@ import { useUser } from '@/contexts/UserContext';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import FriendPicker from './FriendPicker';
+import CircleAdminControls from './CircleAdminControls';
 import { formatCircleCount } from '@/lib/circleCountFormat';
 import { CIRCLE_OWNER_EXIT_POLICY } from '@/lib/circleLeave';
 
 interface CircleManageModalProps {
   circle: Circle;
   open: boolean;
-  initialView?: 'menu' | 'admin';
+  initialView?: 'menu' | 'admins';
   onOpenChange: (open: boolean) => void;
 }
 
@@ -33,7 +34,7 @@ interface SelectedFriend {
   avatar_color: string;
 }
 
-type ModalView = 'menu' | 'transfer' | 'transfer-confirm' | 'admin';
+type ModalView = 'menu' | 'transfer' | 'transfer-confirm' | 'admins' | 'admin';
 
 const CircleManageModal: React.FC<CircleManageModalProps> = ({ circle, open, initialView = 'menu', onOpenChange }) => {
   const navigate = useNavigate();
@@ -65,7 +66,7 @@ const CircleManageModal: React.FC<CircleManageModalProps> = ({ circle, open, ini
   const handleSendAdminInvites = async () => {
     if (!user?.id || selectedFriends.length === 0) return;
     setSending(true);
-    await sendInvitation(
+    const sent = await sendInvitation(
       circle.id,
       circle.name,
       user.id,
@@ -73,9 +74,9 @@ const CircleManageModal: React.FC<CircleManageModalProps> = ({ circle, open, ini
       'admin'
     );
     setSending(false);
+    if (!sent) return;
     setSelectedFriends([]);
-    setView('menu');
-    onOpenChange(false);
+    setView('admins');
   };
 
   const handleTransferNext = () => {
@@ -118,7 +119,7 @@ const CircleManageModal: React.FC<CircleManageModalProps> = ({ circle, open, ini
 
       // Password verified — now send the transfer invitation
       setSending(true);
-      await sendInvitation(
+      const sent = await sendInvitation(
         circle.id,
         circle.name,
         user.id,
@@ -126,6 +127,7 @@ const CircleManageModal: React.FC<CircleManageModalProps> = ({ circle, open, ini
         'transfer_ownership'
       );
       setSending(false);
+      if (!sent) return;
       setPassword('');
       setSelectedFriends([]);
       setView('menu');
@@ -147,7 +149,7 @@ const CircleManageModal: React.FC<CircleManageModalProps> = ({ circle, open, ini
   return (
     <>
       <Dialog open={open} onOpenChange={(v) => { onOpenChange(v); if (!v) resetView(); }}>
-        <DialogContent className="max-w-[340px] rounded-2xl p-0 overflow-hidden">
+        <DialogContent className="max-w-[340px] max-h-[90dvh] rounded-2xl p-0 overflow-y-auto">
           {view === 'menu' && (
             <>
               <DialogHeader className="p-4 pb-2">
@@ -189,13 +191,13 @@ const CircleManageModal: React.FC<CircleManageModalProps> = ({ circle, open, ini
                 </button>
 
                 <button
-                  onClick={() => { setSelectedFriends([]); setView('admin'); }}
+                  onClick={() => setView('admins')}
                   className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-muted transition-colors text-left w-full"
                 >
                   <ShieldPlus className="h-5 w-5 text-accent-foreground" />
                   <div>
-                    <p className="text-sm font-medium text-foreground">Add Admin</p>
-                    <p className="text-xs text-muted-foreground">Invite friends to co-manage</p>
+                    <p className="text-sm font-medium text-foreground">Admin controls</p>
+                    <p className="text-xs text-muted-foreground">Manage admins and permissions</p>
                   </div>
                 </button>
               </div>
@@ -279,6 +281,26 @@ const CircleManageModal: React.FC<CircleManageModalProps> = ({ circle, open, ini
             </>
           )}
 
+          {view === 'admins' && user && (
+            <>
+              <DialogHeader className="p-4 pb-0">
+                <DialogTitle className="text-base font-semibold">Admin controls</DialogTitle>
+                <DialogDescription>
+                  Only the Circle owner can manage admins, transfer ownership, and delete the Circle.
+                </DialogDescription>
+              </DialogHeader>
+              <CircleAdminControls circleId={circle.id} ownerId={user.id} onAdd={() => {
+                setSelectedFriends([]);
+                setView('admin');
+              }} />
+              {initialView === 'menu' && (
+                <div className="px-4 pb-4">
+                  <Button size="sm" variant="outline" onClick={() => setView('menu')}>Back</Button>
+                </div>
+              )}
+            </>
+          )}
+
           {view === 'admin' && (
             <>
               <DialogHeader className="p-4 pb-2">
@@ -298,9 +320,9 @@ const CircleManageModal: React.FC<CircleManageModalProps> = ({ circle, open, ini
                     variant="outline"
                     size="sm"
                     className="flex-1"
-                    onClick={() => initialView === 'admin' ? onOpenChange(false) : setView('menu')}
+                    onClick={() => setView('admins')}
                   >
-                    {initialView === 'admin' ? 'Cancel' : 'Back'}
+                    Back
                   </Button>
                   <Button
                     size="sm"

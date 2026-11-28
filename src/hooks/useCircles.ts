@@ -45,7 +45,6 @@ export interface Circle {
   is_admin?: boolean;
   member_role?: string;
   membership_state?: CircleMembershipSnapshot;
-  invite_code?: string;
   creator?: {
     name: string;
     avatar_url: string | null;
@@ -99,7 +98,6 @@ const mapCircleRow = (
   is_owned: snapshot?.state === 'owner',
   is_admin: snapshot?.state === 'owner' || snapshot?.state === 'manager',
   membership_state: snapshot,
-  invite_code: circle.invite_code,
   creator: {
     name: circle.profiles?.name || 'Unknown',
     avatar_url: circle.profiles?.avatar_url || null,

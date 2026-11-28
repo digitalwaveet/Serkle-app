@@ -13,7 +13,7 @@ export interface CircleMembershipSnapshot {
 
 export const CIRCLE_MEMBERSHIP_QUERY_KEYS = [
   'circle', 'circles', 'circles-search', 'my-circles', 'owned-circles',
-  'circle-invite-preview', 'circle-members', 'circle-join-requests',
+  'circle-invite-preview', 'circle-members', 'circle-join-requests', 'circle-admin-permissions',
   'circle-invitations', 'circle-subscription', 'circle-posts', 'circle-videos', 'circle-resources',
 ] as const;
 

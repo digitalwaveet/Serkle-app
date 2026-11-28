@@ -46,6 +46,7 @@ export const useSendCircleInvitation = () => {
     inviteeIds: string[],
     type: 'admin' | 'transfer_ownership'
   ) => {
+    let sent = 0;
     for (const inviteeId of inviteeIds) {
       // Create invitation record
       const { data: invitationId, error } = await supabase.rpc('send_circle_invitation' as any, {
@@ -57,6 +58,7 @@ export const useSendCircleInvitation = () => {
         toast.error('Failed to send invitation');
         continue;
       }
+      sent += 1;
 
       // Send message to invitee
       try {
@@ -77,7 +79,8 @@ export const useSendCircleInvitation = () => {
 
     queryClient.invalidateQueries({ queryKey: ['circle-invitations'] });
     const label = type === 'admin' ? 'Admin' : 'Ownership transfer';
-    toast.success(`${label} invitation${inviteeIds.length > 1 ? 's' : ''} sent!`);
+    if (sent) toast.success(`${label} invitation${sent > 1 ? 's' : ''} sent!`);
+    return sent;
   };
 
   return { sendInvitation };

@@ -2,18 +2,21 @@ import React, { useState } from 'react';
 import { Check, X, ChevronRight, Rocket } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { type Circle } from '@/hooks/useCircles';
+import { type CircleLearnSection } from './CircleLearn';
+
+export type CircleSetupSection = 'feed' | 'members' | CircleLearnSection;
 
 interface CircleGettingStartedProps {
   circle: Circle;
   onEditCircle: () => void;
-  onOpenTab: (tab: string) => void;
+  onOpenSection: (section: CircleSetupSection) => void;
 }
 
 /**
  * Dismissible setup guide for circle owners. Steps check themselves off from
  * live circle data and the card disappears once everything is done.
  */
-const CircleGettingStarted: React.FC<CircleGettingStartedProps> = ({ circle, onEditCircle, onOpenTab }) => {
+const CircleGettingStarted: React.FC<CircleGettingStartedProps> = ({ circle, onEditCircle, onOpenSection }) => {
   const storageKey = `circle-setup-dismissed-${circle.id}`;
   const [dismissed, setDismissed] = useState(() => localStorage.getItem(storageKey) === '1');
 
@@ -28,20 +31,20 @@ const CircleGettingStarted: React.FC<CircleGettingStartedProps> = ({ circle, onE
       id: 'post',
       label: 'Write your first post',
       done: (circle.posts_count ?? 0) > 0,
-      onClick: () => onOpenTab('feed'),
+      onClick: () => onOpenSection('feed'),
     },
     {
       id: 'invite',
       label: 'Invite your first members',
       done: (circle.members_count ?? 0) > 1,
-      onClick: () => onOpenTab('members'),
+      onClick: () => onOpenSection('members'),
     },
     ...(circle.enabled_features.includes('videos')
       ? [{
           id: 'video',
           label: 'Upload your first video',
           done: (circle.videos_count ?? 0) > 0,
-          onClick: () => onOpenTab('learn'),
+          onClick: () => onOpenSection('videos'),
         }]
       : []),
     ...(circle.enabled_features.includes('resources')
@@ -49,7 +52,7 @@ const CircleGettingStarted: React.FC<CircleGettingStartedProps> = ({ circle, onE
           id: 'resource',
           label: 'Share your first resource',
           done: (circle.resources_count ?? 0) > 0,
-          onClick: () => onOpenTab('learn'),
+          onClick: () => onOpenSection('resources'),
         }]
       : []),
   ];
@@ -95,11 +98,8 @@ const CircleGettingStarted: React.FC<CircleGettingStartedProps> = ({ circle, onE
             {steps.map((step) => (
               <button
                 key={step.id}
-                onClick={step.done ? undefined : step.onClick}
-                disabled={step.done}
-                className={`flex items-center gap-3 w-full text-left py-1.5 px-1 rounded-lg transition-colors ${
-                  step.done ? 'cursor-default' : 'hover:bg-primary/10'
-                }`}
+                onClick={step.onClick}
+                className="flex items-center gap-3 w-full text-left py-1.5 px-1 rounded-lg transition-colors hover:bg-primary/10"
               >
                 <span
                   className={`flex-shrink-0 h-5 w-5 rounded-full flex items-center justify-center ${
@@ -112,8 +112,9 @@ const CircleGettingStarted: React.FC<CircleGettingStartedProps> = ({ circle, onE
                 </span>
                 <span className={`flex-1 text-sm ${step.done ? 'text-muted-foreground line-through' : 'text-foreground'}`}>
                   {step.label}
+                  {step.done && <span className="sr-only"> (completed)</span>}
                 </span>
-                {!step.done && <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0" />}
+                <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0" />
               </button>
             ))}
           </div>

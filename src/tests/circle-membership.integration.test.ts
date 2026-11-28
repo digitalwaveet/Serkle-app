@@ -54,6 +54,13 @@ before(async () => {
   await db.exec(contentSecurity.match(/CREATE OR REPLACE FUNCTION public\.get_circle_subscription\([\s\S]*?\$\$;/)![0]);
   await db.exec(await file('../../supabase/migrations/20261104120000_circle_membership_state_machine.sql'));
   await db.exec(await file('../../supabase/migrations/20261104130000_circle_leave_flow.sql'));
+  await q("INSERT INTO profiles(id,name) VALUES($1,'Owner')",[owner]);
+  await q("INSERT INTO circles(id,creator_id,name,invite_code) VALUES($1,$2,'Legacy Circle','legacy-code')",[circle,owner]);
+  await db.exec(await file('../../supabase/migrations/20261128130000_circle_admin_controls.sql'));
+  await login(owner);
+  assert.equal((await q('SELECT invite_code FROM circles WHERE id=$1',[circle]))[0].invite_code, null);
+  assert.equal((await q("SELECT get_circle_invite_preview('legacy-code') result"))[0].result.id, circle);
+  await db.exec('RESET ROLE');
   frontend = await createServer({ configFile:false, resolve:{ alias:{ '@':fileURLToPath(new URL('../',import.meta.url)) } },
     server:{ middlewareMode:true, hmr:false, watch:null }, plugins:[{ name:'isolated-membership', enforce:'pre',
       resolveId(source) { if (source.replace(/\\/g,'/').match(/(?:@|\/src)\/integrations\/supabase\/client(?:\.ts)?$/)) return '\0isolated-client'; },
@@ -67,7 +74,8 @@ after(async () => { await frontend?.close(); await db.close(); });
 beforeEach(async () => {
   await db.exec('RESET ROLE; TRUNCATE profiles,circles,circle_members,circle_stats,circle_subscriptions,circle_payment_requests,circle_join_intents,circle_leave_intents,circle_invitations,push_notifications CASCADE');
   await q("INSERT INTO profiles(id,name) VALUES($1,'Member'),($2,'Owner'),($3,'Other'),($4,'Admin')",[member,owner,other,admin]);
-  await q("INSERT INTO circles(id,creator_id,name,subscription_enabled,invite_code) VALUES($1,$2,'Circle',false,'invite123')",[circle,owner]);
+  await q("INSERT INTO circles(id,creator_id,name,subscription_enabled) VALUES($1,$2,'Circle',false)",[circle,owner]);
+  await q("INSERT INTO circle_member_invite_links(code,circle_id) VALUES('invite123',$1)",[circle]);
   await login();
 });
 
@@ -138,6 +146,57 @@ test('only owner/active admins can approve; repeated approval notifies and count
   assert.equal((await q('SELECT count(*)::int n FROM push_notifications'))[0].n,1);
   await login();
   assert.equal((await state()).state,'joined');
+});
+
+test('owners can restrict or remove Circle admins, with revocable links and server-side checks', async () => {
+  await configure("UPDATE circles SET is_private=true WHERE id=$1", [circle]);
+  await configure("INSERT INTO circle_members(circle_id,user_id,role,status) VALUES($1,$2,'admin','active')", [circle,other]);
+  await join();
+  const updateAdmin = (action: string, allowed: boolean | null) =>
+    q('SELECT update_circle_admin($1,$2,$3,$4)', [circle,other,action,allowed]);
+  const list = () => q('SELECT list_circle_admins($1) result', [circle]);
+  const code = async () => (await q('SELECT get_circle_member_invite_code($1) result', [circle]))[0].result;
+  const preview = async (value: string) => (await q('SELECT get_circle_invite_preview($1) result', [value]))[0].result;
+
+  await assert.rejects(list(), { code: '42501' });
+  await assert.rejects(code(), { code: '42501' });
+  await assert.rejects(q('SELECT * FROM circle_member_invite_links'), { code: '42501' });
+  await login(other);
+  await assert.rejects(updateAdmin('invite', false), { code: '42501' });
+  const firstCode = await code();
+  assert.notEqual(firstCode, 'invite123');
+  assert.equal((await preview(firstCode)).id, circle);
+
+  await login(owner);
+  assert.equal((await list())[0].result[0].user_id, other);
+  assert.equal(await code(), 'invite123');
+  await updateAdmin('invite', false);
+  await updateAdmin('requests', false);
+  await login(other);
+  assert.deepEqual((await q('SELECT get_my_circle_admin_permissions($1) result', [circle]))[0].result,
+    { can_invite_members: false, can_respond_to_requests: false });
+  await assert.rejects(code(), { code: '42501' });
+  await assert.rejects(respond(), { code: '42501' });
+  assert.equal(await preview(firstCode), null);
+  assert.equal((await preview('invite123')).id, circle);
+
+  await login(owner);
+  await updateAdmin('invite', true);
+  await updateAdmin('requests', true);
+  await login(other);
+  const newCode = await code();
+  assert.notEqual(firstCode, newCode);
+  await respond();
+  await login(owner);
+  await q("SELECT send_circle_invitation($1,$2,'admin')", [circle,other]);
+  await updateAdmin('remove', null);
+  assert.deepEqual((await list())[0].result, []);
+  assert.equal((await q("SELECT status FROM circle_invitations WHERE circle_id=$1 AND invitee_id=$2", [circle,other]))[0].status, 'declined');
+  await login(other);
+  assert.equal((await state()).state, 'joined');
+  assert.equal((await state()).role, 'member');
+  assert.equal(await preview(newCode), null);
+  await assert.rejects(code(), { code: '42501' });
 });
 
 test('decline and cancelled requests retain history; lost-response retries cannot resurrect them', async () => {

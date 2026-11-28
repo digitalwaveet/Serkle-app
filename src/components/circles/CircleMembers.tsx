@@ -7,13 +7,15 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import InviteLinkModal from './InviteLinkModal';
 import CircleEmptyState from './CircleEmptyState';
 import { formatCircleCount } from '@/lib/circleCountFormat';
 import { usePresenceContext } from '@/contexts/PresenceContext';
+import { useUser } from '@/contexts/UserContext';
+import { getCircleMemberInviteCode, getMyCircleAdminPermissions } from '@/lib/circleAdmin';
 
 interface CircleMembersProps {
   circle: any;
@@ -23,11 +25,25 @@ interface CircleMembersProps {
 
 const CircleMembers: React.FC<CircleMembersProps> = ({ circle, isOwner, onViewProfile }) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteCode, setInviteCode] = useState<string | null>(null);
   const [respondingId, setRespondingId] = useState<string | null>(null);
   const responding = useRef(false);
   const queryClient = useQueryClient();
   const { getUserPresence } = usePresenceContext();
+  const { user } = useUser();
+  const { data: permissions } = useQuery({
+    queryKey: ['circle-admin-permissions', circle.id, user?.id],
+    queryFn: () => getMyCircleAdminPermissions(circle.id),
+    enabled: isOwner && !circle.is_owned && !!user?.id,
+    ...membershipQueryOptions,
+  });
+  const canInvite = !!circle.is_owned || !!permissions?.can_invite_members;
+  const canRespond = !!circle.is_owned || !!permissions?.can_respond_to_requests;
+  const invite = useMutation({
+    mutationFn: () => getCircleMemberInviteCode(circle.id),
+    onSuccess: setInviteCode,
+    onError: () => toast.error('Could not open the invite link. Check your Circle permissions and try again.'),
+  });
 
   const { data: members, isLoading } = useQuery({
     queryKey: ['circle-members', circle?.id],
@@ -81,13 +97,13 @@ const CircleMembers: React.FC<CircleMembersProps> = ({ circle, isOwner, onViewPr
       if (error) throw error;
       return data || [];
     },
-    enabled: !!circle?.id && isOwner,
+    enabled: !!circle?.id && canRespond,
     staleTime: 0,
     refetchInterval: 15000,
   });
 
   const handleRespondRequest = async (request: any, approve: boolean) => {
-    if (responding.current) return;
+    if (!canRespond || responding.current) return;
     responding.current = true;
     setRespondingId(request.id);
     try {
@@ -145,8 +161,8 @@ const CircleMembers: React.FC<CircleMembersProps> = ({ circle, isOwner, onViewPr
     <div className="px-4 py-6">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-semibold">{formatCircleCount(members?.length || 0, 'member')}</h3>
-        {isOwner && circle?.invite_code && (
-          <Button size="sm" onClick={() => setInviteOpen(true)}>
+        {canInvite && (
+          <Button size="sm" onClick={() => invite.mutate()} disabled={invite.isPending}>
             <UserPlus className="h-4 w-4 mr-1" />
             Invite Member
           </Button>
@@ -154,7 +170,7 @@ const CircleMembers: React.FC<CircleMembersProps> = ({ circle, isOwner, onViewPr
       </div>
 
       {/* Pending join requests */}
-      {isOwner && pendingRequests.length > 0 && (
+      {canRespond && pendingRequests.length > 0 && (
         <div className="mb-6 animate-fade-in">
           <h4 className="text-sm font-semibold text-foreground mb-2 flex items-center gap-2">
             Join Requests
@@ -313,18 +329,16 @@ const CircleMembers: React.FC<CircleMembersProps> = ({ circle, isOwner, onViewPr
           description={searchQuery ? 'Try adjusting your search.' : 'Invite people to join your circle.'}
           ownerTitle={searchQuery ? 'No members match your search' : 'No Members Yet'}
           ownerDescription={searchQuery ? 'Try adjusting your search.' : 'Invite people to join your circle.'}
-          isOwner={isOwner}
-          actionLabel="Invite Member"
-          onAction={() => setInviteOpen(true)}
+          isOwner={canInvite}
         />
       )}
 
       {/* Invite Link Modal */}
-      {circle?.invite_code && (
+      {canInvite && inviteCode && (
         <InviteLinkModal
-          open={inviteOpen}
-          onOpenChange={setInviteOpen}
-          inviteCode={circle.invite_code}
+          open
+          onOpenChange={(open) => { if (!open) setInviteCode(null); }}
+          inviteCode={inviteCode}
           circleName={circle.name}
         />
       )}

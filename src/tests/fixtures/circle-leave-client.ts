@@ -4,6 +4,9 @@ const owner='00000000-0000-0000-0000-000000000002';
 const options=new URLSearchParams(location.search);
 const owned=options.get('role')==='owner';
 const manager=options.get('role')==='admin';
+const setup=options.has('setup');
+const circleAdmin = { user_id: '00000000-0000-0000-0000-000000000009', name: 'Test Admin', username: 'testadmin',
+  can_invite_members: true, can_respond_to_requests: true };
 export const fixture = {
   id, user:{id:owned ? owner : '00000000-0000-0000-0000-000000000001',email:'fixture@example.test'},
   status:'active', calls:0, fail:false, hold:false, release:undefined as undefined | (()=>void), members:2,
@@ -18,13 +21,23 @@ function snapshot() {
 function row() {
   return { id,name:'Test Circle',description:'A test Circle',creator_id:owner,category:'community',is_private:options.has('private'),
     is_active:true,subscription_enabled:!!subscription,subscription_method:'before_join',subscription_price:10,
-    circle_type:'community',enabled_features:['posts'],created_at:'2026-01-01T00:00:00Z',
+    circle_type:'community',enabled_features:setup ? ['posts','videos','resources'] : ['posts'],created_at:'2026-01-01T00:00:00Z',
+    cover_image_url:setup ? 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7' : null,
     circle_stats:{members_count:fixture.members},profiles:{name:'Owner',username:'owner'} };
 }
 export function card() { return {...row(),members_count:fixture.members,membership_state:snapshot(),is_joined:fixture.status==='active'}; }
 export const supabase={
   rpc:async(name: string,args: any)=>{
     if(name==='get_circle_membership_states') return {data:[snapshot()],error:null};
+    if (name === 'list_circle_admins') {
+      return { data: options.has('adminControls') && circleAdmin.name ? [circleAdmin] : [], error: null };
+    }
+    if (name === 'update_circle_admin') {
+      if (args._action === 'invite') circleAdmin.can_invite_members = args._allowed;
+      if (args._action === 'requests') circleAdmin.can_respond_to_requests = args._allowed;
+      if (args._action === 'remove') circleAdmin.name = '';
+      return { data: null, error: null };
+    }
     if(name==='get_circle_subscription') return {data:subscription,error:null};
     if(name==='leave_circle') {
       fixture.calls++;

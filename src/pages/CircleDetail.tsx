@@ -18,12 +18,12 @@ import FooterNav from '@/components/FooterNav';
 import CirclePosts from '@/components/circles/CirclePosts';
 import CircleServices from '@/components/circles/CircleServices';
 import CircleEvents from '@/components/circles/CircleEvents';
-import CircleLearn from '@/components/circles/CircleLearn';
+import CircleLearn, { type CircleLearnSection } from '@/components/circles/CircleLearn';
 import CircleMembers from '@/components/circles/CircleMembers';
 import CircleAbout from '@/components/circles/CircleAbout';
 import CircleMessages from '@/components/circles/CircleMessages';
 import CircleActivityStrip from '@/components/circles/CircleActivityStrip';
-import CircleGettingStarted from '@/components/circles/CircleGettingStarted';
+import CircleGettingStarted, { type CircleSetupSection } from '@/components/circles/CircleGettingStarted';
 import EditCircleModal from '@/components/circles/EditCircleModal';
 import CircleSettingsModal from '@/components/circles/CircleSettingsModal';
 import { useCircle } from '@/hooks/useCircles';
@@ -58,24 +58,44 @@ const CircleDetail: React.FC<CircleDetailProps> = ({
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const [circleActiveTab, setCircleActiveTab] = useState(searchParams.get('tab') ?? '');
+  const [learnSection, setLearnSection] = useState<CircleLearnSection | null>(null);
+  const [setupNavigationCount, setSetupNavigationCount] = useState(0);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [subscribeModalOpen, setSubscribeModalOpen] = useState(false);
   const [leaveConfirmOpen, setLeaveConfirmOpen] = useState(false);
-  const [managementView, setManagementView] = useState<'menu' | 'admin' | null>(null);
+  const [managementView, setManagementView] = useState<'menu' | 'admins' | null>(null);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [bannerLoaded, setBannerLoaded] = useState(false);
   const [showMiniHeader, setShowMiniHeader] = useState(false);
   const [descExpanded, setDescExpanded] = useState(false);
   const [profileModalUserId, setProfileModalUserId] = useState<string | null>(null);
   const bannerRef = useRef<HTMLDivElement>(null);
+  const circleSectionsRef = useRef<HTMLDivElement>(null);
 
   // Explicit tab choices are reflected in the URL so circle sections can be
   // shared and survive back/forward navigation
   const selectTab = (tab: string) => {
     setCircleActiveTab(tab);
+    if (tab !== 'learn') setLearnSection(null);
     setSearchParams({ tab }, { replace: true });
   };
+
+  const openSetupSection = (section: CircleSetupSection) => {
+    if (section === 'videos' || section === 'resources') {
+      setLearnSection(section);
+      selectTab('learn');
+    } else {
+      selectTab(section);
+    }
+    setSetupNavigationCount((count) => count + 1);
+  };
+
+  useEffect(() => {
+    if (!setupNavigationCount) return;
+    circleSectionsRef.current?.focus({ preventScroll: true });
+    circleSectionsRef.current?.scrollIntoView({ block: 'start' });
+  }, [setupNavigationCount]);
 
   const { data: circle, isLoading, isError, refetch } = useCircle(id!, user?.id);
   const { joinCircle, leaveCircle, isJoining, isLeaving } = useCircleMutations();
@@ -268,9 +288,9 @@ const CircleDetail: React.FC<CircleDetailProps> = ({
           Members
         </DropdownMenuItem>
         {circle.is_owned && (
-          <DropdownMenuItem onSelect={() => setManagementView('admin')}>
+          <DropdownMenuItem onSelect={() => setManagementView('admins')}>
             <ShieldPlus className="h-4 w-4 mr-2" />
-            Add Admin
+            Admin controls
           </DropdownMenuItem>
         )}
         {messagesEnabled && (
@@ -284,10 +304,12 @@ const CircleDetail: React.FC<CircleDetailProps> = ({
           <Pencil className="h-4 w-4 mr-2" />
           Edit Circle
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => setSettingsModalOpen(true)}>
-          <Settings className="h-4 w-4 mr-2" />
-          Settings
-        </DropdownMenuItem>
+        {circle.is_owned && (
+          <DropdownMenuItem onClick={() => setSettingsModalOpen(true)}>
+            <Settings className="h-4 w-4 mr-2" />
+            Settings
+          </DropdownMenuItem>
+        )}
         {circle.is_owned && <DropdownMenuItem onClick={() => setManagementView('menu')}>Transfer ownership or delete Circle</DropdownMenuItem>}
         {membership.canLeave && <><DropdownMenuSeparator /><DropdownMenuItem onClick={() => setLeaveConfirmOpen(true)} disabled={isLeaving} className="text-destructive">Leave Circle</DropdownMenuItem></>}
       </DropdownMenuContent>
@@ -518,7 +540,7 @@ const CircleDetail: React.FC<CircleDetailProps> = ({
         <CircleGettingStarted
           circle={circle}
           onEditCircle={() => setEditModalOpen(true)}
-          onOpenTab={selectTab}
+          onOpenSection={openSetupSection}
         />
       )}
 
@@ -530,7 +552,7 @@ const CircleDetail: React.FC<CircleDetailProps> = ({
       />
 
       {/* Public navigation: Feed | Learn | Events (| Services) | About */}
-      <div className="border-t border-border">
+      <div ref={circleSectionsRef} tabIndex={-1} role="region" aria-label="Circle sections" className="scroll-mt-16 border-t border-border">
         <Tabs value={circleActiveTab} onValueChange={selectTab} className="w-full">
           <div className="px-4 pt-3">
             <TabsList className={`grid ${tabsGridClass} h-9 w-full`}>
@@ -548,7 +570,7 @@ const CircleDetail: React.FC<CircleDetailProps> = ({
             </TabsContent>
             {navTabs.includes('learn') && (
               <TabsContent value="learn" className="animate-fade-in">
-                <CircleLearn circle={circle} isOwner={canManage} />
+                <CircleLearn circle={circle} isOwner={canManage} section={learnSection} onSectionChange={setLearnSection} />
               </TabsContent>
             )}
             {navTabs.includes('events') && (
