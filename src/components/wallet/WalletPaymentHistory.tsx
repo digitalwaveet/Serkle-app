@@ -8,6 +8,7 @@ import { walletDate, walletShortDate, walletMoney, walletPaymentStatus, walletEv
 import { WalletPaymentStatus } from './WalletPaymentStatus';
 import { WalletReceipt } from './WalletReceipt';
 import { WalletEmptyState } from './WalletEmptyState';
+import { paymentReviewReasonLabel } from '@/lib/paymentReview';
 
 export interface WalletPaymentCheck {
   isPending: boolean;
@@ -23,6 +24,8 @@ export function WalletPaymentHistory({userId,check}: {userId?:string;check:Walle
   const payments=useWalletPayments(userId,mode);
   const receipt=useWalletReceipt(userId,selected);
   const payment=receipt.data?.pages[0]?.payment;
+  const review=receipt.data?.pages[0]?.latestReview;
+  const reviewReason=paymentReviewReasonLabel(review?.reason);
   const ledger=receipt.data?.pages[0]?.ledger || [];
   const events=receipt.data?.pages.flatMap(part=>part.items) || [];
   const items=payments.data?.pages.flatMap(part=>part.items) || [];
@@ -64,6 +67,7 @@ export function WalletPaymentHistory({userId,check}: {userId?:string;check:Walle
         <time dateTime={item.created_at} title={walletDate(item.created_at)} className="wallet-row-date">{walletShortDate(item.created_at)}</time>
         <span className="wallet-row-reference">{item.tx_ref}</span>
         <span className="mt-2 inline-block"><WalletPaymentStatus payment={item}/></span>
+        {item.review_sent_at && <span className="ml-2 text-xs font-medium text-primary">Review update</span>}
       </span>
       <span className="wallet-row-right"><span className="wallet-row-amount">{walletMoney(item.amount,item.currency)}</span><span className="wallet-mode">{item.mode==='test' ? 'Test' : 'Live'}</span><ChevronRight size={16} className="mt-1 text-muted-foreground" aria-hidden="true"/></span>
       <span className="sr-only">View receipt and status history</span>
@@ -81,7 +85,16 @@ export function WalletPaymentHistory({userId,check}: {userId?:string;check:Walle
               <WalletReceipt payment={payment} ledger={ledger}/>
               {payment.mode==='test' && <p className="wallet-notice mt-4"><Info aria-hidden="true"/><span>Test payments are recorded for testing. They do not add or remove spendable coins.</span></p>}
               {payment.last_error && <p className="wallet-notice mt-4">{payment.last_error}</p>}
-              {payment.review_required && <p className="wallet-notice wallet-notice--danger mt-4"><Info aria-hidden="true"/><span>This payment needs review. Keep this receipt and contact support if the status remains unresolved.</span></p>}
+              {payment.review_required && !review && <p className="wallet-notice wallet-notice--danger mt-4"><Info aria-hidden="true"/><span>This payment needs review. Keep this receipt and contact support if the status remains unresolved.</span></p>}
+              {review && <section className="wallet-notice mt-4" aria-label="Payment review from the Serkle team">
+                <Info aria-hidden="true"/>
+                <div className="min-w-0">
+                  <strong>Review from the Serkle team</strong>
+                  <p className="text-xs">{walletDate(review.created_at)}</p>
+                  {reviewReason && <p className="mt-2 text-sm font-medium">{reviewReason}</p>}
+                  <p className="mt-2 whitespace-pre-wrap break-words">{review.message}</p>
+                </div>
+              </section>}
               <details className="wallet-audit"><summary>Status history<ChevronDown aria-hidden="true"/></summary>
                 <div className="px-4 pb-4 text-xs text-muted-foreground"><p>Status checks: {payment.check_count}</p>{!payment.reversed_at && !payment.restored_at && <p className="mt-1">Next automatic check due: {walletDate(payment.next_check_at)}</p>}<p className="mt-2">{freshRun ? `Automatic checks last ran ${walletDate(lastRun)}.` : 'Automatic checks have not been confirmed recently. You can check this receipt manually.'}</p></div>
                 <ol className="wallet-timeline">{events.map(event=><li key={event.id}><strong>{walletEventLabels[event.event_type] || 'Payment record updated'}</strong><p>{walletDate(event.created_at)} · {walletSourceLabels[event.source] || 'Server'}</p><p>Recorded status: {event.status}</p>{event.message && <p className="mt-1">{event.message}</p>}</li>)}</ol>

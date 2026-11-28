@@ -106,8 +106,12 @@ const GlobalRealtimeListener = () => {
           table: 'push_notifications',
           filter: `user_id=eq.${user.id}`,
         },
-        () => {
+        (payload) => {
           queryClient.invalidateQueries({ queryKey: ['push-notifications'] });
+          if (payload.new.notification_type === 'admin_payment_review') {
+            queryClient.invalidateQueries({ queryKey: ['wallet-payments', user.id] });
+            queryClient.invalidateQueries({ queryKey: ['wallet-payment-receipt', user.id] });
+          }
         }
       )
       // When notification is marked read

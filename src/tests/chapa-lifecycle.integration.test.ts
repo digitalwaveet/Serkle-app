@@ -95,11 +95,22 @@ before(async()=>{
   const original=await file('../../supabase/migrations/20260302072500_4606f06a-a7ce-49ac-aa6d-44e29b3037cb.sql');
   for(const name of ['topup_coins','transfer_coins','spend_coins']) await db.exec(original.match(new RegExp(`CREATE OR REPLACE FUNCTION public\\.${name}\\([\\s\\S]*?\\$\\$;`))![0]);
   for(const name of ['20261102150000_circle_entitlements.sql','20261102151000_circle_content_security.sql','20261102152000_circle_post_rpc_entitlements.sql','20261102153000_circle_separate_purchases.sql','20261104140000_verified_chapa_payments.sql','20261105160000_wallet_payment_audit.sql','20261105161000_wallet_withdrawal_safety.sql','20261105162000_wallet_ledger_integrity.sql','20261105163000_wallet_tip_idempotency.sql','20261106100000_disable_shop_coin_payments.sql']) await db.exec(await file(`../../supabase/migrations/${name}`));
+  await db.exec(`
+    CREATE FUNCTION public.has_role(actor uuid, role_name text) RETURNS boolean LANGUAGE sql STABLE
+      AS $$ SELECT actor='00000000-0000-0000-0000-000000000002' AND role_name='super_admin' $$;
+    CREATE TABLE public.admin_audit_log (admin_id uuid, action text, target_type text, target_id text, details jsonb);
+    CREATE TABLE public.push_notifications (user_id uuid, notification_type text, title text, body text, data jsonb, delivery_status text, read_at timestamptz);
+    GRANT SELECT, UPDATE ON public.push_notifications TO authenticated;
+    ALTER TABLE public.push_notifications ENABLE ROW LEVEL SECURITY;
+    CREATE POLICY notification_owner ON public.push_notifications FOR ALL TO authenticated USING (user_id=auth.uid());
+  `);
+  await db.exec(await file('../../supabase/migrations/20261128120000_admin_payment_controls.sql'));
+  await db.exec(await file('../../supabase/migrations/20261128150000_chapa_payment_reviews.sql'));
   await db.exec('GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO service_role');
 });
 after(async()=>{await db.close();});
 beforeEach(async()=>{
-  await db.exec('RESET ROLE; TRUNCATE profiles,circles,circle_members,circle_subscriptions,posts,post_stats,post_unlocks,circle_videos,video_unlocks,circle_resources,coin_wallets,coin_transactions,coin_topups,coin_withdrawals,circle_payment_requests,chapa_payment_intents,chapa_webhook_deliveries,wallet_reconciliation_runs CASCADE');
+  await db.exec('RESET ROLE; TRUNCATE profiles,circles,circle_members,circle_subscriptions,posts,post_stats,post_unlocks,circle_videos,video_unlocks,circle_resources,coin_wallets,coin_transactions,coin_topups,coin_withdrawals,circle_payment_requests,chapa_payment_intents,chapa_webhook_deliveries,wallet_reconciliation_runs,admin_audit_log,push_notifications CASCADE');
   await q("INSERT INTO profiles(id,name) VALUES($1,'Buyer'),($2,'Seller'),($3,'Other')",[buyer,seller,other]);
   await q("INSERT INTO circles(id,creator_id,name) VALUES($1,$2,'Circle')",[circle,seller]);
   await q('INSERT INTO posts(id,circle_id,user_id,is_premium,premium_price) VALUES($1,$2,$3,true,5)',[post,circle,seller]);
@@ -125,7 +136,81 @@ test('initialization persists owner, exact amount and stable reference before th
 test('provider receipt metadata distinguishes an absent fee from an explicitly reported zero and excludes private fields',()=>{
   for(const charge of [undefined,null,'',' ','unknown',-1,Infinity]) assert.equal(providerDetails({data:{charge}}).fee,null);
   assert.equal(providerDetails({data:{charge:'0'}}).fee,'0.00');
-  assert.deepEqual(providerDetails({data:{charge:'12.50',payment_method:'telebirr',account_number:'1234567890',secret:'private'}}),{paymentMethod:'telebirr',fee:'12.50'});
+  assert.deepEqual(providerDetails({data:{charge:'12.50',payment_method:'telebirr',account_number:'1234567890',secret:'private',status:'cancelled'}}),{paymentMethod:'telebirr',fee:'12.50',providerOutcome:'cancelled'});
+});
+
+test('admin evidence distinguishes a timeout, recorded cancel, and a browser visit from settlement', async () => {
+  const {result} = await initialize();
+  const receipt = (await store.get(result.txRef))!;
+  const diagnostics = async () => (await q('SELECT get_admin_payment_diagnostics($1) result', [receipt.id]))[0].result;
+  const timedOut = createChapaHandlers({ ...dependencies(), verify: async () => { throw new PaymentError('Chapa request timed out', 504, 'provider_timeout'); } });
+  assert.equal((await timedOut.verify(request({ txRef: receipt.tx_ref }))).status, 504);
+  await login(other);
+  await q('SELECT record_wallet_checkout_return($1)', [receipt.tx_ref]);
+  await assert.rejects(diagnostics(), { code: '42501' });
+  await login(seller);
+  const failure = await diagnostics();
+  assert.equal(failure.last_error_code, 'provider_timeout');
+  assert.equal(failure.checkout_return_seen_at, null);
+  const flagged = (await q("SELECT get_admin_wallet_operations('live','needs_review') result"))[0].result;
+  assert.deepEqual(flagged.items.map((item: any) => item.id), [receipt.id]);
+  await login(buyer);
+  await q('SELECT record_wallet_checkout_return($1)', [receipt.tx_ref]);
+  setState(receipt.tx_ref, 'cancelled');
+  assert.equal((await handlers().verify(request({ txRef: receipt.tx_ref }))).status, 200);
+  await login(seller);
+  const cancelled = await diagnostics();
+  assert.equal(cancelled.status, 'failed');
+  assert.equal(cancelled.provider_outcome, 'cancelled');
+  assert.ok(cancelled.checkout_return_seen_at);
+  assert.ok(cancelled.events.some((item: any) => item.error_code === 'provider_timeout'));
+  assert.equal(cancelled.checkout_url, undefined);
+  assert.equal(await balance(), 0);
+});
+
+test('the review sends exactly one owner-only wallet update and notification, without changing funds', async () => {
+  const {result} = await initialize();
+  const receipt = (await store.get(result.txRef))!;
+  const note = 'We could not confirm this payment.\nPlease keep your receipt.';
+  const requestId = randomUUID();
+  const send = (key = requestId, message = note) =>
+    q("SELECT send_wallet_payment_review($1,$2,'pending','unknown',$3) result",[receipt.id,key,message]);
+  await login(buyer);
+  await assert.rejects(send(), { code: '42501' });
+  await login(seller);
+  const sent = await send();
+  assert.deepEqual(await send(), sent);
+  await assert.rejects(send(requestId, 'Do not replace a previously sent message.'), { code: '22023' });
+  await db.exec('RESET ROLE');
+  const notices = await q('SELECT user_id,notification_type,body,data,delivery_status FROM push_notifications');
+  assert.equal(notices.length, 1);
+  assert.deepEqual(notices[0], { user_id: buyer, notification_type: 'admin_payment_review', body: note,
+    data: { paymentId: receipt.id, paymentReference: receipt.tx_ref, reviewId: requestId, reason: 'unknown' }, delivery_status: 'in_app_only' });
+  assert.equal((await q('SELECT count(*)::int AS count FROM admin_audit_log'))[0].count, 1);
+  assert.equal((await store.get(receipt.tx_ref))?.status, 'pending');
+  assert.equal(await balance(), 0);
+  await login(other);
+  await assert.rejects(q('SELECT get_wallet_payment_receipt($1)',[receipt.id]), { code: '42501' });
+  await login(buyer);
+  await assert.rejects(q("UPDATE push_notifications SET body='forged message' WHERE user_id=auth.uid()"), { code: '42501' });
+  await q('UPDATE push_notifications SET read_at=now() WHERE user_id=auth.uid()');
+  assert.ok((await q('SELECT read_at FROM push_notifications'))[0].read_at);
+  const history = (await q('SELECT get_wallet_payment_history() result'))[0].result;
+  assert.ok(history.items[0].review_sent_at);
+  const wallet = (await q('SELECT get_wallet_payment_receipt($1) result',[receipt.id]))[0].result;
+  assert.equal(wallet.latestReview.message, note);
+  setState(receipt.tx_ref,'failed');
+  await handlers().verify(request({ txRef: receipt.tx_ref }));
+  await login(seller);
+  const queue = (await q("SELECT get_admin_wallet_operations('live','needs_review') result"))[0].result;
+  assert.deepEqual(queue.items.map((item: any) => item.id), [receipt.id]);
+  await assert.rejects(send(randomUUID()), { code: '55000' });
+  setState(receipt.tx_ref,'success');
+  await handlers().verify(request({ txRef: receipt.tx_ref }));
+  await login(seller);
+  await assert.rejects(send(randomUUID()), { code: '55000' });
+  assert.deepEqual(await send(), sent);
+  assert.equal(await balance(), 10);
 });
 
 test('pending and failed provider payments create no wallet credit or Circle access',async()=>{

@@ -92,6 +92,23 @@ const openStory = async (page: Page) => {
   return dialog;
 };
 
+test("admin payment reviews open full details and mark read in the Notifications page", async () => {
+  const page = await notificationsPage("admin-notices");
+  try {
+    const row = page.getByTestId("notification-payment-review");
+    const opener = row.getByRole("button", { name: /^Serkle payment review/ });
+    await opener.click();
+    const message = page.getByRole("dialog", { name: "Serkle payment review" });
+    await expect(message).toContainText("Request to Chapa timed out");
+    await expect(message).toContainText("Keep your receipt and contact support if your payment provider shows a debit.");
+    await expect(message).toContainText("serkle-verified-fixture");
+    await expect(row).toHaveAttribute("data-unread", "false");
+    await message.getByRole("button", { name: "Close message" }).click();
+    await expect(opener).toBeFocused();
+    await expect(page.getByRole("heading", { name: "Notifications", exact: true })).toBeVisible();
+  } finally { await page.context().close(); }
+});
+
 test("full page shares activity cards, correct batch titles and every category without changing counts", async () => {
   const page = await notificationsPage();
   try {

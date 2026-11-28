@@ -23,7 +23,9 @@ export function providerDetails(envelope: any) {
   const feeValue=typeof data?.charge==='string' ? data.charge.trim() : data?.charge;
   const fee=(typeof feeValue==='number' || (typeof feeValue==='string' && /^\d+(?:\.\d+)?$/.test(feeValue))) ? Number(feeValue) : NaN;
   return {paymentMethod:typeof data?.payment_method==='string' ? data.payment_method.slice(0,80) : typeof data?.bank_name==='string' ? data.bank_name.slice(0,80) : null,
-    fee:Number.isFinite(fee) && fee>=0 && fee<=1000000000 ? fee.toFixed(2) : null};
+    fee:Number.isFinite(fee) && fee>=0 && fee<=1000000000 ? fee.toFixed(2) : null,
+    providerOutcome:typeof data?.status==='string' && ['success','pending','processing','failed','cancelled','canceled','refunded','reversed'].includes(data.status)
+      ? data.status : null};
 }
 const encoder = new TextEncoder();
 export async function verifyWebhookSignature(raw: Uint8Array, headers: Headers, secret: string) {
@@ -205,7 +207,8 @@ export function createChapaHandlers(deps: ChapaDependencies) {
       return json({success:true,userId:intent.user_id,txRef:intent.tx_ref,checkoutUrl:url});
       } catch(error) {
         const message='Checkout could not be confirmed. Your payment reference is recorded; check its status before trying another payment.';
-        await deps.store.error(intent.tx_ref,message,{stage:'checkout',code:'checkout_unconfirmed',source:'initialize'});
+        const code = error instanceof PaymentError && error.code === 'provider_timeout' ? error.code : 'checkout_unconfirmed';
+        await deps.store.error(intent.tx_ref,message,{stage:'checkout',code,source:'initialize'});
         return json({...paymentResult(intent),message},202);
       }
     }),

@@ -121,6 +121,20 @@ test('wallet history lists test and failed attempts, filters modes and paginates
   } finally {await page.context().close();}
 });
 
+test('the Wallet receipt shows the full admin review alongside the recorded payment status', async () => {
+  const page = await pageFor('history-review', false, '', 'wallet-fixture');
+  try {
+    const row = page.getByRole('button', { name: /history-payment-3(?:\D|$)/ });
+    await expect(row).toContainText('Review update');
+    await row.click();
+    const receipt = page.getByRole('dialog', { name: 'Payment receipt', exact: true });
+    const review = receipt.getByRole('region', { name: 'Payment review from the Serkle team' });
+    await expect(review).toContainText('Request to Chapa timed out');
+    await expect(review).toContainText('Our payment status request timed out. Please check this receipt again before retrying.');
+    await expect(receipt.getByText('Needs review', { exact: true })).toBeVisible();
+  } finally { await page.context().close(); }
+});
+
 test('checking a saved receipt updates its status without starting another checkout', async()=>{
   const page=await pageFor('history',false,'','wallet-fixture');
   try {

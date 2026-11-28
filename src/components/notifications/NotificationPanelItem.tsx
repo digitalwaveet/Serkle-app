@@ -7,10 +7,11 @@ import {
   formatRelativeTime,
 } from "@/utils/notificationHelpers";
 import type { NotificationPanelEntry } from "@/lib/notificationPanelEntries";
+import { isAdminNotification } from "./AdminNotificationDialog";
 interface Props {
   entry: NotificationPanelEntry;
   busy: boolean;
-  onOpen: () => void;
+  onOpen: (trigger: HTMLButtonElement) => void;
   onMarkRead: () => void;
   onDelete: () => void;
   onProfile: (id: string) => void;
@@ -84,7 +85,8 @@ export default function NotificationPanelItem({
           {avatar}
         </span>
       )}
-      <button className="notification-open" onClick={onOpen}>
+      <button className="notification-open" onClick={(event) => onOpen(event.currentTarget)}
+        aria-haspopup={isAdminNotification(notification.notification_type) ? "dialog" : undefined}>
         <span className="notification-entry-title">{title}</span>
         {body && <span className="notification-entry-body">{body}</span>}
         <span className="notification-entry-meta">

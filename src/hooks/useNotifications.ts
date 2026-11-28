@@ -1,19 +1,23 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { useUser } from '@/contexts/UserContext';
 
 export const useNotifications = () => {
   const queryClient = useQueryClient();
+  const { user } = useUser();
+  const userId = user?.id;
 
   const { data: notifications, isLoading, isFetching, error, refetch } = useQuery({
-    queryKey: ['push-notifications'],
+    queryKey: ['push-notifications', userId],
+    enabled: !!userId,
     queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return [];
+      const { data: { user: account } } = await supabase.auth.getUser();
+      if (!userId || account?.id !== userId) return [];
 
       const { data, error } = await supabase
         .from('push_notifications')
         .select('*')
-        .eq('user_id', user.id)
+        .eq('user_id', userId)
         .order('sent_at', { ascending: false })
         .limit(50);
 

@@ -53,8 +53,19 @@ export async function paymentDependencies(requireAdminSettings = false): Promise
     try {
       const response=await fetch(`https://api.chapa.co/v1/${path}`,{method:body ? 'POST' : 'GET',signal:controller.signal,
         headers:{Authorization:`Bearer ${key}`,'Content-Type':'application/json'},...(body ? {body:JSON.stringify(body)} : {})});
-      if(!response.ok) throw new PaymentError('Chapa could not confirm this request. Check its receipt before trying another payment.',502,'provider_unavailable');
-      return response.json();
+      if(!response.ok) {
+        if (response.status === 404 && path.startsWith('transaction/verify/')) {
+          const result = await response.json().catch(() => null);
+          if (typeof result?.message === 'string' && /^payment not paid yet[.!]?$/i.test(result.message.trim())) {
+            throw new PaymentError('Chapa reports this payment as unpaid so far. Check this receipt again before retrying.', 409, 'provider_not_paid');
+          }
+        }
+        throw new PaymentError('Chapa could not confirm this request. Check its receipt before trying another payment.',502,'provider_unavailable');
+      }
+      return await response.json();
+    } catch (error) {
+      if (controller.signal.aborted) throw new PaymentError('The request to Chapa timed out. The payment outcome is still unconfirmed.', 504, 'provider_timeout');
+      throw error;
     }finally{clearTimeout(timer);}
   };
   return {store,mode,modeOverride,availableModes,origins,
@@ -74,6 +85,9 @@ export async function paymentDependencies(requireAdminSettings = false): Promise
     },
     auditWithdrawalCheck: async (actor, reference) => {
       await checked(client.rpc('audit_admin_withdrawal_check', { _actor: actor, _reference: reference }));
+    },
+    auditPaymentCheck: async (actor, reference) => {
+      await checked(client.rpc('audit_admin_payment_check', { _actor: actor, _reference: reference }));
     },
     webhookSecret:Deno.env.get('CHAPA_WEBHOOK_SECRET') || '',reconcileSecret:Deno.env.get('CHAPA_RECONCILE_SECRET') || '',
     authenticate:async req=>{

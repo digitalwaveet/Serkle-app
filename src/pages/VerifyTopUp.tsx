@@ -7,6 +7,7 @@ import { useCoinWallet } from "@/hooks/useCoinWallet";
 import { useUser } from "@/contexts/UserContext";
 import { CheckCircle2, XCircle, Coins, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { supabase } from "@/integrations/supabase/client";
 
 const VerifyTopUp = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -22,11 +23,19 @@ const VerifyTopUp = () => {
 
   const isIframe = window !== window.parent;
   const urlRef = searchParams.get('tx_ref') || searchParams.get('trx_ref') || searchParams.get('verify_topup');
+  const returnRef = useRef(urlRef);
   // Verification/reconciliation clears pending storage. Keep this page's receipt
   // stable so a successful check cannot turn into a missing-reference error.
   const storedRef = useMemo(() => pendingChapaReference(user?.id), [user?.id]);
   const txRef = urlRef || storedRef;
   const verifyPayment = verifyTopUp.mutateAsync;
+
+  useEffect(() => {
+    const reference = returnRef.current;
+    if (!isAuthLoading && user?.id && reference && reference.length <= 160) {
+      void supabase.rpc('record_wallet_checkout_return', { _reference: reference }).then(undefined, () => {});
+    }
+  }, [isAuthLoading, user?.id]);
 
   useEffect(() => {
     if(!isAuthLoading && !user) navigate(circleLoginPath(txRef ? `/verify?tx_ref=${encodeURIComponent(txRef)}` : '/verify'),{replace:true});

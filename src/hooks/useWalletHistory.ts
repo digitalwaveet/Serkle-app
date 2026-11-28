@@ -2,6 +2,7 @@ import { useInfiniteQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { walletPage, type WalletMode, type WalletCursor, type WalletPayment, type WalletAuditEvent } from '@/lib/walletHistory';
 import type { CoinTransaction } from '@/hooks/useCoinWallet';
+import type { PaymentReviewMessage } from '@/lib/paymentReview';
 
 const PAGE_SIZE = 20;
 async function walletRpc(name: string, args: Record<string, unknown>, userId: string) {
@@ -32,10 +33,11 @@ export function useWalletActivity(userId?: string) {
 }
 export function useWalletReceipt(userId: string | undefined, paymentId: string | null) {
   return useInfiniteQuery({ queryKey: ['wallet-payment-receipt', userId, paymentId], enabled: !!userId && !!paymentId,
-    initialPageParam: undefined as WalletCursor | undefined, staleTime: 0,
+    initialPageParam: undefined as WalletCursor | undefined, staleTime: 0, refetchInterval: 30000,
     queryFn: async ({ pageParam }) => {
       const data = await walletRpc('get_wallet_payment_receipt', { _payment_id: paymentId, ...cursorArgs(pageParam), _limit: PAGE_SIZE }, userId!);
-      return { payment: data.payment as WalletPayment, ledger: data.ledger as CoinTransaction[], ...walletPage<WalletAuditEvent>(data.events || [], PAGE_SIZE) };
+      return { payment: data.payment as WalletPayment, ledger: data.ledger as CoinTransaction[],
+        latestReview: (data.latestReview || null) as PaymentReviewMessage | null, ...walletPage<WalletAuditEvent>(data.events || [], PAGE_SIZE) };
     }, getNextPageParam: last => last.next,
   });
 }

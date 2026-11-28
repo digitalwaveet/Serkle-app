@@ -7,6 +7,7 @@ export interface WalletPayment {
   next_check_at: string; credited_at: string | null; reversed_at: string | null;
   check_count: number; last_error: string | null; last_error_code: string | null;
   review_required: boolean; provider_status: string | null; provider_reference: string | null;
+  review_sent_at?: string | null;
   payment_method: string | null; provider_fee: number | null;
   kind: 'topup' | 'withdrawal'; reserved_at?: string | null; restored_at?: string | null; submitted_at?: string | null; destination_hint?: string | null;
 }
@@ -63,8 +64,10 @@ export const walletEventLabels: Record<string, string> = {
   funds_reserved: 'Coins reserved for withdrawal', funds_restored: 'Reserved coins returned',
   payout_submission_started: 'Payout submission started',
   review_required: 'Receipt flagged for review', review_resolved: 'Receipt review completed',
+  admin_review_sent: 'Serkle team sent a payment review',
 };
 export const walletSourceLabels: Record<string, string> = {
   initialize: 'Checkout', user: 'Manual check', webhook: 'Chapa notification',
   scheduled: 'Automatic server check', reconcile: 'Background check', server: 'Server', migration: 'Existing record',
+  admin: 'Serkle team',
 };

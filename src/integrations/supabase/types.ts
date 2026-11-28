@@ -4848,6 +4848,22 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_admin_coin_holdings: {
+        Args: { _before_balance?: number; _before_user_id?: string; _limit?: number }
+        Returns: Json
+      }
+      get_admin_payment_diagnostics: {
+        Args: { _payment_id: string }
+        Returns: Json
+      }
+      record_wallet_checkout_return: {
+        Args: { _reference: string }
+        Returns: undefined
+      }
+      send_wallet_payment_review: {
+        Args: { _payment_id: string; _request_id: string; _expected_status: string; _reason: string; _message: string }
+        Returns: Json
+      }
       get_circle_dashboard_totals: {
         Args: { _circle_id: string }
         Returns: Json

@@ -33,6 +33,9 @@ if(scenario==='history-large') {
 const historyEvents = (payment:any) => Array.from({length:26},(_,index)=>({id:`event-${String(26-index).padStart(3,'0')}`,payment_id:payment.id,
   event_type:index===0 ? 'verified' : 'check_started',source:'user',status:payment.status,previous_status:'pending',message:null,details:{},created_at:'2026-11-05T11:00:00Z'}));
 const slicePage=(rows:any[],args:any) => { const start=args._before_id ? rows.findIndex(row=>row.id===args._before_id)+1 : 0;return rows.slice(start,start+Number(args._limit || 20)+1); };
+const paymentReview = { created_at: '2026-11-05T12:00:00Z', reason: 'provider_timeout',
+  message: 'Our payment status request timed out. Please check this receipt again before retrying.' };
+if (scenario === 'history-review') historyPayments[3].review_sent_at = paymentReview.created_at;
 
 function result(txRef: string, status: string, amount = 500) {
   const live = status === 'success';
@@ -89,12 +92,13 @@ export const supabase = {
   } },
   rpc: async(name:string,args:any) => {
     fixture.rpcs.push({name,args});
+    if(name==='record_wallet_checkout_return') return {data:null,error:null};
     const owner=scenario==='history-wrong-account' ? '00000000-0000-0000-0000-000000000002' : userId;
     if(name==='get_wallet_payment_history') return {data:{userId:owner,items:scenario==='history-empty' ? [] : slicePage(historyPayments.filter(payment=>args._mode==='all' || payment.mode===args._mode),args),automaticChecks:{live:new Date().toISOString(),test:new Date().toISOString()}},error:null};
     if(name==='get_wallet_activity') return {data:{userId:owner,items:scenario==='history-empty' ? [] : slicePage(historyLedger,args),integrity:{status:'balanced',recordedBalance:fixture.balance,expectedBalance:fixture.balance,baselineAt:null}},error:null};
     if(name==='get_wallet_payment_receipt') {
       const payment=historyPayments.find(payment=>payment.id===args._payment_id);
-      return {data:{userId:owner,payment,ledger:historyLedger.filter(entry=>entry.reference_id===payment.id),events:slicePage(historyEvents(payment),args)},error:null};
+      return {data:{userId:owner,payment,latestReview:payment.review_sent_at ? paymentReview : null,ledger:historyLedger.filter(entry=>entry.reference_id===payment.id),events:slicePage(historyEvents(payment),args)},error:null};
     }
     throw new Error('Unexpected fixture RPC: '+name);
   },

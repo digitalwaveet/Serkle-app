@@ -27,6 +27,9 @@ const resolve = (item: string, action: string, notes?: string) => db.query(
   'SELECT public.resolve_admin_content_review($1, $2, $3)', [item, action, notes ?? null],
 );
 
+const readHoldings = async (balance: number | null = null, userId: string | null = null, limit = 10) =>
+  (await db.query<{ holdings: any }>('SELECT get_admin_coin_holdings($1,$2,$3) holdings', [balance, userId, limit])).rows[0].holdings;
+
 before(async () => {
   await db.exec(`
     CREATE ROLE authenticated;
@@ -39,6 +42,7 @@ before(async () => {
     $$;
     GRANT USAGE ON SCHEMA auth TO anon, authenticated;
     CREATE TABLE public.profiles (created_at timestamptz, banned_at timestamptz, id uuid, name text, username text, is_verified boolean, admin_notes text);
+    CREATE TABLE public.coin_wallets (user_id uuid PRIMARY KEY, balance integer NOT NULL, total_earned integer NOT NULL DEFAULT 0);
     CREATE TABLE public.posts (id uuid PRIMARY KEY, moderation_status text NOT NULL DEFAULT 'active', pinned_at timestamptz, content text, user_id uuid);
     CREATE TABLE public.videos (id uuid PRIMARY KEY, moderation_status text NOT NULL DEFAULT 'active');
     CREATE TABLE public.seller_profiles (user_id uuid);
@@ -102,6 +106,7 @@ before(async () => {
   await db.exec(bulk.slice(0, bulk.indexOf('-- Enable realtime')));
   await db.exec(await migration('20260308181716_3c39db42-9c67-4b3f-9981-692501578202.sql'));
   await db.exec(await migration('20261128123000_admin_tool_connections.sql'));
+  await db.exec(await migration('20261128160000_admin_coin_holdings.sql'));
   await db.exec(`
     GRANT SELECT, INSERT ON public.admin_audit_log TO authenticated;
     GRANT SELECT ON public.user_roles TO authenticated;
@@ -392,4 +397,37 @@ test('AI scans use stored rules, create one open review and require authenticate
   await db.exec('RESET ROLE');
   assert.deepEqual((await db.query('SELECT moderation_status FROM posts WHERE id=$1', [scanned])).rows, [{ moderation_status: 'hidden' }]);
   assert.equal((await db.query('SELECT * FROM content_review_queue WHERE content_id=$1', [scanned])).rows.length, 1);
+});
+
+test('coin circulation uses positive wallet balances, preserves tied ranks and requires a super admin', async () => {
+  for (const user of [admin, moderator, member]) {
+    await asUser(user);
+    await assert.rejects(readHoldings(), { code: '42501' });
+  }
+  await asUser(null, 'anon');
+  await assert.rejects(readHoldings(), { code: '42501' });
+  await asUser(superAdmin);
+  const empty = await readHoldings();
+  assert.deepEqual(empty.summary, { circulating_coins: '0', holders: '0' });
+  assert.deepEqual(empty.items, []);
+  await assert.rejects(readHoldings(25), { code: '22023' });
+  await assert.rejects(readHoldings(null, null, 51), { code: '22023' });
+
+  const [holderA, holderB, holderC, overdrawn, emptyWallet] = [101, 102, 103, 104, 105].map(id);
+  await db.exec('RESET ROLE');
+  await db.query("INSERT INTO profiles(id,name,username) VALUES ($1,'First holder','firstholder')", [holderB]);
+  await db.query(`INSERT INTO public.coin_wallets(user_id,balance,total_earned) VALUES
+    ($1,2147483647,0),($2,2147483647,0),($3,16,9000),($4,-100,9000),($5,0,9000)`,
+    [holderA, holderB, holderC, overdrawn, emptyWallet]);
+  await asUser(superAdmin);
+  const first = await readHoldings(null, null, 1);
+  assert.deepEqual(first.summary, { circulating_coins: '4294967310', holders: '3' });
+  assert.deepEqual(first.items.map((item: any) => item.user_id), [holderB, holderA]);
+  assert.deepEqual(first.items[0], { user_id: holderB, balance: 2147483647, name: 'First holder', username: 'firstholder' });
+  const second = await readHoldings(first.items[0].balance, first.items[0].user_id, 1);
+  assert.deepEqual(second.summary, first.summary);
+  assert.deepEqual(second.items.map((item: any) => item.user_id), [holderA, holderC]);
+  assert.equal(second.items[0].name, null);
+  const last = await readHoldings(second.items[0].balance, second.items[0].user_id, 1);
+  assert.deepEqual(last.items.map((item: any) => item.user_id), [holderC]);
 });

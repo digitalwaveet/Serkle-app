@@ -30,6 +30,7 @@ import NotificationFilters, {
 import NotificationPanelItem from "@/components/notifications/NotificationPanelItem";
 import NotificationSettingsModal from "@/components/notifications/NotificationSettingsModal";
 import NotificationActionDialog from "@/components/notifications/NotificationActionDialog";
+import { AdminNotificationDialog, isAdminNotification } from "@/components/notifications/AdminNotificationDialog";
 import { SerkleLoader } from "@/components/ui/SerkleLoader";
 import FooterNav from "@/components/FooterNav";
 import "@/components/notifications/notification-panel.css";
@@ -41,6 +42,8 @@ export default function Notifications() {
   const { user } = useUser();
   const [category, setCategory] = useState("all");
   const [showPreferences, setShowPreferences] = useState(false);
+  const [adminMessage, setAdminMessage] = useState<NotificationPanelEntry | null>(null);
+  const adminMessageTrigger = useRef<HTMLButtonElement>(null);
   const [confirmClear, setConfirmClear] = useState(false);
   const [clearError, setClearError] = useState("");
   const [reshare, setReshare] = useState<{
@@ -163,10 +166,15 @@ export default function Notifications() {
         Promise.all(entry.unreadIds.map((id) => markAsRead.mutateAsync(id))),
       "Marked as read.",
     );
-  const openEntry = (entry: NotificationPanelEntry) => {
+  const openEntry = (entry: NotificationPanelEntry, trigger: HTMLButtonElement) => {
     const notification = entry.notification;
     const data = notification.data || {};
     if (entry.unreadIds.length) void markEntry(entry);
+    if (isAdminNotification(notification.notification_type)) {
+      adminMessageTrigger.current = trigger;
+      setAdminMessage(entry);
+      return;
+    }
     if (notification.notification_type === "story_mention" && data.story_id) {
       storyTrigger.current = document.activeElement as HTMLElement;
       setReshareError("");
@@ -433,7 +441,7 @@ export default function Notifications() {
                             key={entry.id}
                             entry={entry}
                             busy={busy}
-                            onOpen={() => openEntry(entry)}
+                            onOpen={(trigger) => openEntry(entry, trigger)}
                             onMarkRead={() => void markEntry(entry)}
                             onDelete={() =>
                               void runAction(
@@ -465,6 +473,8 @@ export default function Notifications() {
             </p>
           )}
         </main>
+        {adminMessage && notifications.some((row) => row.id === adminMessage.id) && <AdminNotificationDialog entry={adminMessage} onClose={() => setAdminMessage(null)}
+          returnFocus={adminMessageTrigger} fallbackFocus={heading} />}
         <NotificationActionDialog
           open={confirmClear}
           onOpenChange={setConfirmClear}

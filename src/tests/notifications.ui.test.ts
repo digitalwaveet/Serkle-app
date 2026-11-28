@@ -67,6 +67,27 @@ const calls = (page: Page) =>
         value?: any;
       }>,
   );
+
+test("admin broadcasts and account notices open in the panel and return focus on close", async () => {
+  const page = await panelPage("admin-notices");
+  try {
+    for (const [id, title, text] of [
+      ["admin-broadcast", "Service update", "The full service update includes every paragraph"],
+      ["admin-warning", "Serkle account notice", "Here are the details of your account notice."],
+    ]) {
+      const row = page.getByTestId("notification-" + id);
+      const opener = row.getByRole("button", { name: new RegExp("^" + title) });
+      await opener.click();
+      const message = page.getByRole("dialog", { name: title, exact: true });
+      await expect(message).toContainText(text);
+      await expect(row).toHaveAttribute("data-unread", "false");
+      await page.keyboard.press("Escape");
+      await expect(message).toHaveCount(0);
+      await expect(panel(page)).toBeVisible();
+      await expect(opener).toBeFocused();
+    }
+  } finally { await page.context().close(); }
+});
 const options = async (page: Page, id: string) =>
   page
     .getByTestId("notification-" + id)

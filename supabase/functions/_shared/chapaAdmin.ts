@@ -7,6 +7,7 @@ export interface ChapaAdminControl {
   verifyMode(mode: ChapaMode): Promise<void>;
   setMode(actor: string, mode: ChapaMode, expected: ChapaMode | null): Promise<void>;
   auditWithdrawalCheck(actor: string, reference: string): Promise<void>;
+  auditPaymentCheck?(actor: string, reference: string): Promise<void>;
   modeOverride: ChapaMode | null;
 }
 
@@ -35,13 +36,16 @@ export function createChapaAdminHandler(deps: ChapaDependencies, control: ChapaA
         return chapaJson(state(body.mode));
       }
 
-      if (body?.action === 'check_withdrawal') {
+      if (body?.action === 'check_withdrawal' || body?.action === 'check_payment') {
+        const withdrawalOnly = body.action === 'check_withdrawal';
         if (typeof body.reference !== 'string' || !body.reference.trim() || body.reference.length > 160) {
-          throw new PaymentError('A withdrawal reference is required');
+          throw new PaymentError('A payment reference is required');
         }
         const intent = await deps.store.get(body.reference.trim());
-        if (intent?.kind !== 'withdrawal') throw new PaymentError('Withdrawal not found', 404);
-        await control.auditWithdrawalCheck(actor.id, intent.tx_ref);
+        if (!intent || (withdrawalOnly && intent.kind !== 'withdrawal')) throw new PaymentError(withdrawalOnly ? 'Withdrawal not found' : 'Payment not found', 404);
+        if (withdrawalOnly) await control.auditWithdrawalCheck(actor.id, intent.tx_ref);
+        else if (control.auditPaymentCheck) await control.auditPaymentCheck(actor.id, intent.tx_ref);
+        else throw new PaymentError('Payment checks are unavailable.', 503);
         const result = await createChapaHandlers(deps).checkRecordedPayment(intent);
         return chapaJson({ reference: result.tx_ref, status: result.status, verifiedAt: result.verified_at ?? null });
       }

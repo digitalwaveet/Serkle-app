@@ -39,6 +39,7 @@ import NotificationFilters, {
   NOTIFICATION_TIME_GROUPS as groupKeys,
 } from "./NotificationFilters";
 import NotificationSettingsModal from "./NotificationSettingsModal";
+import { AdminNotificationDialog, isAdminNotification } from "./AdminNotificationDialog";
 import "./notification-panel.css";
 
 interface Props {
@@ -54,6 +55,9 @@ export default function NotificationPanel({
   const navigate = useNavigate();
   const [category, setCategory] = useState("all");
   const [showSettings, setShowSettings] = useState(false);
+  const [adminMessage, setAdminMessage] = useState<NotificationPanelEntry | null>(null);
+  const adminMessageTrigger = useRef<HTMLButtonElement>(null);
+  const panelClose = useRef<HTMLButtonElement>(null);
   const [notice, setNotice] = useState<{
     text: string;
     error?: boolean;
@@ -75,7 +79,10 @@ export default function NotificationPanel({
     deleteNotification,
   } = useNotifications();
   useEffect(() => {
-    if (!isOpen) setShowSettings(false);
+    if (!isOpen) {
+      setShowSettings(false);
+      setAdminMessage(null);
+    }
     else setNotice(null);
   }, [isOpen]);
   useLayoutEffect(() => {
@@ -168,8 +175,13 @@ export default function NotificationPanel({
         Promise.all(entry.unreadIds.map((id) => markAsRead.mutateAsync(id))),
       "Marked as read.",
     );
-  const openEntry = (entry: NotificationPanelEntry) => {
+  const openEntry = (entry: NotificationPanelEntry, trigger: HTMLButtonElement) => {
     if (entry.unreadIds.length) void markEntry(entry);
+    if (isAdminNotification(entry.notification.notification_type)) {
+      adminMessageTrigger.current = trigger;
+      setAdminMessage(entry);
+      return;
+    }
     const target = getNotificationNavTarget(entry.notification);
     onClose();
     navigate(target.path, target.state ? { state: target.state } : undefined);
@@ -227,6 +239,7 @@ export default function NotificationPanel({
                 <Settings aria-hidden="true" />
               </button>
               <Dialog.Close
+                ref={panelClose}
                 className="notification-icon-button"
                 aria-label="Close notifications"
               >
@@ -364,7 +377,7 @@ export default function NotificationPanel({
                             key={entry.id}
                             entry={entry}
                             busy={busy}
-                            onOpen={() => openEntry(entry)}
+                            onOpen={(trigger) => openEntry(entry, trigger)}
                             onMarkRead={() => void markEntry(entry)}
                             onDelete={() =>
                               void runAction(
@@ -412,6 +425,8 @@ export default function NotificationPanel({
               returnFocusRef={settingsTrigger}
             />
           )}
+          {adminMessage && notifications.some((row) => row.id === adminMessage.id) && <AdminNotificationDialog entry={adminMessage} onClose={() => setAdminMessage(null)}
+            returnFocus={adminMessageTrigger} fallbackFocus={panelClose} />}
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

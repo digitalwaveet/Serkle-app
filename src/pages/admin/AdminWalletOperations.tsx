@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, ChevronLeft, ChevronRight, RefreshCw, Search, Wallet } from 'lucide-react';
 import { toast } from 'sonner';
@@ -12,11 +12,13 @@ import { useUser } from '@/contexts/UserContext';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { edgeFunctionErrorMessage } from '@/lib/edgeFunctionError';
+import { AdminPaymentReviewDialog } from './AdminPaymentReviewDialog';
+import AdminCoinHoldings from './AdminCoinHoldings';
 
 const PAGE_SIZE = 25;
 const statuses = {
   all: 'All statuses', pending: 'Pending', failed: 'Failed', succeeded: 'Succeeded',
-  refunded: 'Refunded', reversed: 'Reversed',
+  refunded: 'Refunded', reversed: 'Reversed', needs_review: 'Needs review',
 };
 type Mode = 'live' | 'test';
 type Status = keyof typeof statuses;
@@ -25,12 +27,13 @@ type Cursor = { created_at: string; id: string };
 type Payment = Cursor & {
   tx_ref: string;
   kind: 'topup' | 'withdrawal';
-  status: Exclude<Status, 'all'>;
+  status: Exclude<Status, 'all' | 'needs_review'>;
   amount: number;
   currency: string;
   attempts: number;
   has_check_error: boolean;
   review_required?: boolean;
+  review_sent_at?: string | null;
   verified_at: string | null;
   credited_at: string | null;
   reversed_at: string | null;
@@ -41,7 +44,7 @@ type Payment = Cursor & {
 };
 type Operations = {
   checked_at: string;
-  summary: { pending: number; failed: number; due: number };
+  summary: { pending: number; failed: number; due: number; needs_review?: number };
   latest_run: { started_at: string; completed_at: string | null; checked: number; errors: number } | null;
   items: Payment[];
 };
@@ -62,7 +65,9 @@ async function chapaAdminConfiguration(body: Record<string, unknown>): Promise<C
   return { activeMode: data.activeMode, availableModes: data.availableModes };
 }
 
-function PaymentRow({ payment, mode, onCheck, checking }: { payment: Payment; mode: Mode; onCheck: () => void; checking: boolean }) {
+function PaymentRow({ payment, mode, onCheck, checking, onReview }: {
+  payment: Payment; mode: Mode; onCheck: () => void; checking: boolean; onReview: (trigger: HTMLButtonElement) => void;
+}) {
   const rows = [
     { label: 'Provider verified', value: payment.verified_at },
     { label: 'Wallet credited', value: payment.credited_at },
@@ -89,6 +94,7 @@ function PaymentRow({ payment, mode, onCheck, checking }: { payment: Payment; mo
           {mode === 'test' && <p className="text-sm text-muted-foreground">Test payments do not create spendable coins.</p>}
           {payment.has_check_error && <p className="text-sm font-medium text-destructive">A processing error is recorded for this payment.</p>}
           {payment.review_required && <Badge variant="destructive">Needs review</Badge>}
+          {payment.review_sent_at && <Badge variant="outline" className="ml-1">Review message sent</Badge>}
           <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <div><dt className="text-xs text-muted-foreground">Created</dt><dd className="mt-0.5 text-sm">{time(payment.created_at)}</dd></div>
             <div><dt className="text-xs text-muted-foreground">Recorded check attempts</dt><dd className="mt-0.5 text-sm tabular-nums">{payment.attempts}</dd></div>
@@ -96,11 +102,14 @@ function PaymentRow({ payment, mode, onCheck, checking }: { payment: Payment; mo
               <div key={label}><dt className="text-xs text-muted-foreground">{label}</dt><dd className="mt-0.5 text-sm">{time(value!)}</dd></div>
             ))}
           </dl>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" onClick={event => onReview(event.currentTarget)}>Review payment</Button>
           {payment.kind === 'withdrawal' && (
             <Button variant="outline" size="sm" disabled={checking} onClick={onCheck}>
               <RefreshCw size={15} className="mr-1.5" aria-hidden="true" />{checking ? 'Checking…' : 'Check withdrawal status'}
             </Button>
           )}
+          </div>
         </div>
       </details>
     </li>
@@ -119,6 +128,8 @@ export default function AdminWalletOperations() {
   const [reference, setReference] = useState('');
   const [cursors, setCursors] = useState<Cursor[]>([]);
   const [modeDecision, setModeDecision] = useState<Mode | null>(null);
+  const [reviewTarget, setReviewTarget] = useState<Payment | null>(null);
+  const reviewTrigger = useRef<HTMLButtonElement>(null);
   const cursor = cursors[cursors.length - 1];
   const canManage = Boolean(userId) && adminRole === 'super_admin';
   const walletKey = ['admin', 'wallet-operations', userId] as const;
@@ -144,12 +155,15 @@ export default function AdminWalletOperations() {
   const checkWithdrawal = useMutation({
     mutationFn: async (reference: string) => {
       const data = await chapaAdmin({ action: 'check_withdrawal', reference });
-      if (data?.reference !== reference || !Object.hasOwnProperty.call(statuses, data.status) || data.status === 'all') throw new Error('Could not confirm the withdrawal status.');
-      return data.status as Exclude<Status, 'all'>;
+      if (data?.reference !== reference || !Object.hasOwnProperty.call(statuses, data.status) || ['all','needs_review'].includes(data.status)) throw new Error('Could not confirm the withdrawal status.');
+      return data.status as Payment['status'];
     },
     onSuccess: (result) => { toast.success(`Withdrawal status: ${statuses[result]}`); },
     onError: (error) => { toast.error(error.message); },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: walletKey }),
+    onSettled: () => Promise.all([
+      queryClient.invalidateQueries({ queryKey: walletKey }),
+      queryClient.invalidateQueries({ queryKey: ['admin', 'coin-holdings', userId] }),
+    ]),
   });
   const wallet = useQuery({
     queryKey: [...walletKey, mode, kind, status, reference, cursor?.id, cursor?.created_at],
@@ -192,6 +206,8 @@ export default function AdminWalletOperations() {
         <Button variant="outline" className="h-11 bg-card" disabled={wallet.isFetching} onClick={() => void wallet.refetch()}><RefreshCw className="mr-2 h-4 w-4" />{wallet.isFetching ? 'Refreshing…' : 'Refresh records'}</Button>
       </header>
 
+      {canManage && userId && <AdminCoinHoldings key={userId} userId={userId} />}
+
       <section className="rounded-2xl border bg-card p-4 sm:p-5" aria-labelledby="chapa-settings-heading">
         <h2 id="chapa-settings-heading" className="text-base font-semibold">Chapa payment mode</h2>
         {config.isPending && <p role="status" className="mt-1 text-sm text-muted-foreground">Checking payment configuration…</p>}
@@ -227,8 +243,8 @@ export default function AdminWalletOperations() {
       )}
       {data && (
         <div className="grid gap-3 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-          <dl className="grid grid-cols-3 gap-2 rounded-2xl border bg-card p-3.5 sm:p-5" aria-label="Mode totals">
-            {([{ label: 'Pending', value: data.summary.pending }, { label: 'Failed', value: data.summary.failed }, { label: 'Due to check', value: data.summary.due }]).map(({ label, value }) => (
+          <dl className="grid grid-cols-2 gap-3 rounded-2xl border bg-card p-3.5 sm:grid-cols-4 sm:p-5" aria-label="Mode totals">
+            {([{ label: 'Pending', value: data.summary.pending }, { label: 'Failed', value: data.summary.failed }, { label: 'Due to check', value: data.summary.due }, { label: 'Needs review', value: data.summary.needs_review ?? 0 }]).map(({ label, value }) => (
               <div key={label} className="min-w-0">
                 <dt className="text-xs text-muted-foreground sm:text-sm">{label}</dt>
                 <dd className="mt-1 text-xl font-semibold tabular-nums sm:text-2xl">{value.toLocaleString()}</dd>
@@ -266,7 +282,10 @@ export default function AdminWalletOperations() {
             {(reference || status !== 'all') && <Button variant="ghost" className="h-11" onClick={() => { setInput(''); setReference(''); setStatus('all'); setCursors([]); }}>Clear filters</Button>}
           </div>
         </div>
-        {data && (items.length ? <ul className="divide-y">{items.map((row) => <PaymentRow key={row.id} payment={row} mode={mode} checking={checkWithdrawal.isPending} onCheck={() => checkWithdrawal.mutate(row.tx_ref)} />)}</ul> : (
+        {data && (items.length ? <ul className="divide-y">{items.map((row) => <PaymentRow key={row.id} payment={row} mode={mode} checking={checkWithdrawal.isPending} onCheck={() => checkWithdrawal.mutate(row.tx_ref)} onReview={(trigger) => {
+          reviewTrigger.current = trigger;
+          setReviewTarget(row);
+        }} />)}</ul> : (
           <p className="px-4 py-9 text-center text-sm text-muted-foreground">No payments match these filters.</p>
         ))}
         {data && (cursors.length > 0 || data.items.length > PAGE_SIZE) && (
@@ -280,6 +299,8 @@ export default function AdminWalletOperations() {
           </nav>
         )}
       </section>
+      {reviewTarget && userId && <AdminPaymentReviewDialog key={reviewTarget.id} target={reviewTarget} userId={userId}
+        onClose={() => setReviewTarget(null)} returnFocusRef={reviewTrigger} />}
       <Dialog open={modeDecision !== null} onOpenChange={(open) => { if (!open && !switchMode.isPending) setModeDecision(null); }}>
         <DialogContent>
           <DialogHeader>

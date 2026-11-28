@@ -92,6 +92,17 @@ const initial = [
     true,
   ),
 ];
+if (scenario === "admin-notices") {
+  initial.unshift(
+    notification("payment-review", "admin_payment_review", "Serkle payment review",
+      "Our request to Chapa timed out.\n\nKeep your receipt and contact support if your payment provider shows a debit.",
+      0.01, { paymentReference: "serkle-verified-fixture", reason: "provider_timeout" }),
+    notification("admin-broadcast", "admin_broadcast", "Service update",
+      "The full service update includes every paragraph sent by the Serkle team.", 0.02),
+    notification("admin-warning", "admin_warning", "Serkle account notice",
+      "Here are the details of your account notice.", 0.03),
+  );
+}
 if (scenario === "long")
   initial[0].title =
     "A very long community notification title with SupercalifragilisticexpialidociousWithoutAnySpacesAndMoreCharacters";
