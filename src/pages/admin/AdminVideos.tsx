@@ -10,7 +10,6 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
-import { useAdminAudit } from '@/hooks/useAdminAudit';
 import { Search, MoreHorizontal, Eye, EyeOff, Trash2, ChevronLeft, ChevronRight, RotateCcw, Play } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
@@ -38,7 +37,6 @@ export default function AdminVideos() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'active' | 'hidden' | 'removed' | 'flagged'>('all');
   const [selectedVideo, setSelectedVideo] = useState<VideoRow | null>(null);
-  const { logAction } = useAdminAudit();
 
   const fetchVideos = useCallback(async () => {
     setLoading(true);
@@ -75,8 +73,8 @@ export default function AdminVideos() {
 
   const handleModeration = async (videoId: string, status: string) => {
     try {
-      await supabase.from('videos').update({ moderation_status: status }).eq('id', videoId);
-      await logAction(`video_${status}`, 'video', videoId);
+      const { error } = await supabase.rpc('save_admin_moderation_status', { _kind: 'video', _content_id: videoId, _status: status });
+      if (error) throw error;
       toast.success(`Video marked as ${status}`);
       fetchVideos();
     } catch {

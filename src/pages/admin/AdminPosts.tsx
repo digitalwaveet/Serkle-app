@@ -10,7 +10,6 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
-import { useAdminAudit } from '@/hooks/useAdminAudit';
 import { Search, MoreHorizontal, Eye, EyeOff, Trash2, Pin, ChevronLeft, ChevronRight, RotateCcw } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
@@ -38,7 +37,6 @@ export default function AdminPosts() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'active' | 'hidden' | 'removed' | 'flagged'>('all');
   const [selectedPost, setSelectedPost] = useState<PostRow | null>(null);
-  const { logAction } = useAdminAudit();
 
   const fetchPosts = useCallback(async () => {
     setLoading(true);
@@ -75,8 +73,8 @@ export default function AdminPosts() {
 
   const handleModeration = async (postId: string, status: string) => {
     try {
-      await supabase.from('posts').update({ moderation_status: status }).eq('id', postId);
-      await logAction(`post_${status}`, 'post', postId);
+      const { error } = await supabase.rpc('save_admin_moderation_status', { _kind: 'post', _content_id: postId, _status: status });
+      if (error) throw error;
       toast.success(`Post marked as ${status}`);
       fetchPosts();
     } catch {
@@ -86,8 +84,8 @@ export default function AdminPosts() {
 
   const handlePin = async (postId: string, pinned: boolean) => {
     try {
-      await supabase.from('posts').update({ pinned_at: pinned ? new Date().toISOString() : null }).eq('id', postId);
-      await logAction(pinned ? 'pin_post' : 'unpin_post', 'post', postId);
+      const { error } = await supabase.rpc('set_admin_post_pin', { _post_id: postId, _pinned: pinned });
+      if (error) throw error;
       toast.success(pinned ? 'Post pinned' : 'Post unpinned');
       fetchPosts();
     } catch {

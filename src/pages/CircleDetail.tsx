@@ -38,6 +38,7 @@ import { type TabKey } from '@/hooks/useAppNav';
 import { useQueryClient } from '@tanstack/react-query';
 import { shareCircle } from '@/utils/shareUtils';
 import { formatCircleCount } from '@/lib/circleCountFormat';
+import { useMyCircleAdminPermissions, type CircleActivityPermission } from '@/lib/circleAdmin';
 
 interface CircleDetailProps {
   activeTab: TabKey;
@@ -98,6 +99,7 @@ const CircleDetail: React.FC<CircleDetailProps> = ({
   }, [setupNavigationCount]);
 
   const { data: circle, isLoading, isError, refetch } = useCircle(id!, user?.id);
+  const { data: adminPermissions } = useMyCircleAdminPermissions(id, user?.id, !!circle?.is_admin && !circle.is_owned);
   const { joinCircle, leaveCircle, isJoining, isLeaving } = useCircleMutations();
   const { data: subscription } = useCircleSubscription(id);
   const hasSubscription = !!subscription;
@@ -182,7 +184,7 @@ const CircleDetail: React.FC<CircleDetailProps> = ({
     const mapped = LEGACY_TAB_MAP[circleActiveTab] ?? circleActiveTab;
     const chatEnabled = circle.enabled_features.includes('messages');
     const valid: string[] = [
-      ...getCircleNav(circle, canManageCircle),
+      ...getCircleNav(circle, !!circle.is_owned || adminPermissions?.activity_permissions?.services === true),
       // Members management is owner/admin only; the messages chat room is also
       // open to joined members via the header shortcut
       ...(canManageCircle ? ['members'] : []),
@@ -193,7 +195,7 @@ const CircleDetail: React.FC<CircleDetailProps> = ({
     } else if (mapped !== circleActiveTab) {
       setCircleActiveTab(mapped);
     }
-  }, [circle, circleActiveTab]);
+  }, [circle, circleActiveTab, adminPermissions]);
 
   // Compact header slides in once the banner scrolls out of view
   useEffect(() => {
@@ -239,11 +241,14 @@ const CircleDetail: React.FC<CircleDetailProps> = ({
 
   const membership = circleMembershipAction(circle.membership_state);
   const canManage = membership.canManage;
+  const canRun = (permission: CircleActivityPermission) =>
+    !!circle.is_owned || (canManage && adminPermissions?.activity_permissions?.[permission] === true);
+  const canManageAdmins = !!circle.is_owned || (canManage && !!adminPermissions?.is_super_admin);
   const typeConfig = getCircleType(circle.circle_type);
   const TypeIcon = typeConfig.icon;
   const categoryLabel = displayCategory(circle.category).trim();
   const showCategory = categoryLabel.toLocaleLowerCase() !== typeConfig.label.trim().toLocaleLowerCase();
-  const navTabs = getCircleNav(circle, canManage);
+  const navTabs = getCircleNav(circle, canRun('services'));
   const isPremiumCircle = !!circle.subscription_enabled;
   const isVerifiedCreator = !!circle.creator?.is_verified;
   const messagesEnabled = circle.enabled_features.includes('messages');
@@ -279,15 +284,15 @@ const CircleDetail: React.FC<CircleDetailProps> = ({
       <DropdownMenuContent align="end">
         <DropdownMenuLabel>Manage Circle</DropdownMenuLabel>
         {subscriptionMenuItems()}
-        <DropdownMenuItem onClick={() => navigate(`/circle/${circle.id}/dashboard`)}>
+        {canRun('analytics') && <DropdownMenuItem onClick={() => navigate(`/circle/${circle.id}/dashboard`)}>
           <LayoutDashboard className="h-4 w-4 mr-2" />
           Dashboard
-        </DropdownMenuItem>
+        </DropdownMenuItem>}
         <DropdownMenuItem onClick={() => selectTab('members')}>
           <Users className="h-4 w-4 mr-2" />
           Members
         </DropdownMenuItem>
-        {circle.is_owned && (
+        {canManageAdmins && (
           <DropdownMenuItem onSelect={() => setManagementView('admins')}>
             <ShieldPlus className="h-4 w-4 mr-2" />
             Admin controls
@@ -300,11 +305,11 @@ const CircleDetail: React.FC<CircleDetailProps> = ({
           </DropdownMenuItem>
         )}
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={() => setEditModalOpen(true)}>
+        {canRun('settings') && <DropdownMenuItem onClick={() => setEditModalOpen(true)}>
           <Pencil className="h-4 w-4 mr-2" />
           Edit Circle
-        </DropdownMenuItem>
-        {circle.is_owned && (
+        </DropdownMenuItem>}
+        {canRun('settings') && (
           <DropdownMenuItem onClick={() => setSettingsModalOpen(true)}>
             <Settings className="h-4 w-4 mr-2" />
             Settings
@@ -536,7 +541,7 @@ const CircleDetail: React.FC<CircleDetailProps> = ({
       </div>
 
       {/* Owner setup guide */}
-      {canManage && (
+      {circle.is_owned && (
         <CircleGettingStarted
           circle={circle}
           onEditCircle={() => setEditModalOpen(true)}
@@ -566,21 +571,21 @@ const CircleDetail: React.FC<CircleDetailProps> = ({
 
           <div className="min-h-[400px]">
             <TabsContent value="feed" className="animate-fade-in">
-              <CirclePosts circle={circle} isOwner={canManage} />
+              <CirclePosts circle={circle} isOwner={!!circle.is_owned} canPublish={canRun('publish_posts')} canModerate={canRun('moderate_posts')} />
             </TabsContent>
             {navTabs.includes('learn') && (
               <TabsContent value="learn" className="animate-fade-in">
-                <CircleLearn circle={circle} isOwner={canManage} section={learnSection} onSectionChange={setLearnSection} />
+                <CircleLearn circle={circle} canManageVideos={canRun('videos')} canManageResources={canRun('resources')} section={learnSection} onSectionChange={setLearnSection} />
               </TabsContent>
             )}
             {navTabs.includes('events') && (
               <TabsContent value="events" className="animate-fade-in">
-                <CircleEvents circle={circle} isOwner={canManage} />
+                <CircleEvents circle={circle} isOwner={canRun('events')} />
               </TabsContent>
             )}
             {navTabs.includes('services') && (
               <TabsContent value="services" className="animate-fade-in">
-                <CircleServices circle={circle} isOwner={canManage} />
+                <CircleServices circle={circle} isOwner={canRun('services')} />
               </TabsContent>
             )}
             <TabsContent value="about" className="animate-fade-in">
@@ -595,7 +600,7 @@ const CircleDetail: React.FC<CircleDetailProps> = ({
             )}
             {messagesEnabled && (canManage || circle.is_joined) && (
               <TabsContent value="messages" className="animate-fade-in">
-                <CircleMessages circle={circle} isOwner={canManage} />
+                <CircleMessages circle={circle} isOwner={canRun('messages')} />
               </TabsContent>
             )}
           </div>
@@ -606,7 +611,7 @@ const CircleDetail: React.FC<CircleDetailProps> = ({
       <FooterNav active={activeTab} onSelect={onTabSelect} onOpenCreate={onOpenCreate} />
 
       {/* Edit Circle Modal */}
-      {circle && (
+      {canRun('settings') && (
         <EditCircleModal
           open={editModalOpen}
           onOpenChange={setEditModalOpen}
@@ -616,7 +621,7 @@ const CircleDetail: React.FC<CircleDetailProps> = ({
       )}
 
       {/* Circle Settings Modal */}
-      {circle && (
+      {canRun('settings') && (
         <CircleSettingsModal
           open={settingsModalOpen}
           onOpenChange={setSettingsModalOpen}
@@ -646,7 +651,7 @@ const CircleDetail: React.FC<CircleDetailProps> = ({
         circleName={circle.name} isPrivate={circle.is_private} canLeave={membership.canLeave}
         subscriptionRequired={!!circle.subscription_enabled && circle.subscription_method === 'before_join'}
         onConfirm={handleLeave} onLeft={handleBack} />
-      {circle.is_owned && managementView && (
+      {canManageAdmins && managementView && (circle.is_owned || managementView === 'admins') && (
         <CircleManageModal
           key={circle.id}
           circle={circle}

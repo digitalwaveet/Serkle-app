@@ -286,10 +286,10 @@ const CircleManageModal: React.FC<CircleManageModalProps> = ({ circle, open, ini
               <DialogHeader className="p-4 pb-0">
                 <DialogTitle className="text-base font-semibold">Admin controls</DialogTitle>
                 <DialogDescription>
-                  Only the Circle owner can manage admins, transfer ownership, and delete the Circle.
+                  The owner manages Super Admin access, ownership transfers, and Circle deletion.
                 </DialogDescription>
               </DialogHeader>
-              <CircleAdminControls circleId={circle.id} ownerId={user.id} onAdd={() => {
+              <CircleAdminControls circle={circle} userId={user.id} onAdd={() => {
                 setSelectedFriends([]);
                 setView('admin');
               }} />

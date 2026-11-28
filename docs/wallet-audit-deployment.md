@@ -6,6 +6,14 @@ deploys the frontend through Vercel; it does not deploy the Supabase changes.
 These files contain no secrets. Keep all payment and service credentials on the
 server. The tests use an isolated database and mocked Chapa, never real payouts.
 
+### November 28 admin release
+
+Apply pending `20261127190000_admin_workspace.sql`, `20261128120000_admin_payment_controls.sql`, and `20261128123000_admin_tool_connections.sql` in that order. The earlier `20261127120000_admin_operations.sql` is a prerequisite. Then deploy the six payment functions below and `moderate-content` from its standalone Edge Function source. For `moderate-content`, turn off legacy gateway JWT verification because the function checks Supabase Auth and the admin role before using the provider. Its existing `LOVABLE_API_KEY` remains server-side. Deploy the frontend after the database and functions are ready.
+
+In **Admin → Wallet operations**, a super admin can inspect the active payment mode, check withdrawals, and explicitly select Test or Live for new transactions. Configure both dedicated Chapa secrets to switch between modes. The switch makes a read-only Chapa bank-list request with the target key before saving the audited change. Existing receipts use their recorded mode and require the matching historical key. The screen's Live and Test record filters only change the records displayed.
+
+Withdrawals still use Serkle’s existing user-confirmed submission flow. The admin check refreshes the recorded provider status and applies the existing verified ledger rules. It never submits or retries a transfer. These controls do not introduce staff payout approvals.
+
 November 6 Shop follow-up: the product owner approved temporarily disabling Shop
 coin payments while keeping card, PayPal, Apple Pay and Google Pay available.
 For an already deployed wallet release, apply only the new migration
@@ -44,22 +52,21 @@ In Supabase Edge Functions > Secrets, set:
 
 | Secret | Value |
 | --- | --- |
-| `CHAPA_MODE` | `test` or `live`, the mode for new transactions |
-| `CHAPA_SECRET_KEY` | Chapa key matching that active mode |
+| `CHAPA_MODE` | `test` or `live`, the fallback before an admin override |
+| `CHAPA_SECRET_KEY` | Legacy fallback key matching `CHAPA_MODE` when its dedicated secret is absent |
 | `PAYMENT_RETURN_ORIGINS` | `https://serkle-app-five.vercel.app` |
 | `CHAPA_WEBHOOK_SECRET` | Payload-signing secret registered with Chapa |
 | `CHAPA_RECONCILE_SECRET` | Separate random secret for the scheduled job |
-| `CHAPA_TEST_SECRET_KEY` | Optional test key for continued test-receipt checks |
-| `CHAPA_LIVE_SECRET_KEY` | Optional live key for continued live-receipt checks |
+| `CHAPA_TEST_SECRET_KEY` | Test secret for new test payments and historical test receipts |
+| `CHAPA_LIVE_SECRET_KEY` | Live secret for new live payments and historical live receipts |
 
 Supabase supplies its URL and service-role key. Do not put these secrets in Vite
 environment variables, browser storage, function source, Git or support receipts.
 When switching the active mode, keep the other mode's dedicated key configured
 if its historical receipts still need checks. Never use one environment's key
-to verify another environment's receipt. The active `CHAPA_SECRET_KEY` remains
-required even when the optional keys are present.
+to verify another environment's receipt. Dedicated keys can be used without the legacy `CHAPA_SECRET_KEY`.
 
-## 3. Deploy all five functions
+## 3. Deploy all six payment functions
 
 Run `npm run build:chapa-deployment` in the repository to regenerate this package.
 In Supabase Dashboard > Edge Functions, edit/create the exact names below. Replace
@@ -72,6 +79,7 @@ In Supabase Dashboard > Edge Functions, edit/create the exact names below. Repla
 | `chapa-transfer` | ON |
 | `chapa-webhook` | OFF; handler verifies the raw-body Chapa signature |
 | `chapa-reconcile` | OFF; handler verifies account JWT or scheduler secret |
+| `chapa-admin` | OFF; handler verifies account JWT and the super-admin role |
 
 OPTIONS returns 204 before payment configuration loads. An unsigned webhook or
 an unauthenticated user request must not move funds. For withdrawals, the server

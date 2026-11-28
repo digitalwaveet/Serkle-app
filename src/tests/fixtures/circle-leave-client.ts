@@ -6,7 +6,10 @@ const owned=options.get('role')==='owner';
 const manager=options.get('role')==='admin';
 const setup=options.has('setup');
 const circleAdmin = { user_id: '00000000-0000-0000-0000-000000000009', name: 'Test Admin', username: 'testadmin',
-  can_invite_members: true, can_respond_to_requests: true };
+  can_invite_members: true, can_respond_to_requests: true, is_super_admin: false,
+  activity_permissions: {} as Record<string, boolean> };
+const secondAdmin = { ...circleAdmin, user_id: '00000000-0000-0000-0000-000000000008',
+  name: 'Test Lead', username: 'testlead', is_super_admin: true };
 export const fixture = {
   id, user:{id:owned ? owner : '00000000-0000-0000-0000-000000000001',email:'fixture@example.test'},
   status:'active', calls:0, fail:false, hold:false, release:undefined as undefined | (()=>void), members:2,
@@ -29,13 +32,22 @@ export function card() { return {...row(),members_count:fixture.members,membersh
 export const supabase={
   rpc:async(name: string,args: any)=>{
     if(name==='get_circle_membership_states') return {data:[snapshot()],error:null};
+    if (name === 'get_my_circle_admin_permissions') {
+      return { data: options.has('superAdmin')
+        ? { ...circleAdmin, is_super_admin: true, activity_permissions: { analytics: true, settings: true } }
+        : circleAdmin, error: null };
+    }
     if (name === 'list_circle_admins') {
-      return { data: options.has('adminControls') && circleAdmin.name ? [circleAdmin] : [], error: null };
+      const data = options.has('adminControls') && circleAdmin.name ? [circleAdmin] : [];
+      if (options.has('multipleAdmins')) data.push(secondAdmin);
+      return { data, error: null };
     }
     if (name === 'update_circle_admin') {
       if (args._action === 'invite') circleAdmin.can_invite_members = args._allowed;
       if (args._action === 'requests') circleAdmin.can_respond_to_requests = args._allowed;
       if (args._action === 'remove') circleAdmin.name = '';
+      if (args._action === 'super_admin') circleAdmin.is_super_admin = args._allowed;
+      if (args._action === 'publish_posts') circleAdmin.activity_permissions.publish_posts = args._allowed;
       return { data: null, error: null };
     }
     if(name==='get_circle_subscription') return {data:subscription,error:null};

@@ -145,9 +145,26 @@ test('non-owner admins can leave from Manage while owners get explicit transfer/
     await expect(owner.getByRole('menuitem',{name:'Leave Circle',exact:true})).toHaveCount(0);
     await owner.getByRole('menuitem',{name:'Admin controls',exact:true}).click();
     const controls = owner.getByRole('dialog', { name: 'Admin controls' });
+    const adminRow = controls.getByRole('button', { name: /^Test Admin/ });
+    await adminRow.click();
     const invitePermission = controls.getByRole('switch', { name: 'Share member invite links' });
     await expect(invitePermission).toBeChecked();
     await invitePermission.click();
+    await expect(invitePermission).not.toBeChecked();
+    const feedPermission = controls.getByRole('switch', { name: 'Publish Feed posts' });
+    await expect(feedPermission).toBeVisible();
+    await expect(controls.getByRole('switch', { name: 'Manage videos and playlists' })).toHaveCount(0);
+    await feedPermission.click();
+    await expect(feedPermission).not.toBeChecked();
+    const superAdmin = controls.getByRole('switch', { name: 'Super Admin', exact: true });
+    await superAdmin.click();
+    await expect(adminRow).toContainText('Super Admin');
+    await expect(feedPermission).toBeChecked();
+    await expect(feedPermission).toBeDisabled();
+    await expect(invitePermission).toBeChecked();
+    await superAdmin.click();
+    await expect(adminRow).not.toContainText('Super Admin');
+    await expect(feedPermission).not.toBeChecked();
     await expect(invitePermission).not.toBeChecked();
     await controls.getByRole('button', { name: 'Remove admin access' }).click();
     const confirmRemoval = owner.getByRole('alertdialog', { name: 'Remove admin access?' });
@@ -168,4 +185,54 @@ test('non-owner admins can leave from Manage while owners get explicit transfer/
     await expect(owner.getByText(/you will remain a member and can choose Leave Circle/)).toBeVisible();
     assert.equal(await owner.evaluate(()=>(window as any).leaveFixture.calls),0);
   } finally {await owner.context().close();}
+});
+
+test('Super Admin can open admin controls and settings while owner actions stay out of the menu', async () => {
+  const page = await pageFor('?role=admin&superAdmin=1&adminControls=1&setup=1');
+  try {
+    await page.getByRole('button', { name: 'Manage', exact: true }).click();
+    await expect(page.getByRole('menuitem', { name: 'Settings', exact: true })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: /Transfer ownership or delete Circle/ })).toHaveCount(0);
+    await page.getByRole('menuitem', { name: 'Admin controls', exact: true }).click();
+    const controls = page.getByRole('dialog', { name: 'Admin controls' });
+    await expect(controls.getByRole('button', { name: 'Add Admin', exact: true })).toBeEnabled();
+    await controls.getByRole('button', { name: /^Test Admin/ }).click();
+    await expect(controls.getByRole('switch', { name: 'Manage videos and playlists' })).toBeVisible();
+    await expect(controls.getByRole('switch', { name: 'Upload resources' })).toBeVisible();
+    await expect(controls.getByRole('switch', { name: 'Manage services and bookings' })).toHaveCount(0);
+    await expect(controls.getByRole('switch', { name: 'Super Admin', exact: true })).toBeDisabled();
+  } finally {
+    await page.context().close();
+  }
+});
+
+test('multiple admins collapse by default and keyboard navigation opens only the chosen permissions', async () => {
+  const page = await pageFor('?role=owner&adminControls=1&multipleAdmins=1');
+  try {
+    await page.setViewportSize({ width: 320, height: 640 });
+    await page.getByRole('button', { name: 'Manage', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Admin controls', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Admin controls' });
+    const adminRow = dialog.getByRole('button', { name: /^Test Admin/ });
+    const leadRow = dialog.getByRole('button', { name: /^Test Lead/ });
+    await expect(adminRow).toHaveAttribute('aria-expanded', 'false');
+    await expect(leadRow).toHaveAttribute('aria-expanded', 'false');
+    await expect(leadRow).toContainText('Super Admin');
+    await expect(dialog.getByRole('switch')).toHaveCount(0);
+    await adminRow.focus();
+    await page.keyboard.press('Enter');
+    await expect(adminRow).toHaveAttribute('aria-expanded', 'true');
+    await expect(dialog.getByRole('switch', { name: 'Super Admin', exact: true })).not.toBeChecked();
+    await page.keyboard.press('ArrowDown');
+    await expect(leadRow).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(adminRow).toHaveAttribute('aria-expanded', 'false');
+    await expect(leadRow).toHaveAttribute('aria-expanded', 'true');
+    await expect(dialog.getByRole('switch', { name: 'Super Admin', exact: true })).toBeChecked();
+    await expect(dialog.getByRole('switch', { name: 'Share member invite links' })).toBeDisabled();
+    await page.keyboard.press('Enter');
+    await expect(dialog.getByRole('switch')).toHaveCount(0);
+  } finally {
+    await page.context().close();
+  }
 });

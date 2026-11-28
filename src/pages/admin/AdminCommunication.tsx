@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,7 +7,6 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { supabase } from '@/integrations/supabase/client';
-import { useAdminAudit } from '@/hooks/useAdminAudit';
 import { toast } from '@/hooks/use-toast';
 import {
   Megaphone, AlertTriangle, Send, Search, ShieldAlert, Clock, User,
@@ -30,11 +29,11 @@ interface Broadcast {
   channel: string;
   status: string;
   sent_at: string | null;
+  recipient_count?: number | null;
   created_at: string;
 }
 
 export default function AdminCommunication() {
-  const { logAction } = useAdminAudit();
   const [tab, setTab] = useState('broadcasts');
 
   // Broadcasts state
@@ -44,6 +43,7 @@ export default function AdminCommunication() {
   const [bcAudience, setBcAudience] = useState('all');
   const [bcChannel, setBcChannel] = useState('in_app');
   const [bcLoading, setBcLoading] = useState(false);
+  const broadcastRequest = useRef<{ input: string; id: string } | null>(null);
 
   // Warnings state
   const [warnings, setWarnings] = useState<Warning[]>([]);
@@ -73,57 +73,42 @@ export default function AdminCommunication() {
   useEffect(() => { fetchBroadcasts(); fetchWarnings(); }, []);
 
   const sendBroadcast = async () => {
-    if (!bcTitle.trim() || !bcMessage.trim()) return;
+    if (bcLoading || !bcTitle.trim() || !bcMessage.trim()) return;
+    const title = bcTitle.trim();
+    const message = bcMessage.trim();
+    const input = JSON.stringify([title, message, bcAudience, bcChannel]);
+    if (broadcastRequest.current?.input !== input) broadcastRequest.current = { input, id: crypto.randomUUID() };
     setBcLoading(true);
-    const { data: session } = await supabase.auth.getSession();
-    const senderId = session.session?.user.id;
-    if (!senderId) return;
-
-    const { error } = await supabase.from('admin_broadcasts').insert({
-      sender_id: senderId,
-      title: bcTitle,
-      message: bcMessage,
-      target_audience: bcAudience,
-      channel: bcChannel,
-      status: 'sent',
-      sent_at: new Date().toISOString(),
-    });
-
-    if (!error) {
-      await logAction('broadcast_sent', 'broadcast', undefined, { title: bcTitle, audience: bcAudience });
-      toast({ title: 'Broadcast sent', description: `Sent to ${bcAudience} via ${bcChannel}` });
+    try {
+      const { data, error } = await supabase.rpc('send_admin_broadcast', {
+        _request_id: broadcastRequest.current.id, _title: title, _message: message, _audience: bcAudience, _channel: bcChannel,
+      });
+      if (error) throw error;
+      broadcastRequest.current = null;
+      toast({ title: data === 0 ? 'Broadcast recorded with no matching recipients' : `Broadcast queued for ${data} ${data === 1 ? 'account' : 'accounts'}` });
       setBcTitle(''); setBcMessage('');
-      fetchBroadcasts();
-    } else {
-      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+      await fetchBroadcasts();
+    } catch {
+      toast({ title: 'Could not confirm the broadcast', description: 'Retry the same message to check its result.', variant: 'destructive' });
+    } finally {
+      setBcLoading(false);
     }
-    setBcLoading(false);
   };
 
   const issueWarning = async () => {
-    if (!wUserId.trim() || !wReason.trim()) return;
+    if (wLoading || !wUserId.trim() || !wReason.trim()) return;
     setWLoading(true);
-    const { data: session } = await supabase.auth.getSession();
-    const adminId = session.session?.user.id;
-    if (!adminId) return;
-
-    const { error } = await supabase.from('user_warnings').insert({
-      user_id: wUserId.trim(),
-      issued_by: adminId,
-      warning_type: wType,
-      reason: wReason,
-      severity: wSeverity,
-    });
-
-    if (!error) {
-      await logAction('warning_issued', 'user', wUserId.trim(), { type: wType, severity: wSeverity });
-      toast({ title: 'Warning issued', description: `${wType} sent to user` });
+    try {
+      const { error } = await supabase.rpc('issue_admin_warning', { _user_id: wUserId.trim(), _type: wType, _reason: wReason, _severity: wSeverity });
+      if (error) throw error;
+      toast({ title: 'Warning added to the account inbox' });
       setWUserId(''); setWReason('');
-      fetchWarnings();
-    } else {
-      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+      await fetchWarnings();
+    } catch {
+      toast({ title: 'Could not issue the warning', variant: 'destructive' });
+    } finally {
+      setWLoading(false);
     }
-    setWLoading(false);
   };
 
   const sevBadge = (s: string) => {
@@ -150,8 +135,8 @@ export default function AdminCommunication() {
           <Card>
             <CardHeader><CardTitle className="text-lg">New Broadcast</CardTitle></CardHeader>
             <CardContent className="space-y-3">
-              <Input placeholder="Title" value={bcTitle} onChange={e => setBcTitle(e.target.value)} />
-              <Textarea placeholder="Message body..." value={bcMessage} onChange={e => setBcMessage(e.target.value)} rows={3} />
+              <Input placeholder="Title" value={bcTitle} onChange={e => setBcTitle(e.target.value)} maxLength={120} disabled={bcLoading} />
+              <Textarea placeholder="Message body..." value={bcMessage} onChange={e => setBcMessage(e.target.value)} rows={3} maxLength={2000} disabled={bcLoading} />
               <div className="flex gap-3 flex-wrap">
                 <Select value={bcAudience} onValueChange={setBcAudience}>
                   <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
@@ -166,8 +151,7 @@ export default function AdminCommunication() {
                   <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="in_app">In-App</SelectItem>
-                    <SelectItem value="push">Push Notification</SelectItem>
-                    <SelectItem value="both">Both</SelectItem>
+                    <SelectItem value="both">In-app and device push</SelectItem>
                   </SelectContent>
                 </Select>
                 <Button onClick={sendBroadcast} disabled={bcLoading || !bcTitle.trim() || !bcMessage.trim()}>
@@ -194,6 +178,7 @@ export default function AdminCommunication() {
                         </div>
                       </div>
                       <p className="text-sm text-muted-foreground">{b.message}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{typeof b.recipient_count === 'number' ? `${b.recipient_count.toLocaleString()} inbox ${b.recipient_count === 1 ? 'recipient' : 'recipients'}` : 'Recipient count unavailable'}</p>
                       <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
                         <Clock className="h-3 w-3" />
                         {new Date(b.created_at).toLocaleString()}
@@ -211,7 +196,7 @@ export default function AdminCommunication() {
             <CardHeader><CardTitle className="text-lg">Issue Warning</CardTitle></CardHeader>
             <CardContent className="space-y-3">
               <Input placeholder="User ID (UUID)" value={wUserId} onChange={e => setWUserId(e.target.value)} />
-              <Textarea placeholder="Reason for warning..." value={wReason} onChange={e => setWReason(e.target.value)} rows={2} />
+              <Textarea placeholder="Reason for warning..." value={wReason} onChange={e => setWReason(e.target.value)} rows={2} maxLength={2000} />
               <div className="flex gap-3 flex-wrap">
                 <Select value={wType} onValueChange={setWType}>
                   <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>

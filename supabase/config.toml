@@ -64,6 +64,10 @@ verify_jwt = false
 [functions.chapa-transfer]
 verify_jwt = true
 
+# Auth validates the user's token and the handler verifies the super-admin role.
+[functions.chapa-admin]
+verify_jwt = false
+
 # The image gateway verifies the user's JWT with Auth or checks a dedicated
 # maintenance secret. This also supports the newer publishable API keys.
 [functions.image-previews]

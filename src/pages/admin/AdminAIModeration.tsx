@@ -73,11 +73,12 @@ export default function AdminAIModeration() {
     setScanning(true);
     setScanProgress(0);
     try {
-      const { data: posts } = await supabase
+      const { data: posts, error: postsError } = await supabase
         .from('posts')
         .select('id, content, user_id')
         .order('created_at', { ascending: false })
         .limit(50);
+      if (postsError) throw postsError;
 
       if (!posts || posts.length === 0) {
         toast.info('No posts to scan');
@@ -87,10 +88,11 @@ export default function AdminAIModeration() {
 
       // Check which posts already have moderation results
       const postIds = posts.map(p => p.id);
-      const { data: existing } = await supabase
+      const { data: existing, error: existingError } = await supabase
         .from('ai_moderation_results')
         .select('content_id')
         .in('content_id', postIds);
+      if (existingError) throw existingError;
 
       const existingIds = new Set(existing?.map(e => e.content_id) || []);
       const unscanned = posts.filter(p => !existingIds.has(p.id) && p.content);
@@ -106,12 +108,7 @@ export default function AdminAIModeration() {
       let processed = 0;
 
       for (let i = 0; i < unscanned.length; i += batchSize) {
-        const batch = unscanned.slice(i, i + batchSize).map(p => ({
-          content_type: 'post',
-          content_id: p.id,
-          content_text: p.content,
-          user_id: p.user_id,
-        }));
+        const batch = unscanned.slice(i, i + batchSize).map(p => ({ content_type: 'post', content_id: p.id }));
 
         const { data, error } = await supabase.functions.invoke('moderate-content', {
           body: { batch },
@@ -123,11 +120,12 @@ export default function AdminAIModeration() {
           break;
         }
 
-        processed += batch.length;
-        setScanProgress(Math.round((processed / unscanned.length) * 100));
+        processed += Array.isArray(data?.results) ? data.results.filter((result: { moderation_id?: string }) => result.moderation_id).length : 0;
+        setScanProgress(Math.round((Math.min(i + batch.length, unscanned.length) / unscanned.length) * 100));
       }
 
-      toast.success(`Scanned ${processed} posts`);
+      if (processed === unscanned.length) toast.success(`Scanned ${processed} posts`);
+      else toast.warning(`Saved ${processed} of ${unscanned.length} scans`);
       await logAction('ai_scan_posts', 'moderation', undefined, { count: processed });
       fetchResults();
     } catch (err) {
@@ -139,42 +137,22 @@ export default function AdminAIModeration() {
     }
   };
 
-  const handleReview = async (id: string, action: string) => {
-    const { data: session } = await supabase.auth.getSession();
-    await supabase.from('ai_moderation_results').update({
-      reviewed_by: session.session?.user?.id,
-      reviewed_at: new Date().toISOString(),
-      review_action: action,
-    }).eq('id', id);
-
-    // Apply action to the content
-    const item = results.find(r => r.id === id);
-    if (item && item.content_type === 'post' && (action === 'hidden' || action === 'removed')) {
-      await supabase.from('posts').update({ moderation_status: action }).eq('id', item.content_id);
-    }
-
-    await logAction(`ai_review_${action}`, 'moderation', id);
-    toast.success(`Marked as ${action}`);
-    fetchResults();
-    setSelectedItem(null);
-  };
-
-  const handleBulkReview = async (action: string) => {
-    const ids = Array.from(selected);
+  const review = async (ids: string[], action: string) => {
     if (ids.length === 0) return;
-
-    const { data: session } = await supabase.auth.getSession();
-    await supabase.from('ai_moderation_results').update({
-      reviewed_by: session.session?.user?.id,
-      reviewed_at: new Date().toISOString(),
-      review_action: action,
-    }).in('id', ids);
-
-    await logAction(`ai_bulk_review_${action}`, 'moderation', undefined, { count: ids.length });
+    const { error } = await supabase.rpc('review_admin_ai_results', { _ids: ids, _action: action });
+    if (error) {
+      toast.error('Could not save the moderation decision.');
+      void fetchResults();
+      return;
+    }
     toast.success(`${ids.length} items marked as ${action}`);
     setSelected(new Set());
+    setSelectedItem(null);
     fetchResults();
   };
+
+  const handleReview = (id: string, action: string) => review([id], action);
+  const handleBulkReview = (action: string) => review(Array.from(selected), action);
 
   const toggleSelect = (id: string) => {
     setSelected(prev => {

@@ -15,7 +15,7 @@ import CircleEmptyState from './CircleEmptyState';
 import { formatCircleCount } from '@/lib/circleCountFormat';
 import { usePresenceContext } from '@/contexts/PresenceContext';
 import { useUser } from '@/contexts/UserContext';
-import { getCircleMemberInviteCode, getMyCircleAdminPermissions } from '@/lib/circleAdmin';
+import { getCircleMemberInviteCode, useMyCircleAdminPermissions } from '@/lib/circleAdmin';
 
 interface CircleMembersProps {
   circle: any;
@@ -31,12 +31,7 @@ const CircleMembers: React.FC<CircleMembersProps> = ({ circle, isOwner, onViewPr
   const queryClient = useQueryClient();
   const { getUserPresence } = usePresenceContext();
   const { user } = useUser();
-  const { data: permissions } = useQuery({
-    queryKey: ['circle-admin-permissions', circle.id, user?.id],
-    queryFn: () => getMyCircleAdminPermissions(circle.id),
-    enabled: isOwner && !circle.is_owned && !!user?.id,
-    ...membershipQueryOptions,
-  });
+  const { data: permissions } = useMyCircleAdminPermissions(circle.id, user?.id, isOwner && !circle.is_owned);
   const canInvite = !!circle.is_owned || !!permissions?.can_invite_members;
   const canRespond = !!circle.is_owned || !!permissions?.can_respond_to_requests;
   const invite = useMutation({

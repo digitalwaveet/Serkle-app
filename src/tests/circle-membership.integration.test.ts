@@ -61,6 +61,7 @@ before(async () => {
   assert.equal((await q('SELECT invite_code FROM circles WHERE id=$1',[circle]))[0].invite_code, null);
   assert.equal((await q("SELECT get_circle_invite_preview('legacy-code') result"))[0].result.id, circle);
   await db.exec('RESET ROLE');
+  await db.exec(await file('../../supabase/migrations/20261128140000_circle_activity_permissions.sql'));
   frontend = await createServer({ configFile:false, resolve:{ alias:{ '@':fileURLToPath(new URL('../',import.meta.url)) } },
     server:{ middlewareMode:true, hmr:false, watch:null }, plugins:[{ name:'isolated-membership', enforce:'pre',
       resolveId(source) { if (source.replace(/\\/g,'/').match(/(?:@|\/src)\/integrations\/supabase\/client(?:\.ts)?$/)) return '\0isolated-client'; },
@@ -173,8 +174,9 @@ test('owners can restrict or remove Circle admins, with revocable links and serv
   await updateAdmin('invite', false);
   await updateAdmin('requests', false);
   await login(other);
-  assert.deepEqual((await q('SELECT get_my_circle_admin_permissions($1) result', [circle]))[0].result,
-    { can_invite_members: false, can_respond_to_requests: false });
+  const disabled = (await q('SELECT get_my_circle_admin_permissions($1) result', [circle]))[0].result;
+  assert.equal(disabled.can_invite_members, false);
+  assert.equal(disabled.can_respond_to_requests, false);
   await assert.rejects(code(), { code: '42501' });
   await assert.rejects(respond(), { code: '42501' });
   assert.equal(await preview(firstCode), null);
@@ -197,6 +199,64 @@ test('owners can restrict or remove Circle admins, with revocable links and serv
   assert.equal((await state()).role, 'member');
   assert.equal(await preview(newCode), null);
   await assert.rejects(code(), { code: '42501' });
+});
+
+test('Circle activity permissions, Super Admin override, and owner-only actions are enforced on the server', async () => {
+  const message = id(61);
+  const post = id(62);
+  const video = id(63);
+  await configure("UPDATE circles SET enabled_features = ARRAY['posts','videos','messages'] WHERE id=$1", [circle]);
+  await configure("INSERT INTO circle_members(circle_id,user_id,role,status) VALUES($1,$2,'admin','active')", [circle,other]);
+  await configure("INSERT INTO posts(id,circle_id,user_id) VALUES($1,$2,$3)", [post,circle,owner]);
+  await configure("INSERT INTO circle_messages(id,circle_id,sender_id,content) VALUES($1,$2,$3,'hello')", [message,circle,member]);
+  const update = (action: string, enabled: boolean, target = other) => q('SELECT update_circle_admin($1,$2,$3,$4)', [circle,target,action,enabled]);
+  const check = async (action: string) => (await q('SELECT has_circle_activity_permission($1,$2) result', [circle,action]))[0].result;
+  const pin = () => q('SELECT set_circle_post_pinned($1,true)', [post]);
+  const markRead = () => q('SELECT mark_circle_messages_read($1,$2)', [circle,[message]]);
+  const uploadVideo = () => q('INSERT INTO circle_videos(id,circle_id,user_id) VALUES($1,$2,auth.uid())', [video,circle]);
+  await login(owner);
+  for (const action of ['invite','publish_posts','moderate_posts','videos','messages','analytics']) await update(action,false);
+  await login(other);
+  await assert.rejects(update('super_admin',true), { code: '42501' });
+  await assert.rejects(pin(), { code: '42501' });
+  await assert.rejects(markRead(), { code: '42501' });
+  await assert.rejects(uploadVideo(), { code: '42501' });
+  await assert.rejects(q('SELECT get_circle_dashboard_totals($1)', [circle]), { code: '42501' });
+  assert.equal((await q('SELECT can_post_in_circle(auth.uid(),$1) result',[circle]))[0].result,false);
+  await login(owner);
+  await update('super_admin',true);
+  await login(other);
+  for (const permission of ['publish_posts','moderate_posts','videos','messages','analytics','invite','manage_admins']) {
+    assert.equal(await check(permission), true);
+  }
+  for (const permission of ['resources','services','events','delete_circle','transfer_ownership']) {
+    assert.equal(await check(permission), false);
+  }
+  await pin();
+  await markRead();
+  await uploadVideo();
+  assert.equal((await q('SELECT get_circle_dashboard_totals($1) result', [circle]))[0].result.subscriber_count, 0);
+  const invitation = (await q("SELECT send_circle_invitation($1,$2,'admin') result",[circle,member]))[0].result;
+  await assert.rejects(update('super_admin', true, member), { code: '42501' });
+  await assert.rejects(q("SELECT send_circle_invitation($1,$2,'transfer_ownership')",[circle,member]), { code: '42501' });
+  assert.deepEqual(await q('DELETE FROM circles WHERE id=$1 RETURNING id',[circle]),[]);
+  await assert.rejects(q('UPDATE circles SET creator_id=$2 WHERE id=$1 RETURNING id',[circle,other]), { code: '42501' });
+  assert.equal((await q("UPDATE circles SET name='Updated by Super Admin' WHERE id=$1 RETURNING name",[circle]))[0].name, 'Updated by Super Admin');
+  await login(member);
+  assert.equal((await q('SELECT respond_circle_invitation($1,true) result',[invitation]))[0].result,true);
+  await login(other);
+  await update('videos',false,member);
+  const code = (await q('SELECT get_circle_member_invite_code($1) result',[circle]))[0].result;
+  await login(owner);
+  await update('super_admin',false);
+  await login(other);
+  assert.equal(await check('videos'), false);
+  assert.equal(await check('invite'), false);
+  assert.equal((await q('SELECT get_circle_invite_preview($1) result',[code]))[0].result,null);
+  await assert.rejects(markRead(), { code: '42501' });
+  await login(member);
+  assert.equal(await check('videos'), false);
+  assert.equal(await check('analytics'), true);
 });
 
 test('decline and cancelled requests retain history; lost-response retries cannot resurrect them', async () => {
@@ -337,7 +397,7 @@ test('manager invitation acceptance and ownership transfer preserve rows and are
 });
 
 test('invitations cannot be forged, edited, accepted by other users or replayed after owner changes', async () => {
-  await assert.rejects(q("SELECT send_circle_invitation($1,$2,'admin')",[circle,other]),/Only the owner/);
+  await assert.rejects(q("SELECT send_circle_invitation($1,$2,'admin')",[circle,other]), { code: '42501' });
   await assert.rejects(q("INSERT INTO circle_invitations(circle_id,inviter_id,invitee_id,invitation_type) VALUES($1,$2,$3,'admin')",[circle,owner,member]),/permission denied/);
   await login(owner);
   const invitation=(await q("SELECT send_circle_invitation($1,$2,'transfer_ownership') id",[circle,member]))[0].id;

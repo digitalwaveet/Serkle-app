@@ -59,11 +59,12 @@ export default function AdminWebhooks() {
   const fetchAll = useCallback(async () => {
     setLoading(true);
     const [epRes, notifRes] = await Promise.all([
-      supabase.from('webhook_endpoints').select('*').order('created_at', { ascending: false }),
+      supabase.from('webhook_endpoints').select('id,name,url,event_types,is_active,last_triggered_at,failure_count,created_at').order('created_at', { ascending: false }),
       supabase.from('admin_notifications').select('*').order('created_at', { ascending: false }).limit(30),
     ]);
-    setEndpoints((epRes.data as WebhookEndpoint[]) || []);
-    setNotifications((notifRes.data as AdminNotification[]) || []);
+    if (epRes.error || notifRes.error) toast.error('Could not load all webhook records.');
+    if (!epRes.error) setEndpoints(epRes.data || []);
+    if (!notifRes.error) setNotifications(notifRes.data || []);
     setLoading(false);
   }, []);
 
@@ -110,13 +111,16 @@ export default function AdminWebhooks() {
       created_by: session.session?.user?.id,
     };
 
+    const result = editing
+      ? await supabase.from('webhook_endpoints').update(payload).eq('id', editing.id).select('id').maybeSingle()
+      : await supabase.from('webhook_endpoints').insert(payload).select('id').maybeSingle();
+    if (result.error || !result.data) { toast.error('Could not save this endpoint.'); return; }
+
     if (editing) {
-      await supabase.from('webhook_endpoints').update(payload).eq('id', editing.id);
       await logAction('update_webhook', 'webhook', editing.id);
       toast.success('Webhook updated');
     } else {
-      await supabase.from('webhook_endpoints').insert(payload);
-      await logAction('create_webhook', 'webhook');
+      await logAction('create_webhook', 'webhook', result.data.id);
       toast.success('Webhook created');
     }
 
@@ -127,21 +131,24 @@ export default function AdminWebhooks() {
   };
 
   const toggleEndpoint = async (ep: WebhookEndpoint) => {
-    await supabase.from('webhook_endpoints').update({ is_active: !ep.is_active }).eq('id', ep.id);
+    const { data, error } = await supabase.from('webhook_endpoints').update({ is_active: !ep.is_active }).eq('id', ep.id).select('id').maybeSingle();
+    if (error || !data) { toast.error('Could not update this endpoint.'); return; }
     await logAction(ep.is_active ? 'disable_webhook' : 'enable_webhook', 'webhook', ep.id);
     toast.success(ep.is_active ? 'Webhook disabled' : 'Webhook enabled');
     fetchAll();
   };
 
   const deleteEndpoint = async (id: string) => {
-    await supabase.from('webhook_endpoints').delete().eq('id', id);
+    const { data, error } = await supabase.from('webhook_endpoints').delete().eq('id', id).select('id').maybeSingle();
+    if (error || !data) { toast.error('Could not delete this endpoint.'); return; }
     await logAction('delete_webhook', 'webhook', id);
     toast.success('Webhook deleted');
     fetchAll();
   };
 
   const markAllRead = async () => {
-    await supabase.from('admin_notifications').update({ is_read: true }).eq('is_read', false);
+    const { error } = await supabase.from('admin_notifications').update({ is_read: true }).eq('is_read', false);
+    if (error) { toast.error('Could not mark admin alerts as read.'); return; }
     fetchAll();
   };
 
@@ -221,6 +228,7 @@ export default function AdminWebhooks() {
           <Plus className="h-4 w-4 mr-1" /> Add Endpoint
         </Button>
       </div>
+      <p className="text-sm text-muted-foreground">Outbound delivery for these saved endpoints requires a connected dispatcher.</p>
 
       {loading ? (
         <div className="space-y-3">

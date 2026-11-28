@@ -168,10 +168,10 @@ export const StoryInteractiveOverlay: React.FC<StoryInteractiveOverlayProps> = (
     <div
       className="relative z-20 w-full h-full flex items-center justify-center touch-none"
       style={{
-        transform: `translateY(${swipeTranslateY}px) scale(${swipeScale})`,
-        opacity: swipeOpacity,
+        // Use the browser's normal text rendering when the story is at rest.
+        transform: isSwipingDown ? `translateY(${swipeTranslateY}px) scale(${swipeScale})` : 'none',
+        opacity: isSwipingDown ? swipeOpacity : 1,
         transition: isSwipingDown ? 'none' : 'transform 0.3s cubic-bezier(0.2, 0, 0, 1), opacity 0.3s ease',
-        willChange: 'transform, opacity',
       }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}

@@ -16,7 +16,14 @@ export function StoryHeader({ story, isOwnStory, onClose, onShowProfile, onPause
       <span className="size-8 rounded-full overflow-hidden bg-neutral-700 text-white text-xs font-semibold flex items-center justify-center shrink-0 ring-1 ring-white/20">
         {story.user.avatar ? <img src={story.user.avatar} alt="" className="size-full object-cover" /> : story.user.initials}
       </span>
-      <span className="min-w-0"><span className="block truncate text-white font-semibold text-[13px]">{isOwnStory ? 'Your story' : story.user.name}</span><span className="block text-white/70 text-[10px] mt-0.5">{storyRelativeTime(story.createdAt)}</span></span>
+      <span className="min-w-0">
+        <span className="block truncate text-sm font-semibold leading-[18px] text-white">
+          {isOwnStory ? 'Your story' : story.user.name}
+        </span>
+        <span className="mt-0.5 block whitespace-nowrap text-xs leading-4 text-white/90">
+          {storyRelativeTime(story.createdAt)}
+        </span>
+      </span>
     </button>
     <button className="story-icon-btn" onClick={onTogglePause} aria-label={paused ? 'Play story' : 'Pause story'}>{paused ? <Play size={17} /> : <Pause size={17} />}</button>
     {story.mediaType === 'video' && <button className="story-icon-btn" onClick={onToggleMute} aria-label={muted ? 'Unmute story' : 'Mute story'}>{muted ? <VolumeX size={17} /> : <Volume2 size={17} />}</button>}

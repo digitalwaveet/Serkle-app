@@ -73,10 +73,7 @@ const CircleResources: React.FC<CircleResourcesProps> = ({ circle, isOwner }) =>
       URL.revokeObjectURL(url);
 
       // Increment download count
-      await supabase
-        .from('circle_resources')
-        .update({ downloads_count: (resource.downloads_count || 0) + 1 })
-        .eq('id', resource.id);
+      await supabase.rpc('record_circle_resource_download', { _resource_id: resource.id });
       
       queryClient.invalidateQueries({ queryKey: ['circle-resources', circle.id] });
     } catch (err: any) {

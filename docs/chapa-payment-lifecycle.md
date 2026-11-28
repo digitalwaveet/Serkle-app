@@ -204,6 +204,8 @@ the matching frontend:
    Apply `supabase/setup/chapa-reconciliation.sql` to schedule the minute job.
    Inspect Cron/pg_net failures and intents with persistent `last_error` values.
 
+The November 28 admin release adds an audited mode selector and a provider status check for existing withdrawals. Follow the [updated deployment steps](wallet-audit-deployment.md) for the dedicated secrets, SQL migrations and `chapa-admin` endpoint.
+
 The November 5 wallet release requires a new manual Supabase deployment; earlier
 CORS checks do not validate this schema or fulfillment. Verify all setup steps
 and completed scheduler runs after deployment. No real Chapa payment is initiated

@@ -1,5 +1,5 @@
 import { SerkleLoader } from '@/components/ui/SerkleLoader';
-﻿import { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -7,9 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
-import { useAdminAudit } from "@/hooks/useAdminAudit";
 import { toast } from "sonner";
 import { Award, Search, CheckCircle, XCircle, Clock, RefreshCw, Mail, User, Calendar, Briefcase, Eye, FileText, Download, AlertCircle, Ban } from "lucide-react";
 
@@ -25,6 +24,7 @@ interface VerificationRequest {
   reviewed_by: string | null;
   reviewed_at: string | null;
   created_at: string;
+  updated_at: string;
   professional_category: string | null;
   full_legal_name: string | null;
   public_display_name: string | null;
@@ -45,10 +45,10 @@ interface VerificationRequest {
 }
 
 export default function AdminExpertVerification() {
-  const { logAction } = useAdminAudit();
-  const [tab, setTab] = useState("submitted");
+  const [tab, setTab] = useState("active");
   const [requests, setRequests] = useState<VerificationRequest[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [search, setSearch] = useState("");
   const [selectedRequest, setSelectedRequest] = useState<VerificationRequest | null>(null);
   const [adminNotes, setAdminNotes] = useState("");
@@ -56,20 +56,21 @@ export default function AdminExpertVerification() {
 
   const fetchRequests = async () => {
     setLoading(true);
+    setLoadError(false);
     const { data, error } = await supabase
-      .from("expert_verification_requests" as any)
+      .from("expert_verification_requests")
       .select("*")
       .order("created_at", { ascending: false });
 
     if (error) {
-      console.error(error);
+      setLoadError(true);
       setLoading(false);
       return;
     }
 
-    const reqs = (data as any[]) || [];
+    const reqs: VerificationRequest[] = data;
     
-    const userIds = [...new Set(reqs.map((r: any) => r.user_id))];
+    const userIds = [...new Set(reqs.map((r) => r.user_id))];
     if (userIds.length > 0) {
       const { data: profiles } = await supabase
         .from("profiles")
@@ -77,7 +78,7 @@ export default function AdminExpertVerification() {
         .in("id", userIds);
 
       const profileMap = new Map((profiles || []).map(p => [p.id, p]));
-      reqs.forEach((r: any) => {
+      reqs.forEach((r) => {
         r.profile = profileMap.get(r.user_id);
       });
     }
@@ -91,27 +92,25 @@ export default function AdminExpertVerification() {
   }, []);
 
   const handleAction = async (requestId: string, action: "verified" | "rejected" | "more_information_required" | "suspended" | "under_review") => {
+    if (!selectedRequest || selectedRequest.id !== requestId || processing) return;
     setProcessing(true);
-    const { data: { user } } = await supabase.auth.getUser();
-    
-    const { error } = await supabase
-      .from("expert_verification_requests" as any)
-      .update({
-        status: action,
-        admin_notes: adminNotes || null,
-        reviewed_by: user?.id,
-        reviewed_at: new Date().toISOString(),
-      } as any)
-      .eq("id", requestId);
+    const { error } = await supabase.rpc('review_admin_expert_request', {
+      _request_id: requestId,
+      _status: action,
+      _expected_updated_at: selectedRequest.updated_at,
+      _notes: adminNotes.trim() || undefined,
+    });
 
     if (error) {
-      toast.error("Failed to update request");
-      console.error(error);
+      if (error.code === '55000') {
+        toast.error('This application changed. Open it again to review the latest version.');
+        setSelectedRequest(null);
+        void fetchRequests();
+      } else toast.error('Could not save the expert verification decision.');
       setProcessing(false);
       return;
     }
 
-    logAction("expert_verification", action, requestId, { action, notes: adminNotes });
     toast.success(`Request marked as ${action.replace(/_/g, " ")}`);
     setSelectedRequest(null);
     setAdminNotes("");
@@ -140,8 +139,9 @@ export default function AdminExpertVerification() {
     URL.revokeObjectURL(url);
   };
 
+  const activeStatuses = ['pending', 'submitted', 'under_review', 'more_information_required'];
   const filtered = requests.filter(r => {
-    const matchesTab = r.status === tab || (tab === "active" && ["submitted", "under_review", "more_information_required"].includes(r.status));
+    const matchesTab = r.status === tab || (tab === 'active' && activeStatuses.includes(r.status));
     const matchesSearch = !search || 
       r.email.toLowerCase().includes(search.toLowerCase()) ||
       r.full_legal_name?.toLowerCase().includes(search.toLowerCase()) ||
@@ -152,7 +152,7 @@ export default function AdminExpertVerification() {
   });
 
   const counts = {
-    active: requests.filter(r => ["submitted", "under_review", "more_information_required"].includes(r.status)).length,
+    active: requests.filter(r => activeStatuses.includes(r.status)).length,
     verified: requests.filter(r => r.status === "verified").length,
     rejected: requests.filter(r => r.status === "rejected").length,
     suspended: requests.filter(r => r.status === "suspended").length,
@@ -229,7 +229,7 @@ export default function AdminExpertVerification() {
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid h-auto w-full grid-cols-2 sm:grid-cols-4">
           <TabsTrigger value="active">Active Queue ({counts.active})</TabsTrigger>
           <TabsTrigger value="verified">Verified ({counts.verified})</TabsTrigger>
           <TabsTrigger value="rejected">Rejected ({counts.rejected})</TabsTrigger>
@@ -241,6 +241,11 @@ export default function AdminExpertVerification() {
             {loading ? (
               <div className="flex items-center justify-center py-12">
                 <SerkleLoader size="sm" className="text-muted-foreground" />
+              </div>
+            ) : loadError ? (
+              <div role="alert" className="space-y-2 rounded-xl border bg-card p-4 text-sm">
+                <p>Could not load expert verification requests.</p>
+                <Button variant="outline" size="sm" onClick={() => void fetchRequests()}>Retry</Button>
               </div>
             ) : filtered.length === 0 ? (
               <Card>
@@ -261,9 +266,9 @@ export default function AdminExpertVerification() {
                           </AvatarFallback>
                         </Avatar>
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between mb-1">
-                            <div className="flex items-center gap-2">
-                              <span className="font-semibold text-foreground text-lg">{req.full_legal_name || req.profile?.name}</span>
+                          <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
+                            <div className="flex min-w-0 flex-wrap items-center gap-2">
+                              <span className="break-words font-semibold text-foreground text-lg">{req.full_legal_name || req.profile?.name}</span>
                               {getStatusBadge(req.status)}
                             </div>
                             <Button
@@ -306,13 +311,14 @@ export default function AdminExpertVerification() {
         ))}
       </Tabs>
 
-      <Dialog open={!!selectedRequest} onOpenChange={() => setSelectedRequest(null)}>
-        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+      <Dialog open={!!selectedRequest} onOpenChange={(open) => { if (!open && !processing) setSelectedRequest(null); }}>
+        <DialogContent className="sm:max-w-2xl max-h-[90dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-xl">
               <Award className="h-6 w-6 text-primary" />
               Expert Application Review
             </DialogTitle>
+            <DialogDescription>Review this application and its supporting documents.</DialogDescription>
           </DialogHeader>
           {selectedRequest && (
             <div className="space-y-6 py-4">
@@ -420,19 +426,22 @@ export default function AdminExpertVerification() {
               </div>
 
               <div className="bg-muted/30 p-4 rounded-lg border">
-                <label className="text-sm font-semibold text-foreground mb-2 block">Internal Admin Notes</label>
+                <label htmlFor="expert-review-notes" className="text-sm font-semibold text-foreground mb-2 block">Applicant feedback</label>
                 <Textarea
+                  id="expert-review-notes"
                   value={adminNotes}
                   onChange={(e) => setAdminNotes(e.target.value)}
-                  placeholder="Leave internal notes for other admins or feedback for the user..."
+                  placeholder="Add feedback for the applicant"
                   rows={3}
+                  maxLength={4000}
+                  disabled={processing}
                   className="bg-background"
                 />
-                <p className="text-xs text-muted-foreground mt-2">Notes will be visible to the user if you request more information or reject the application.</p>
+                <p className="text-xs text-muted-foreground mt-2">The applicant can view this feedback.</p>
               </div>
 
               <DialogFooter className="flex-col sm:flex-row gap-2 mt-6 sm:justify-between border-t pt-4">
-                {selectedRequest.status === "submitted" && (
+                {["pending", "submitted"].includes(selectedRequest.status) && (
                   <Button variant="outline" onClick={() => handleAction(selectedRequest.id, "under_review")} disabled={processing}>
                     Mark as Reviewing
                   </Button>
@@ -451,12 +460,12 @@ export default function AdminExpertVerification() {
                     </Button>
                   )}
                   
-                  {["submitted", "under_review", "verified", "suspended"].includes(selectedRequest.status) && (
+                  {["pending", "submitted", "under_review", "verified", "suspended"].includes(selectedRequest.status) && (
                     <Button
                       variant="outline"
                       className="border-yellow-600 text-yellow-600 hover:bg-yellow-50"
                       onClick={() => {
-                        if (!adminNotes) return toast.error("Please add notes explaining what info is needed");
+                        if (!adminNotes.trim()) return toast.error("Please add notes explaining what info is needed");
                         handleAction(selectedRequest.id, "more_information_required");
                       }}
                       disabled={processing}
@@ -466,7 +475,7 @@ export default function AdminExpertVerification() {
                     </Button>
                   )}
 
-                  {["submitted", "under_review", "more_information_required"].includes(selectedRequest.status) && (
+                  {activeStatuses.includes(selectedRequest.status) && (
                     <Button
                       variant="outline"
                       className="border-red-600 text-red-600 hover:bg-red-50"
@@ -482,7 +491,7 @@ export default function AdminExpertVerification() {
                     <Button
                       variant="destructive"
                       onClick={() => {
-                        if (!adminNotes) return toast.error("Please add notes explaining the suspension");
+                        if (!adminNotes.trim()) return toast.error("Please add notes explaining the suspension");
                         handleAction(selectedRequest.id, "suspended");
                       }}
                       disabled={processing}

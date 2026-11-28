@@ -5,27 +5,46 @@ const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
+const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), {
+  status, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+});
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
 
   try {
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
-
+    const token = /^Bearer (.+)$/i.exec(req.headers.get('authorization') || '')?.[1];
+    if (!token) return json({ error: 'Authentication required' }, 401);
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !user) return json({ error: 'Authentication required' }, 401);
+    const { data: allowed, error: roleError } = await supabase.rpc('is_any_admin', { _user_id: user.id });
+    if (roleError) return json({ error: 'Admin access could not be verified' }, 503);
+    if (!allowed) return json({ error: 'Admin access required' }, 403);
+    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
+    if (!LOVABLE_API_KEY) return json({ error: 'The moderation provider is not configured' }, 503);
 
-    const { action, content_type, content_id, content_text, user_id, batch } = await req.json();
-
-    // Support single or batch moderation
-    const items = batch || [{ content_type, content_id, content_text, user_id }];
+    const body = await req.json().catch(() => null);
+    const items = body?.batch ?? [body];
+    if (!Array.isArray(items) || !items.length || items.length > 5 || items.some((item) => item?.content_type !== 'post'
+      || typeof item.content_id !== 'string' || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(item.content_id))) {
+      return json({ error: 'Supply one to five valid post references.' }, 400);
+    }
+    const userClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false },
+      global: { headers: { Authorization: `Bearer ${token}` } },
+    });
+    const { data: posts, error: postError } = await userClient.from('posts').select('id,content').in('id', items.map((item) => item.content_id));
+    if (postError) return json({ error: 'Could not load posts for this scan.' }, 503);
 
     const results = [];
 
     for (const item of items) {
-      if (!item.content_text || item.content_text.trim().length === 0) {
+      const content = posts?.find((post) => post.id === item.content_id)?.content;
+      if (typeof content !== 'string' || !content.trim()) {
         results.push({ content_id: item.content_id, skipped: true });
         continue;
       }
@@ -52,7 +71,7 @@ Also provide:
 
 Return ONLY valid JSON, no markdown.`
             },
-            { role: "user", content: item.content_text }
+            { role: "user", content: content.slice(0, 12000) }
           ],
           tools: [{
             type: "function",
@@ -88,8 +107,7 @@ Return ONLY valid JSON, no markdown.`
             status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" }
           });
         }
-        const errText = await response.text();
-        console.error("AI error:", response.status, errText);
+        console.error('AI moderation provider status:', response.status);
         results.push({ content_id: item.content_id, error: "AI analysis failed" });
         continue;
       }
@@ -107,49 +125,23 @@ Return ONLY valid JSON, no markdown.`
           modResult = JSON.parse(content.replace(/```json?\n?/g, "").replace(/```/g, ""));
         }
       } catch {
-        modResult = { spam_score: 0, hate_score: 0, nsfw_score: 0, overall_risk: "low", reasoning: "Parse error" };
+        results.push({ content_id: item.content_id, error: 'Moderation response could not be read' });
+        continue;
       }
 
-      // Determine auto-action based on rules
-      let autoAction = null;
-      if (modResult.overall_risk === "critical") autoAction = "removed";
-      else if (modResult.overall_risk === "high") autoAction = "hidden";
-      else if (modResult.overall_risk === "medium") autoAction = "flagged";
-
-      // Store result
-      const { data: insertData, error: insertError } = await supabase
-        .from("ai_moderation_results")
-        .insert({
-          content_type: item.content_type,
-          content_id: item.content_id,
-          content_text: item.content_text.substring(0, 1000),
-          user_id: item.user_id,
-          spam_score: modResult.spam_score,
-          hate_score: modResult.hate_score,
-          nsfw_score: modResult.nsfw_score,
-          overall_risk: modResult.overall_risk,
-          ai_reasoning: modResult.reasoning,
-          auto_action: autoAction,
-        })
-        .select()
-        .single();
-
-      if (insertError) {
-        console.error("DB insert error:", insertError);
-      }
-
-      // Apply auto-action to content
-      if (autoAction && (autoAction === "hidden" || autoAction === "removed")) {
-        if (item.content_type === "post") {
-          await supabase.from("posts").update({ moderation_status: autoAction }).eq("id", item.content_id);
-        }
+      const { data: resultId, error: saveError } = await supabase.rpc('record_admin_post_scan', {
+        _actor: user.id, _post_id: item.content_id, _content: content,
+        _spam: modResult?.spam_score, _hate: modResult?.hate_score, _nsfw: modResult?.nsfw_score,
+        _risk: modResult?.overall_risk, _reason: typeof modResult?.reasoning === 'string' ? modResult.reasoning : '',
+      });
+      if (saveError || !resultId) {
+        results.push({ content_id: item.content_id, error: 'Scan result could not be saved' });
+        continue;
       }
 
       results.push({
         content_id: item.content_id,
-        ...modResult,
-        auto_action: autoAction,
-        moderation_id: insertData?.id,
+        moderation_id: resultId,
       });
     }
 

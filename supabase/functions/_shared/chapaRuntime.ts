@@ -3,19 +3,18 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.75.0';
 import { createChapaHandlers, PaymentError, type ChapaIntent, type ChapaStore, type ChapaDependencies } from './chapa.ts';
 import { chapaCorsHeaders, chapaJson, createChapaHttpHandler, type ChapaRoute } from './chapaHttp.ts';
 import { createChapaTransferHandler } from './chapaTransfer.ts';
+import { createChapaAdminHandler, type ChapaAdminControl } from './chapaAdmin.ts';
+import { chapaConfiguration, isChapaMode, type ChapaMode } from './chapaConfiguration.ts';
 
-export function paymentDependencies(): ChapaDependencies {
-  const secret=Deno.env.get('CHAPA_SECRET_KEY') || '';
-  const mode=Deno.env.get('CHAPA_MODE');
+export async function paymentDependencies(requireAdminSettings = false): Promise<ChapaDependencies & ChapaAdminControl> {
+  const { keys, defaultMode, availableModes } = chapaConfiguration((name) => Deno.env.get(name));
   const origins=(Deno.env.get('PAYMENT_RETURN_ORIGINS') || '').split(',').map(value=>value.trim()).filter(Boolean);
-  if(!secret || !['live','test'].includes(mode || '')
-    || (mode==='live' && secret.includes('_TEST-')) || (mode==='test' && !secret.includes('_TEST-'))) throw new Error('Payment configuration unavailable');
-  const keys:Partial<Record<'live'|'test',string>>={[mode!]:secret};
-  const live=Deno.env.get('CHAPA_LIVE_SECRET_KEY'),test=Deno.env.get('CHAPA_TEST_SECRET_KEY');
-  if(live) {if(live.includes('_TEST-')) throw new Error('Live payment key is invalid');keys.live=live;}
-  if(test) {if(!test.includes('_TEST-')) throw new Error('Test payment key is invalid');keys.test=test;}
-  const availableModes=Object.keys(keys) as Array<'live'|'test'>;
   const client=createClient(Deno.env.get('SUPABASE_URL')!,Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,{auth:{persistSession:false,autoRefreshToken:false}});
+  const { data: savedMode, error: modeError } = await client.rpc('get_chapa_mode_override');
+  if (modeError && (requireAdminSettings || modeError.code !== 'PGRST202')) throw new Error('Payment mode configuration unavailable');
+  if (savedMode != null && !isChapaMode(savedMode)) throw new Error('Invalid payment mode configuration');
+  const modeOverride: ChapaMode | null = savedMode ?? null;
+  const mode = modeOverride ?? defaultMode;
   const checked=async(request:PromiseLike<any>)=>{const {data,error}=await request;if(error) {
     if(error.message==='Withdrawal verification mismatch') throw new PaymentError('Provider withdrawal details did not match the saved destination. This receipt needs review.',502,'verification_mismatch');
     throw new Error(error.message);
@@ -33,7 +32,7 @@ export function paymentDependencies(): ChapaDependencies {
     claimCheck:async(txRef,source)=>checked(client.rpc('claim_chapa_check',{_tx_ref:txRef,_source:source})),
     apply:async(evidence,details,source)=>checked(client.rpc('record_chapa_check',{_evidence:evidence,_details:details,_source:source})),
     due:async userId=>checked(client.rpc('due_wallet_payments',{_modes:availableModes,_user_id:userId || null,_limit:userId ? 5 : 25})),
-    recent:async(userId,since)=>checked(client.from('chapa_payment_intents').select('*').eq('user_id',userId).eq('mode',mode).eq('kind','topup')
+    recent:async(userId,since)=>checked(client.from('chapa_payment_intents').select('*').eq('user_id',userId).in('mode',availableModes).eq('kind','topup')
       .gte('created_at',since).order('created_at',{ascending:false}).limit(10)),
     error:async(txRef,message,context)=>{await checked(client.rpc('record_chapa_error',{_tx_ref:txRef,_message:message,
       _stage:context.stage,_code:context.code,_source:context.source,_provider_status:context.providerStatus || null}));},
@@ -58,7 +57,24 @@ export function paymentDependencies(): ChapaDependencies {
       return response.json();
     }finally{clearTimeout(timer);}
   };
-  return {store,mode:mode as 'live'|'test',availableModes,origins,
+  return {store,mode,modeOverride,availableModes,origins,
+    isSuperAdmin: async (actor) => checked(client.rpc('has_role', { _user_id: actor, _role: 'super_admin' })),
+    verifyMode: async (candidate) => {
+      try {
+        const result = await provider('banks', undefined, candidate);
+        if (!Array.isArray(result?.data)) throw new Error('Invalid bank list');
+      } catch {
+        throw new PaymentError('Chapa could not validate the key for this mode. The active mode was not changed.',502);
+      }
+    },
+    setMode: async (actor, next, expected) => {
+      const { error } = await client.rpc('set_chapa_mode_override', { _actor: actor, _mode: next, _expected: expected });
+      if (error?.code === '55000') throw new PaymentError('Payment mode changed. Refresh before trying again.',409);
+      if (error) throw new Error('Payment mode could not be saved');
+    },
+    auditWithdrawalCheck: async (actor, reference) => {
+      await checked(client.rpc('audit_admin_withdrawal_check', { _actor: actor, _reference: reference }));
+    },
     webhookSecret:Deno.env.get('CHAPA_WEBHOOK_SECRET') || '',reconcileSecret:Deno.env.get('CHAPA_RECONCILE_SECRET') || '',
     authenticate:async req=>{
       const match=/^Bearer (.+)$/i.exec(req.headers.get('authorization') || '');
@@ -78,12 +94,26 @@ export function paymentDependencies(): ChapaDependencies {
   };
 }
 export function serveChapa(route:ChapaRoute) {
-  serve(createChapaHttpHandler(route,()=>createChapaHandlers(paymentDependencies())));
+  serve(createChapaHttpHandler(route, async () => createChapaHandlers(await paymentDependencies())));
 }
 export function serveChapaTransfer() {
   serve(async request=>{
     if(request.method==='OPTIONS') return new Response(null,{status:204,headers:chapaCorsHeaders});
-    try {return await createChapaTransferHandler(paymentDependencies())(request);}
+    try {return await createChapaTransferHandler(await paymentDependencies())(request);}
     catch {return chapaJson({success:false,error:'Payment service is not configured. Check the Supabase payment secrets.'},503);}
+  });
+}
+
+export function serveChapaAdmin() {
+  serve(async (request) => {
+    if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: chapaCorsHeaders });
+    if (request.method !== 'POST') return chapaJson({ error: 'Method not allowed' }, 405);
+    if (!request.headers.has('authorization')) return chapaJson({ error: 'Authentication required' }, 401);
+    try {
+      const runtime = await paymentDependencies(true);
+      return await createChapaAdminHandler(runtime, runtime)(request);
+    } catch {
+      return chapaJson({ error: 'Payment administration is unavailable.' }, 503);
+    }
   });
 }

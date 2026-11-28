@@ -234,7 +234,8 @@ export const useCircleMutations = () => {
         .from('circles')
         .update(updateData)
         .eq('id', circleId)
-        .eq('creator_id', userId);
+        .select('id')
+        .single();
 
       if (error) throw error;
 

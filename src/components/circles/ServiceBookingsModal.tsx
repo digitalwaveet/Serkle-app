@@ -75,10 +75,9 @@ const ServiceBookingsModal: React.FC<ServiceBookingsModalProps> = ({
 
   const updateBookingStatus = async (bookingId: string, status: string) => {
     try {
-      const { error } = await supabase
-        .from('circle_service_bookings')
-        .update({ status })
-        .eq('id', bookingId);
+      const { error } = await supabase.rpc('update_circle_service_booking_status', {
+        _booking_id: bookingId, _status: status,
+      });
 
       if (error) throw error;
 
@@ -184,7 +183,7 @@ const ServiceBookingsModal: React.FC<ServiceBookingsModalProps> = ({
                       <CheckCircle className="h-4 w-4 mr-1" />
                       Confirm
                     </Button>
-                    <Button
+                    {booking.payment_status !== 'paid' && <Button
                       size="sm"
                       variant="destructive"
                       onClick={() => updateBookingStatus(booking.id, 'cancelled')}
@@ -192,7 +191,7 @@ const ServiceBookingsModal: React.FC<ServiceBookingsModalProps> = ({
                     >
                       <XCircle className="h-4 w-4 mr-1" />
                       Cancel
-                    </Button>
+                    </Button>}
                   </div>
                 )}
 

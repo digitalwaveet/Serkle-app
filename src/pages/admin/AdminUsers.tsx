@@ -11,7 +11,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { supabase } from '@/integrations/supabase/client';
-import { useAdminAudit } from '@/hooks/useAdminAudit';
 import { Search, MoreHorizontal, Ban, Shield, Eye, ChevronLeft, ChevronRight, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
@@ -43,7 +42,7 @@ export default function AdminUsers() {
   const [selectedUser, setSelectedUser] = useState<UserRow | null>(null);
   const [actionDialog, setActionDialog] = useState<{ type: string; user: UserRow } | null>(null);
   const [actionNote, setActionNote] = useState('');
-  const { logAction } = useAdminAudit();
+  const [savingAction, setSavingAction] = useState(false);
 
   const fetchUsers = useCallback(async () => {
     setLoading(true);
@@ -79,32 +78,22 @@ export default function AdminUsers() {
   }, [fetchUsers]);
 
   const handleAction = async (type: string, user: UserRow) => {
+    if (savingAction) return;
+    if (type === 'warn' && !actionNote.trim()) { toast.error('Enter a warning message.'); return; }
+    setSavingAction(true);
     try {
-      if (type === 'ban') {
-        await supabase.from('profiles').update({ banned_at: new Date().toISOString(), admin_notes: actionNote || user.admin_notes }).eq('id', user.id);
-        await logAction('ban_user', 'user', user.id, { reason: actionNote });
-        toast.success(`${user.name} has been banned`);
-      } else if (type === 'unban') {
-        await supabase.from('profiles').update({ banned_at: null }).eq('id', user.id);
-        await logAction('unban_user', 'user', user.id);
-        toast.success(`${user.name} has been unbanned`);
-      } else if (type === 'verify') {
-        await supabase.from('profiles').update({ is_verified: true }).eq('id', user.id);
-        await logAction('verify_user', 'user', user.id);
-        toast.success(`${user.name} has been verified`);
-      } else if (type === 'unverify') {
-        await supabase.from('profiles').update({ is_verified: false }).eq('id', user.id);
-        await logAction('unverify_user', 'user', user.id);
-        toast.success(`${user.name} verification removed`);
-      } else if (type === 'warn') {
-        await logAction('warn_user', 'user', user.id, { message: actionNote });
-        toast.success(`Warning sent to ${user.name}`);
-      }
+      const { error } = type === 'warn'
+        ? await supabase.rpc('issue_admin_warning', { _user_id: user.id, _type: 'warning', _reason: actionNote, _severity: 'low' })
+        : await supabase.rpc('save_admin_profile_status', { _user_id: user.id, _action: type, _notes: actionNote || undefined });
+      if (error) throw error;
+      toast.success(type === 'warn' ? `Warning added to ${user.name}’s inbox` : 'Profile status saved');
       setActionDialog(null);
       setActionNote('');
       fetchUsers();
     } catch (err) {
-      toast.error('Action failed');
+      toast.error('Could not save this user action.');
+    } finally {
+      setSavingAction(false);
     }
   };
 
@@ -312,7 +301,7 @@ export default function AdminUsers() {
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
             {actionDialog?.type === 'ban'
-              ? `Are you sure you want to ban ${actionDialog?.user.name}?`
+              ? `Mark ${actionDialog?.user.name}’s profile as banned. This changes their profile moderation status.`
               : `Send a warning to ${actionDialog?.user.name}.`}
           </p>
           <Textarea
@@ -325,6 +314,7 @@ export default function AdminUsers() {
             <Button
               variant={actionDialog?.type === 'ban' ? 'destructive' : 'default'}
               onClick={() => actionDialog && handleAction(actionDialog.type, actionDialog.user)}
+              disabled={savingAction}
             >
               {actionDialog?.type === 'ban' ? 'Ban User' : 'Send Warning'}
             </Button>

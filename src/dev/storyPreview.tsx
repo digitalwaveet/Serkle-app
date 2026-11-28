@@ -39,7 +39,14 @@ function Preview() {
     </main>
     {view === 'Create' && <CreateStoryModal isOpen onClose={close} onCreateStory={() => {}} />}
     {view === 'Editor' && <StoryEditor previewUrl={image} onCancel={close} onDone={async () => { if (failed) throw new Error('Simulated upload failure. Your edits are still here.'); close(); }} />}
-    {(view === 'Viewer' || view === 'Broken media') && <StoryViewer isOpen initialIndex={0} onClose={close} stories={view === 'Broken media' ? [{ ...story, story_state: undefined, image: '/missing-story-fixture.jpg' }] : [story, { ...story, id: 2 }]} />}
+    {(view === 'Viewer' || view === 'Broken media') && <StoryViewer isOpen initialIndex={0} onClose={close} stories={view === 'Broken media'
+      ? [{ ...story, story_state: undefined, image: '/missing-story-fixture.jpg' }]
+      : [story, { ...story, id: 2 }, {
+          ...story,
+          id: 3,
+          user: { id: 'qa-friend-2', name: 'Noah', initials: 'NO', avatarColor: '#526f88' },
+          createdAt: new Date(Date.now() - 2 * 3600000).toISOString(),
+        }]} />}
     {view.toLowerCase().includes('insights') ? <StoryInsightsContent userId="qa-owner" onClose={close} viewsCount={view === 'Empty insights' ? 0 : 124} likesCount={view === 'Empty insights' ? 0 : 32} repliesCount={view === 'Empty insights' ? 0 : 8}
       viewers={view === 'Empty insights' ? [] : viewers} messages={view === 'Empty insights' ? [] : [
         { id: 'reply-1', sender_id: 'qa-owner', receiver_id: 'qa-friend-0', content: 'Thank you!', created_at: new Date().toISOString(), profile: { ...profile, name: 'You' }, receiverProfile: profile },

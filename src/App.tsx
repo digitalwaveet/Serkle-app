@@ -91,6 +91,7 @@ const AdminEngagement = React.lazy(() => import("./pages/admin/AdminEngagement")
 const AdminContentQueue = React.lazy(() => import("./pages/admin/AdminContentQueue"));
 const AdminAuditLog = React.lazy(() => import("./pages/admin/AdminAuditLog"));
 const AdminPlatformHealth = React.lazy(() => import("./pages/admin/AdminPlatformHealth"));
+const AdminWalletOperations = React.lazy(() => import("./pages/admin/AdminWalletOperations"));
 const AdminCommunication = React.lazy(() => import("./pages/admin/AdminCommunication"));
 const AdminCircles = React.lazy(() => import("./pages/admin/AdminCircles"));
 const AdminReporting = React.lazy(() => import("./pages/admin/AdminReporting"));
@@ -238,6 +239,7 @@ const AppRoutes = ({ onReadyChange }: { onReadyChange: (ready: boolean) => void 
         <Route path="content-queue" element={<AdminContentQueue />} />
         <Route path="audit-log" element={<AdminAuditLog />} />
         <Route path="platform-health" element={<AdminPlatformHealth />} />
+        <Route path="wallet" element={<AdminWalletOperations />} />
         <Route path="communication" element={<AdminCommunication />} />
         <Route path="circles" element={<AdminCircles />} />
         <Route path="reporting" element={<AdminReporting />} />

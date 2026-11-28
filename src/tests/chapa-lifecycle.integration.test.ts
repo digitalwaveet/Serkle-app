@@ -5,6 +5,8 @@ import assert from 'node:assert/strict';
 import { after,before,beforeEach,test } from 'node:test';
 import { createChapaHandlers,normalizeVerification,verifyWebhookSignature,providerDetails,PaymentError,type ChapaStore,type ChapaIntent } from '../../supabase/functions/_shared/chapa.ts';
 import { createChapaTransferHandler } from '../../supabase/functions/_shared/chapaTransfer.ts';
+import { createChapaAdminHandler } from '../../supabase/functions/_shared/chapaAdmin.ts';
+import { chapaConfiguration } from '../../supabase/functions/_shared/chapaConfiguration.ts';
 import { CHAPA_RETURN_URL,topUpState,pendingChapaKey,chapaRequestKey,recordTopUpResult,writeChapaStorage,readChapaStorage } from '../lib/chapaPayments.ts';
 import { authReturnPath,circleLoginPath } from '../lib/authReturnPath.ts';
 
@@ -453,11 +455,73 @@ test('both environment receipts can reconcile when their server keys are configu
   assert.deepEqual(new Set(history.items.map((row:any)=>row.mode)),new Set(['test','live']));
 });
 
+test('mode configuration uses distinct server secret keys and rejects public or mismatched keys', () => {
+  const config = chapaConfiguration((name) => ({ CHAPA_MODE: 'test', CHAPA_SECRET_KEY: 'CHASECK_TEST-fixture', CHAPA_LIVE_SECRET_KEY: 'CHASECK-livefixture' }[name]));
+  assert.equal(config.defaultMode, 'test');
+  assert.deepEqual(config.availableModes, ['live', 'test']);
+  assert.deepEqual(chapaConfiguration((name) => ({ CHAPA_MODE: 'live', CHAPA_LIVE_SECRET_KEY: 'CHASECK_TEST-fixture', CHAPA_TEST_SECRET_KEY: 'CHAPUBK_TEST-public' }[name])).availableModes, []);
+});
+
+test('mode changes require an authorized operator, the right key and the original view of the mode', async () => {
+  const saved: string[] = [];
+  const control = {
+    modeOverride: null,
+    isSuperAdmin: async (actor: string) => actor === seller,
+    verifyMode: async () => {},
+    setMode: async (_actor: string, next: string) => { saved.push(next); },
+    auditWithdrawalCheck: async () => {},
+  };
+  const action = { action: 'set_mode', mode: 'live', expectedMode: 'test' };
+  const admin = createChapaAdminHandler(dependencies('test', ['live', 'test']), control);
+  assert.equal((await admin(request(action, buyer))).status, 403);
+  assert.equal((await admin(request({ ...action, expectedMode: 'live' }, seller))).status, 409);
+  assert.equal((await createChapaAdminHandler(dependencies('test', ['test']), control)(request(action, seller))).status, 409);
+  const rejected = createChapaAdminHandler(dependencies('test', ['live', 'test']), {
+    ...control, verifyMode: async () => { throw new PaymentError('Provider verification failed', 502); },
+  });
+  assert.equal((await rejected(request(action, seller))).status, 502);
+  assert.deepEqual(saved, []);
+  const response = await admin(request(action, seller));
+  assert.deepEqual(await response.json(), { activeMode: 'live', availableModes: ['live', 'test'] });
+  assert.deepEqual(saved, ['live']);
+});
+
+test('a mode change blocks stale top-up confirmation and old receipts still use their saved key', async () => {
+  const stale = await handlers('live', ['live','test']).initialize(request({ expectedMode: 'test', amount: 20, requestId: randomUUID(), returnUrl: CHAPA_RETURN_URL }));
+  assert.equal(stale.status, 409);
+  assert.equal(initializeCalls, 0);
+  const previous = await initialize(20, buyer, randomUUID(), 'test');
+  setState(previous.result.txRef, 'success');
+  const recovered = await handlers('live', ['live','test']).verify(request({}));
+  assert.equal((await recovered.json()).status, 'test_verified');
+  assert.equal(await balance(), 0);
+});
+
 const withdrawalBody=(amount:number,mode:'live'|'test',requestId=randomUUID())=>({amount,expectedMode:mode,requestId,bankCode:855,accountNumber:'1234567890',accountName:'Fixture Buyer'});
 async function withdraw(amount=30,mode:'live'|'test'='live',key=randomUUID()) {
   const response=await transfers(mode)(request(withdrawalBody(amount,mode,key)));return {response,result:await response.json(),key};
 }
 async function seedBalance(amount=100) {await service();await q("WITH funded AS (UPDATE coin_wallets SET balance=balance+$2 WHERE user_id=$1 RETURNING balance) INSERT INTO coin_transactions(user_id,amount,type,description,balance_after) SELECT $1,$2,'topup','Fixture funding',balance FROM funded",[buyer,amount]);}
+
+test('an admin withdrawal check reconciles the existing receipt without resubmitting money', async () => {
+  await seedBalance();
+  const existing = await withdraw();
+  setState(existing.result.txRef, 'failed');
+  const audited: string[] = [];
+  const check = createChapaAdminHandler(dependencies('test', ['test', 'live']), {
+    modeOverride: 'test', isSuperAdmin: async (actor) => actor === seller,
+    setMode: async () => {}, verifyMode: async () => {}, auditWithdrawalCheck: async (_actor, reference) => { audited.push(reference); },
+  });
+  const action = { action: 'check_withdrawal', reference: existing.result.txRef };
+  assert.equal((await check(request(action, other))).status, 403);
+  assert.equal(await balance(), 70);
+  const result = await check(request(action, seller));
+  assert.equal(result.status, 200);
+  assert.equal((await result.json()).status, 'failed');
+  assert.equal(await balance(), 100);
+  assert.equal(payoutCalls, 1);
+  assert.deepEqual(audited, [existing.result.txRef]);
+});
 
 test('live withdrawals reserve once, bind the ledger to their durable receipt and never resend after an uncertain response',async()=>{
   await seedBalance();payoutUncertain=true;const first=await withdraw();assert.equal(first.response.status,202);assert.equal(await balance(),70);assert.equal(payoutCalls,1);

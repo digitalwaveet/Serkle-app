@@ -1,14 +1,17 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ShieldPlus } from 'lucide-react';
+import { ShieldCheck, ShieldPlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import {
   AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { listCircleAdmins, updateCircleAdmin, type CircleAdmin, type CircleAdminAction } from '@/lib/circleAdmin';
+import { CIRCLE_ACTIVITY_PERMISSIONS, defaultCircleActivityPermission, listCircleAdmins, updateCircleAdmin, type CircleAdmin, type CircleAdminAction } from '@/lib/circleAdmin';
+import { getCircleType, normalizeFeatures } from '@/lib/circleTypes';
+import { type Circle } from '@/hooks/useCircles';
 import { membershipQueryOptions, refreshCircleMembership } from '@/lib/circleMembershipClient';
 
 const permissions = [
@@ -16,19 +19,22 @@ const permissions = [
   { action: 'requests', field: 'can_respond_to_requests', label: 'Approve or decline join requests' },
 ] as const;
 
-export default function CircleAdminControls({ circleId, ownerId, onAdd }: {
-  circleId: string;
-  ownerId: string;
+export default function CircleAdminControls({ circle, userId, onAdd }: {
+  circle: Circle;
+  userId: string;
   onAdd: () => void;
 }) {
   const queryClient = useQueryClient();
   const [removing, setRemoving] = useState<CircleAdmin | null>(null);
-  const queryKey = ['circle-admins', circleId, ownerId];
-  const admins = useQuery({ queryKey, queryFn: () => listCircleAdmins(circleId), ...membershipQueryOptions });
+  const queryKey = ['circle-admins', circle.id, userId];
+  const admins = useQuery({ queryKey, queryFn: () => listCircleAdmins(circle.id), ...membershipQueryOptions });
+  const isOwner = circle.creator_id === userId;
+  const enabledFeatures = normalizeFeatures(circle.enabled_features);
+  const activities = CIRCLE_ACTIVITY_PERMISSIONS.filter(({ feature }) => !feature || enabledFeatures.includes(feature));
 
   const update = useMutation({
     mutationFn: ({ userId, action, allowed }: { userId: string; action: CircleAdminAction; allowed?: boolean }) =>
-      updateCircleAdmin(circleId, userId, action, allowed),
+      updateCircleAdmin(circle.id, userId, action, allowed),
     onSuccess: async (_, { action }) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey }),
@@ -45,6 +51,9 @@ export default function CircleAdminControls({ circleId, ownerId, onAdd }: {
       <Button size="sm" onClick={onAdd} disabled={update.isPending}>
         <ShieldPlus className="h-4 w-4 mr-2" /> Add Admin
       </Button>
+      <p className="text-xs text-muted-foreground">
+        Showing permissions for the enabled activities in this {getCircleType(circle.circle_type).label} Circle.
+      </p>
       {admins.isLoading && <p role="status" className="text-sm text-muted-foreground">Loading admins…</p>}
       {admins.isError && (
         <div role="alert" className="space-y-2 text-sm">
@@ -55,28 +64,73 @@ export default function CircleAdminControls({ circleId, ownerId, onAdd }: {
       {admins.isSuccess && admins.data.length === 0 && (
         <p className="text-sm text-muted-foreground">Admins appear here when they accept their invitation.</p>
       )}
-      {admins.isSuccess && admins.data.map((admin) => {
-        const name = admin.name || admin.username || 'Circle admin';
-        return (
-          <fieldset key={admin.user_id} className="min-w-0 rounded-lg border px-3 pb-3 space-y-3">
-            <legend className="px-1 font-medium text-sm break-all">{name}</legend>
-            {admin.username && <p className="text-xs text-muted-foreground break-all">@{admin.username}</p>}
-            {permissions.map(({ action, field, label }) => (
-              <label key={action} className="flex items-center justify-between gap-3 text-sm">
-                {label}
-                <Switch
-                  checked={admin[field]}
-                  disabled={update.isPending}
-                  onCheckedChange={(allowed) => update.mutate({ userId: admin.user_id, action, allowed })}
-                />
-              </label>
-            ))}
-            <Button size="sm" variant="outline" onClick={() => setRemoving(admin)} disabled={update.isPending}>
-              Remove admin access
-            </Button>
-          </fieldset>
-        );
-      })}
+      {admins.isSuccess && admins.data.length > 0 && (
+        <Accordion type="single" collapsible className="space-y-2">
+          {admins.data.map((admin) => {
+            const name = admin.name || admin.username || 'Circle admin';
+            const canEdit = isOwner || (!admin.is_super_admin && admin.user_id !== userId);
+            const locked = !canEdit || !!admin.is_super_admin || update.isPending;
+            return (
+              <AccordionItem key={admin.user_id} value={admin.user_id} className="min-w-0 rounded-lg border">
+                <AccordionTrigger className="min-h-14 min-w-0 gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-muted/60 hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-semibold">{name}</span>
+                    {admin.username && <span className="block truncate text-xs text-muted-foreground">@{admin.username}</span>}
+                  </span>
+                  {admin.is_super_admin ? (
+                    <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-950 dark:bg-amber-950 dark:text-amber-200">
+                      <ShieldCheck aria-hidden="true" className="size-3.5" />
+                      Super Admin
+                    </span>
+                  ) : (
+                    <span className="shrink-0 rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground">Admin</span>
+                  )}
+                </AccordionTrigger>
+                <AccordionContent className="border-t px-3 pb-3 pt-3">
+                  <fieldset className="min-w-0 space-y-3">
+                    <legend className="sr-only">Permissions for {name}</legend>
+                    <label className="flex min-h-11 items-center justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-2.5 text-sm font-semibold text-amber-950 dark:border-amber-800 dark:bg-amber-950/60 dark:text-amber-100">
+                      <span className="inline-flex items-center gap-2">
+                        <ShieldCheck aria-hidden="true" className="size-4" /> Super Admin
+                      </span>
+                      <Switch
+                        className="data-[state=checked]:bg-amber-700 dark:data-[state=checked]:bg-amber-400"
+                        checked={!!admin.is_super_admin}
+                        disabled={!isOwner || update.isPending}
+                        onCheckedChange={(allowed) => update.mutate({ userId: admin.user_id, action: 'super_admin', allowed })}
+                      />
+                    </label>
+                    {admin.is_super_admin && <p className="text-xs text-muted-foreground">All Circle activity permissions are on. Individual settings are restored if Super Admin is turned off.</p>}
+                    {permissions.map(({ action, field, label }) => (
+                      <label key={action} className="flex items-center justify-between gap-3 text-sm">
+                        {label}
+                        <Switch
+                          checked={!!admin.is_super_admin || admin[field]}
+                          disabled={locked}
+                          onCheckedChange={(allowed) => update.mutate({ userId: admin.user_id, action, allowed })}
+                        />
+                      </label>
+                    ))}
+                    {activities.map(({ id, label }) => (
+                      <label key={id} className="flex items-center justify-between gap-3 text-sm">
+                        {label}
+                        <Switch
+                          checked={!!admin.is_super_admin || (admin.activity_permissions?.[id] ?? defaultCircleActivityPermission(id))}
+                          disabled={locked}
+                          onCheckedChange={(allowed) => update.mutate({ userId: admin.user_id, action: id, allowed })}
+                        />
+                      </label>
+                    ))}
+                    {canEdit && <Button size="sm" variant="outline" onClick={() => setRemoving(admin)} disabled={update.isPending}>
+                      Remove admin access
+                    </Button>}
+                  </fieldset>
+                </AccordionContent>
+              </AccordionItem>
+            );
+          })}
+        </Accordion>
+      )}
       <AlertDialog open={!!removing} onOpenChange={(open) => { if (!open && !update.isPending) setRemoving(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>

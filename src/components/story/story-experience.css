@@ -64,13 +64,18 @@
 .story-viewer .story-content-frame { height:100%; box-shadow:none; }
 .story-viewer .story-icon-btn,.story-viewer .story-action-btn { min-width:40px; min-height:44px; background:transparent; box-shadow:none; border:0; }
 .story-viewer .story-progress-fill { background:#fff; }
-.story-viewer .story-progress-track { height:2px; background:#ffffff50; }
+.story-viewer .story-progress-track { height:2px; background:#ffffff50; backdrop-filter:none; }
 .story-viewer .story-message-input { border:1px solid #ffffffb3; background:transparent; min-height:44px; border-radius:30px; }
 .story-viewer .story-activity-btn { background:transparent; color:#fff; padding:10px 2px; border:none; box-shadow:none; }
 .story-viewer-error { position:absolute; inset:90px 20px; display:flex; flex-direction:column; justify-content:center; align-items:center; gap:14px; text-align:center; z-index:60; pointer-events:none; }
 .story-viewer-error button { pointer-events:auto; }
 .story-viewer-header { top:calc(22px + env(safe-area-inset-top)); }
-.story-viewer-progress { top:calc(10px + env(safe-area-inset-top)); }
+.story-viewer-header .story-icon-btn { flex-shrink:0; backdrop-filter:none; -webkit-backdrop-filter:none; }
+.story-viewer .story-gradient-top {
+ height:calc(120px + env(safe-area-inset-top));
+ background:linear-gradient(#000c 0, #000b calc(66px + env(safe-area-inset-top)), transparent);
+}
+.story-viewer-progress { top:calc(10px + env(safe-area-inset-top)); pointer-events:none; }
 .story-viewer-bottom { bottom:max(14px,env(safe-area-inset-bottom)); }
 .story-desktop-nav { display:none; }
 @media(min-width:768px) {

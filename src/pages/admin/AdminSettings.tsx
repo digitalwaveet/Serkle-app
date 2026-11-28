@@ -47,6 +47,7 @@ const SETTING_META: Record<string, { label: string; description: string; icon: a
 export default function AdminSettings() {
   const [settings, setSettings] = useState<Record<string, SettingValue>>({});
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [saving, setSaving] = useState<string | null>(null);
   const { logAction } = useAdminAudit();
   const { toast } = useToast();
@@ -56,13 +57,15 @@ export default function AdminSettings() {
   }, []);
 
   const fetchSettings = async () => {
+    setLoading(true);
+    setLoadError(false);
     const { data, error } = await supabase
       .from('admin_settings')
       .select('key, value, updated_at');
 
     if (error) {
       console.error('Failed to fetch settings:', error);
-      setSettings({ ...DEFAULT_SETTINGS });
+      setLoadError(true);
     } else {
       const merged = { ...DEFAULT_SETTINGS };
       (data as SettingRow[])?.forEach((row) => {
@@ -124,6 +127,14 @@ export default function AdminSettings() {
     );
   }
 
+  if (loadError) return (
+    <div role="alert" className="space-y-3 rounded-xl border bg-card p-4">
+      <h1 className="text-xl font-semibold">App Configuration</h1>
+      <p className="text-sm text-muted-foreground">Could not load the saved configuration.</p>
+      <Button variant="outline" onClick={() => void fetchSettings()}>Retry</Button>
+    </div>
+  );
+
   const groups = Object.entries(SETTING_META).reduce<Record<string, string[]>>((acc, [key, meta]) => {
     if (!acc[meta.group]) acc[meta.group] = [];
     acc[meta.group].push(key);
@@ -136,6 +147,7 @@ export default function AdminSettings() {
         <Settings className="h-6 w-6 text-primary" />
         <h1 className="text-2xl font-bold text-foreground">App Configuration</h1>
       </div>
+      <p className="text-sm text-muted-foreground">These values are stored in Supabase. Runtime enforcement of these feature and policy settings is pending.</p>
 
       {Object.entries(groups).map(([group, keys]) => (
         <div key={group} className="space-y-3">

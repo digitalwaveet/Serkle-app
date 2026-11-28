@@ -44,11 +44,12 @@ export default function AdminAutoModeration() {
 
   const fetchRules = useCallback(async () => {
     setLoading(true);
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('auto_moderation_rules')
       .select('*')
       .order('created_at', { ascending: false });
-    setRules((data as AutoRule[]) || []);
+    if (error) toast.error('Could not load moderation rules.');
+    else setRules((data as AutoRule[]) || []);
     setLoading(false);
   }, []);
 
@@ -98,13 +99,16 @@ export default function AdminAutoModeration() {
       created_by: session.session?.user?.id,
     };
 
+    const result = editing
+      ? await supabase.from('auto_moderation_rules').update(payload).eq('id', editing.id).select('id').maybeSingle()
+      : await supabase.from('auto_moderation_rules').insert(payload).select('id').maybeSingle();
+    if (result.error || !result.data) { toast.error('Could not save this rule.'); return; }
+
     if (editing) {
-      await supabase.from('auto_moderation_rules').update(payload).eq('id', editing.id);
       await logAction('update_auto_rule', 'moderation_rule', editing.id);
       toast.success('Rule updated');
     } else {
-      await supabase.from('auto_moderation_rules').insert(payload);
-      await logAction('create_auto_rule', 'moderation_rule');
+      await logAction('create_auto_rule', 'moderation_rule', result.data.id);
       toast.success('Rule created');
     }
 
@@ -115,14 +119,16 @@ export default function AdminAutoModeration() {
   };
 
   const toggleRule = async (rule: AutoRule) => {
-    await supabase.from('auto_moderation_rules').update({ is_active: !rule.is_active }).eq('id', rule.id);
+    const { data, error } = await supabase.from('auto_moderation_rules').update({ is_active: !rule.is_active }).eq('id', rule.id).select('id').maybeSingle();
+    if (error || !data) { toast.error('Could not update this rule.'); return; }
     await logAction(rule.is_active ? 'disable_auto_rule' : 'enable_auto_rule', 'moderation_rule', rule.id);
     toast.success(rule.is_active ? 'Rule disabled' : 'Rule enabled');
     fetchRules();
   };
 
   const deleteRule = async (id: string) => {
-    await supabase.from('auto_moderation_rules').delete().eq('id', id);
+    const { data, error } = await supabase.from('auto_moderation_rules').delete().eq('id', id).select('id').maybeSingle();
+    if (error || !data) { toast.error('Could not delete this rule.'); return; }
     await logAction('delete_auto_rule', 'moderation_rule', id);
     toast.success('Rule deleted');
     fetchRules();
@@ -148,7 +154,7 @@ export default function AdminAutoModeration() {
         <Card>
           <CardContent className="p-8 text-center">
             <Bot className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
-            <p className="text-muted-foreground">No auto-moderation rules yet. Create one to automatically flag or remove content.</p>
+            <p className="text-muted-foreground">No rules yet. Active rules run when an admin scans posts in AI Moderation.</p>
           </CardContent>
         </Card>
       ) : (

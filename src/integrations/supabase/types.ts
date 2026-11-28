@@ -4848,6 +4848,26 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_circle_dashboard_totals: {
+        Args: { _circle_id: string }
+        Returns: Json
+      }
+      mark_circle_messages_read: {
+        Args: { _circle_id: string; _message_ids: string[] }
+        Returns: undefined
+      }
+      record_circle_resource_download: {
+        Args: { _resource_id: string }
+        Returns: undefined
+      }
+      remove_circle_feed_post: {
+        Args: { _post_id: string }
+        Returns: undefined
+      }
+      update_circle_service_booking_status: {
+        Args: { _booking_id: string; _status: string }
+        Returns: undefined
+      }
       get_circle_member_invite_code: {
         Args: { _circle_id: string }
         Returns: string
@@ -4862,6 +4882,33 @@ export type Database = {
       }
       update_circle_admin: {
         Args: { _circle_id: string; _user_id: string; _action: string; _allowed?: boolean }
+        Returns: undefined
+      }
+      save_admin_moderation_status: { Args: { _kind: string; _content_id: string; _status: string }; Returns: undefined }
+      set_admin_post_pin: { Args: { _post_id: string; _pinned: boolean }; Returns: undefined }
+      save_admin_profile_status: { Args: { _user_id: string; _action: string; _notes?: string }; Returns: undefined }
+      issue_admin_warning: { Args: { _user_id: string; _type: string; _reason: string; _severity: string }; Returns: undefined }
+      send_admin_broadcast: { Args: { _request_id: string; _title: string; _message: string; _audience: string; _channel: string }; Returns: number }
+      apply_admin_bulk_action: { Args: { _target: string; _action: string; _ids: string[]; _reason?: string }; Returns: undefined }
+      review_admin_ai_results: { Args: { _ids: string[]; _action: string }; Returns: undefined }
+      get_admin_wallet_operations: {
+        Args: { _mode: string; _status?: string; _reference?: string; _before_created_at?: string; _before_id?: string; _kind?: string }
+        Returns: Json
+      }
+      resolve_admin_report: { Args: { _report_id: string; _status: string; _notes?: string }; Returns: undefined }
+      delete_admin_ask_content: { Args: { _kind: string; _content_id: string }; Returns: undefined }
+      set_admin_circle_activity: { Args: { _circle_id: string; _active: boolean }; Returns: undefined }
+      list_admin_circles: {
+        Args: { _search?: string; _category?: string; _offset?: number }
+        Returns: { id: string; name: string; description: string | null; category: string | null; is_private: boolean | null; is_premium: boolean | null; is_active: boolean | null; subscription_enabled: boolean | null; subscription_price: number | null; members_count: number | null; posts_count: number | null; events_count: number | null }[]
+      }
+      list_admin_circle_members: {
+        Args: { _circle_id: string; _offset?: number }
+        Returns: { id: string; user_id: string; role: string; status: string; joined_at: string | null; is_owner: boolean; name: string | null; username: string | null }[]
+      }
+      remove_circle_member: { Args: { _circle_id: string; _user_id: string }; Returns: undefined }
+      review_admin_expert_request: {
+        Args: { _request_id: string; _status: string; _expected_updated_at: string; _notes?: string }
         Returns: undefined
       }
       get_admin_operational_snapshot: { Args: Record<never, never>; Returns: Json }

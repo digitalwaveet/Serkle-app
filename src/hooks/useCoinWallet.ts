@@ -115,21 +115,24 @@ export function useCoinWallet(userId?: string) {
       email, 
       firstName, 
       lastName,
-      phoneNumber
+      phoneNumber,
+      expectedMode,
     }: { 
       amount: number; 
       email?: string; 
       firstName?: string; 
       lastName?: string; 
       phoneNumber?: string;
+      expectedMode: 'live' | 'test';
     }) => {
       if (!userId) throw new Error('Please sign in');
       const configuration=await callEdgeFunction('chapa-transfer?action=configuration',null,'GET');
       if(configuration.userId!==userId || activeAccount.current!==userId || !['live','test'].includes(configuration.mode)) throw new Error('Payment configuration could not be confirmed. Refresh the wallet before continuing.');
+      if (configuration.mode !== expectedMode) throw new Error('Payment mode changed. Review the top-up again.');
       const key=chapaRequestKey(userId,amount,configuration.mode);
       let requestId=readChapaStorage(key);
       if(!requestId) {requestId=crypto.randomUUID();writeChapaStorage(key,requestId);}
-      const result=await callEdgeFunction('chapa-initialize', { amount, email, firstName, lastName, phoneNumber, returnUrl: CHAPA_RETURN_URL, requestId });
+      const result=await callEdgeFunction('chapa-initialize', { amount, email, firstName, lastName, phoneNumber, returnUrl: CHAPA_RETURN_URL, requestId, expectedMode });
       if(result.userId!==userId || activeAccount.current!==userId) throw new Error('Your account changed. Review this payment from the correct account.');
       if(result.txRef) writeChapaStorage(pendingChapaKey(userId),result.txRef);
       if(!result.checkoutUrl) {
@@ -145,6 +148,7 @@ export function useCoinWallet(userId?: string) {
       // We no longer window.open here; the component will handle the checkoutUrl
     },
     onError: (err: any) => {
+      void queryClient.invalidateQueries({ queryKey: ['chapa-banks', userId] });
       toast({
         title: 'Could not initiate payment',
         description: err.message,

@@ -133,10 +133,9 @@ export const useMarkCircleMessagesRead = () => {
 
   return useMutation({
     mutationFn: async ({ circleId, messageIds }: { circleId: string; messageIds: string[] }) => {
-      const { error } = await supabase
-        .from('circle_messages')
-        .update({ is_read: true })
-        .in('id', messageIds);
+      const { error } = await supabase.rpc('mark_circle_messages_read', {
+        _circle_id: circleId, _message_ids: messageIds,
+      });
       if (error) throw error;
     },
     onSuccess: (_, vars) => {

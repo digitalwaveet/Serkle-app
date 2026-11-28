@@ -170,8 +170,15 @@ export function createChapaHandlers(deps: ChapaDependencies) {
     }
   };
   return {
+    checkRecordedPayment: (intent: ChapaIntent) => reconcile(intent, 'reconcile'),
     initialize:safe(async req=>{
       const user=await deps.authenticate(req),body=await req.json();
+      if (body.expectedMode !== undefined && body.expectedMode !== deps.mode) {
+        throw new PaymentError('Payment mode changed. Refresh the wallet and review the top-up again.',409,'environment_changed');
+      }
+      if (!(deps.availableModes ?? [deps.mode]).includes(deps.mode)) {
+        throw new PaymentError('The active payment environment is unavailable.',503,'environment_unavailable');
+      }
       if(!deps.origins.length) throw new PaymentError('PAYMENT_RETURN_ORIGINS is not configured for checkout',503);
       if(typeof body.requestId!=='string' || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(body.requestId)) throw new PaymentError('Payment request ID required');
       const amount=wholeBirr(body.amount);
@@ -207,7 +214,7 @@ export function createChapaHandlers(deps: ChapaDependencies) {
       let txRef=body.txRef;
       if(txRef===undefined || txRef===null) {
         const recent=(await deps.store.recent(user.id,new Date(Date.now()-86400000).toISOString()))
-          .filter(intent=>intent.user_id===user.id && intent.mode===deps.mode && intent.kind!=='withdrawal');
+          .filter(intent=>intent.user_id===user.id && intent.kind!=='withdrawal');
         if(recent.length!==1) return json({success:false,verified:false,userId:user.id,
           status:recent.length ? 'selection_required' : 'unknown',
           message:recent.length ? 'Choose the payment you want to check.' : 'No recent payment could be identified. Check your wallet history or contact support with your Chapa receipt.',

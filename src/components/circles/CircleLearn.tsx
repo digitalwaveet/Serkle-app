@@ -9,7 +9,8 @@ export type CircleLearnSection = 'videos' | 'resources';
 
 interface CircleLearnProps {
   circle: Circle;
-  isOwner: boolean;
+  canManageVideos: boolean;
+  canManageResources: boolean;
   section: CircleLearnSection | null;
   onSectionChange: (section: CircleLearnSection) => void;
 }
@@ -19,13 +20,13 @@ interface CircleLearnProps {
  * Resources sub-tabs. Only the sub-sections the circle has enabled are shown;
  * with a single one enabled the sub-tab bar is skipped entirely.
  */
-const CircleLearn: React.FC<CircleLearnProps> = ({ circle, isOwner, section, onSectionChange }) => {
+const CircleLearn: React.FC<CircleLearnProps> = ({ circle, canManageVideos, canManageResources, section, onSectionChange }) => {
   const enabled = normalizeFeatures(circle.enabled_features);
   const hasVideos = enabled.includes('videos');
   const hasResources = enabled.includes('resources');
 
-  if (hasVideos && !hasResources) return <CircleVideos circle={circle} isOwner={isOwner} />;
-  if (hasResources && !hasVideos) return <CircleResources circle={circle} isOwner={isOwner} />;
+  if (hasVideos && !hasResources) return <CircleVideos circle={circle} isOwner={canManageVideos} />;
+  if (hasResources && !hasVideos) return <CircleResources circle={circle} isOwner={canManageResources} />;
 
   return (
     <Tabs
@@ -42,10 +43,10 @@ const CircleLearn: React.FC<CircleLearnProps> = ({ circle, isOwner, section, onS
         </TabsList>
       </div>
       <TabsContent value="videos" className="animate-fade-in">
-        <CircleVideos circle={circle} isOwner={isOwner} />
+        <CircleVideos circle={circle} isOwner={canManageVideos} />
       </TabsContent>
       <TabsContent value="resources" className="animate-fade-in">
-        <CircleResources circle={circle} isOwner={isOwner} />
+        <CircleResources circle={circle} isOwner={canManageResources} />
       </TabsContent>
     </Tabs>
   );

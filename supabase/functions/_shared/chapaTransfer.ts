@@ -8,12 +8,14 @@ export function createChapaTransferHandler(deps: ChapaDependencies) {
     try {
       const user=await deps.authenticate(request);
       if (request.method==='GET') {
+        if (!(deps.availableModes ?? [deps.mode]).includes(deps.mode)) throw new PaymentError('The active payment environment is unavailable.',503);
         if (new URL(request.url).searchParams.get('action')==='configuration') return chapaJson({success:true,userId:user.id,mode:deps.mode});
         return chapaJson({success:true,userId:user.id,mode:deps.mode,banks:await deps.banks()});
       }
       const body=await request.clone().json();
       if (body.action==='verify') return createChapaHandlers(deps).verify(request);
       if (body.expectedMode!==deps.mode) throw new PaymentError('Payment mode changed or is unknown. Refresh the wallet and review the withdrawal mode before confirming.',409);
+      if (!(deps.availableModes ?? [deps.mode]).includes(deps.mode)) throw new PaymentError('The active payment environment is unavailable.',503);
       if (typeof body.requestId!=='string' || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(body.requestId)) throw new PaymentError('Withdrawal request ID required');
       const amount=wholeBirr(body.amount),bank=Number(body.bankCode);
       const account=typeof body.accountNumber==='string' ? body.accountNumber.trim() : '';

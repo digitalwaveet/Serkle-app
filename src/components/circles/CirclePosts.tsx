@@ -44,9 +44,11 @@ import { cn } from '@/lib/utils';
 interface CirclePostsProps {
   circle: any;
   isOwner: boolean;
+  canPublish: boolean;
+  canModerate: boolean;
 }
 
-const CirclePosts: React.FC<CirclePostsProps> = ({ circle, isOwner }) => {
+const CirclePosts: React.FC<CirclePostsProps> = ({ circle, isOwner, canPublish, canModerate }) => {
   const navigate = useNavigate();
   const { id: circleId } = useParams();
   const { toast } = useToast();
@@ -54,7 +56,7 @@ const CirclePosts: React.FC<CirclePostsProps> = ({ circle, isOwner }) => {
   const { user: currentUser } = useUser();
 
   // Owners/admins always post; members only when the circle allows it
-  const canPost = isOwner || (circle?.posting_policy === 'members' && circle?.is_joined);
+  const canPost = canPublish || (circle?.posting_policy === 'members' && circle?.is_joined);
 
   // Inline Composer State
   const [headline, setHeadline] = useState('');
@@ -300,9 +302,9 @@ const CirclePosts: React.FC<CirclePostsProps> = ({ circle, isOwner }) => {
         toast({ title: "Please log in to delete posts", variant: "destructive" });
         return;
       }
-      const query = supabase.from('posts').delete().eq('id', postId);
-      if (!isOwner) query.eq('user_id', user.id);
-      const { error } = await query;
+      const { error } = canModerate
+        ? await supabase.rpc('remove_circle_feed_post', { _post_id: postId })
+        : await supabase.from('posts').delete().eq('id', postId).eq('user_id', user.id);
       if (error) throw error;
       queryClient.invalidateQueries({ queryKey: ['circle-posts', circleId] });
       toast({ title: "Post deleted successfully" });
@@ -541,7 +543,7 @@ const CirclePosts: React.FC<CirclePostsProps> = ({ circle, isOwner }) => {
                         </time>
                       </div>
                       {post.is_premium && <CirclePremiumBadge locked={locked} />}
-                      {isOwner && (
+                      {(canModerate || currentUser?.id === post.user_id) && (
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button variant="ghost" size="icon" className="size-9 shrink-0" aria-label="Post options">
@@ -549,16 +551,16 @@ const CirclePosts: React.FC<CirclePostsProps> = ({ circle, isOwner }) => {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => handleTogglePin(post)}>
+                            {canModerate && <DropdownMenuItem onClick={() => handleTogglePin(post)}>
                               {post.pinned_at ? <PinOff className="mr-2 size-4" /> : <Pin className="mr-2 size-4" />}
                               {post.pinned_at ? 'Unpin Post' : 'Pin to Top'}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => {
+                            </DropdownMenuItem>}
+                            {currentUser?.id === post.user_id && <DropdownMenuItem onClick={() => {
                               setSelectedPostForEdit(post);
                               setIsEditModalOpen(true);
                             }}>
                               <Pencil className="mr-2 size-4" /> Edit Post
-                            </DropdownMenuItem>
+                            </DropdownMenuItem>}
                             <DropdownMenuItem onClick={() => handleDeletePost(post.id)} className="text-destructive">
                               <Trash2 className="mr-2 size-4" /> Delete Post
                             </DropdownMenuItem>

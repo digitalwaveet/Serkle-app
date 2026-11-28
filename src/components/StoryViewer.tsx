@@ -58,8 +58,13 @@ function ActiveStoryViewer({ stories, initialIndex, onClose, onStoryViewed }: Om
   const [mentions, setMentions] = useState<Array<{ user_id: string; username: string; name: string }>>([]);
   const viewed = useRef(new Set<string>());
   const [swipe, setSwipe] = useState({ y: 0, active: false });
-  const next = useCallback(() => { if (stories[index + 1]) setStoryId(stories[index + 1].id); else onClose(); }, [index, stories, onClose]);
-  const previous = useCallback(() => { if (stories[index - 1]) setStoryId(stories[index - 1].id); else { elapsed.current = 0; setProgress(0); if (video.current) video.current.currentTime = 0; } }, [index, stories]);
+  const goToStory = useCallback((id: Story['id']) => {
+    elapsed.current = 0;
+    setProgress(0);
+    setStoryId(id);
+  }, []);
+  const next = useCallback(() => { if (stories[index + 1]) goToStory(stories[index + 1].id); else onClose(); }, [index, stories, onClose, goToStory]);
+  const previous = useCallback(() => { if (stories[index - 1]) goToStory(stories[index - 1].id); else { elapsed.current = 0; setProgress(0); if (video.current) video.current.currentTime = 0; } }, [index, stories, goToStory]);
   const latestNext = useRef(next);
   latestNext.current = next;
   const showProfile = (id: string) => { setProfileId(id); pause('profile'); };
@@ -172,11 +177,6 @@ function ActiveStoryViewer({ stories, initialIndex, onClose, onStoryViewed }: Om
           onReady={() => setMedia(current => current.key === mediaKey && current.status === 'error' ? current : { key: mediaKey, status: 'ready' })}
           onWaiting={() => setMedia(current => current.key === mediaKey && current.status === 'error' ? current : { key: mediaKey, status: 'loading' })}
           onError={() => setMedia({ key: mediaKey, status: 'error' })} onMentionClick={showProfile} />
-        <StoryProgressBar config={group.map((_, i) => ({ isCurrent: i === groupIndex, isComplete: i < groupIndex }))} progress={progress} className="story-viewer-progress" />
-        <StoryHeader key={storyId} story={story} isOwnStory={own} onClose={onClose} onShowProfile={() => showProfile(story.user.id || '')}
-          onPause={pause} onResume={resume} onDelete={() => requestConfirm('delete')} onHide={() => requestConfirm('hide')}
-          onReport={() => { setReport(true); pause('report'); }} paused={pauses.has('manual')} muted={muted}
-          onTogglePause={() => pauses.has('manual') ? resume('manual') : pause('manual')} onToggleMute={() => setMuted(value => !value)} />
         {status === 'loading' && <div className="story-viewer-error"><SerkleLoader dark label="Loading story" showText /></div>}
         {status === 'error' && <div className="story-viewer-error" data-story-controls><RefreshCw size={28} /><p className="font-semibold">This moment couldn’t load</p><p className="text-sm text-white/60 max-w-64">Check your connection, then try again or skip to the next story.</p><button className="story-primary" onClick={() => setAttempt(value => value + 1)}>Try again</button><button className="story-secondary" onClick={next}>Next story</button></div>}
         {!story.story_state && <StoryStickers stickerData={story.stickerData} onMentionClick={showProfile} />}
@@ -192,6 +192,11 @@ function ActiveStoryViewer({ stories, initialIndex, onClose, onStoryViewed }: Om
           onShare={() => { void shareStory(story.user.username || story.user.id, story.user.name); }}
           onPause={pause} onResume={resume} storyMentions={mentions} onMentionClick={showProfile} />
       </StoryInteractiveOverlay>
+      <StoryProgressBar config={group.map((_, i) => ({ isCurrent: i === groupIndex, isComplete: i < groupIndex }))} progress={progress} className="story-viewer-progress" />
+      <StoryHeader story={story} isOwnStory={own} onClose={onClose} onShowProfile={() => showProfile(story.user.id || '')}
+        onPause={pause} onResume={resume} onDelete={() => requestConfirm('delete')} onHide={() => requestConfirm('hide')}
+        onReport={() => { setReport(true); pause('report'); }} paused={pauses.has('manual')} muted={muted}
+        onTogglePause={() => pauses.has('manual') ? resume('manual') : pause('manual')} onToggleMute={() => setMuted(value => !value)} />
     </div>
     <div className="story-desktop-nav">
       <button aria-label="Previous story" onClick={previous}><ChevronLeft size={20} /></button><button aria-label="Next story" onClick={next}><ChevronRight size={20} /></button>

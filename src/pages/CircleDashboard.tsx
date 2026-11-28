@@ -12,6 +12,7 @@ import { useCircle } from '@/hooks/useCircles';
 import { useUser } from '@/contexts/UserContext';
 import { supabase } from '@/integrations/supabase/client';
 import { formatCircleNumber, getCircleCountLabel, type CircleCountUnit } from '@/lib/circleCountFormat';
+import { useMyCircleAdminPermissions } from '@/lib/circleAdmin';
 
 const WEEKS_SHOWN = 8;
 
@@ -59,32 +60,23 @@ const CircleDashboard: React.FC = () => {
   const { user } = useUser();
 
   const { data: circle, isLoading, isError } = useCircle(id!, user?.id);
-  const canManage = !isError && circleMembershipAction(circle?.membership_state).canManage;
+  const permissions = useMyCircleAdminPermissions(id, user?.id, !!circle?.is_admin && !circle.is_owned);
+  const canManage = !isError && (!!circle?.is_owned || (
+    circleMembershipAction(circle?.membership_state).canManage && permissions.data?.activity_permissions?.analytics === true
+  ));
 
-  const { data: subscriberCount = 0 } = useQuery({
-    queryKey: ['circle-subscriber-count', id],
+  const { data: totals } = useQuery({
+    queryKey: ['circle-dashboard-totals', id, user?.id],
     queryFn: async () => {
-      const { count } = await supabase
-        .from('circle_subscriptions')
-        .select('id', { count: 'exact', head: true })
-        .eq('circle_id', id!)
-        .eq('status', 'active');
-      return count ?? 0;
+      const { data, error } = await supabase.rpc('get_circle_dashboard_totals', { _circle_id: id! });
+      if (error) throw error;
+      return data as { subscriber_count: number; tips_total: number };
     },
     enabled: !!id && canManage,
   });
 
-  const { data: tipsTotal = 0 } = useQuery({
-    queryKey: ['circle-tips-total', id],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from('circle_tips')
-        .select('amount, posts!inner(circle_id)')
-        .eq('posts.circle_id', id!);
-      return (data ?? []).reduce((sum, tip: any) => sum + (tip.amount || 0), 0);
-    },
-    enabled: !!id && canManage,
-  });
+  const subscriberCount = totals?.subscriber_count ?? 0;
+  const tipsTotal = totals?.tips_total ?? 0;
 
   const { data: memberGrowth = [] } = useQuery({
     queryKey: ['circle-member-growth', id],
@@ -136,7 +128,7 @@ const CircleDashboard: React.FC = () => {
     enabled: !!id && canManage,
   });
 
-  if (isLoading) {
+  if (isLoading || (circle?.is_admin && !circle.is_owned && permissions.isLoading)) {
     return (
       <div className="min-h-[100dvh] w-full flex items-center justify-center py-8"><SerkleLoader label="Loading circles" showText /></div>
     );
@@ -147,7 +139,7 @@ const CircleDashboard: React.FC = () => {
       <div className="min-h-[100dvh] w-full max-w-[480px] mx-auto bg-background text-foreground flex items-center justify-center">
         <div className="text-center space-y-3">
           <h2 className="text-xl font-bold">Dashboard unavailable</h2>
-          <p className="text-sm text-muted-foreground">Only circle admins can view analytics.</p>
+          <p className="text-sm text-muted-foreground">Circle analytics permission is required.</p>
           <Button onClick={() => navigate(id ? `/circle/${id}` : '/')}>Back to Circle</Button>
         </div>
       </div>

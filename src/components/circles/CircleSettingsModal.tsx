@@ -61,7 +61,7 @@ const CircleSettingsModal: React.FC<CircleSettingsModalProps> = ({ open, onOpenC
       setSubscriptionPrice(circle.subscription_price ?? 10);
       setSubscriptionMethod(circle.subscription_method ?? 'after_join');
       setIsPrivate(circle.is_private ?? false);
-      fetchSubscribers();
+      if (circle.is_owned) fetchSubscribers();
     }
   }, [open, circle]);
 
@@ -104,7 +104,8 @@ const CircleSettingsModal: React.FC<CircleSettingsModalProps> = ({ open, onOpenC
           is_private: isPrivate,
         })
         .eq('id', circle.id)
-        .eq('creator_id', circle.creator_id);
+        .select('id')
+        .single();
 
       if (error) throw error;
 
@@ -119,6 +120,7 @@ const CircleSettingsModal: React.FC<CircleSettingsModalProps> = ({ open, onOpenC
   };
 
   const handleDeleteCircle = async () => {
+    if (!circle.is_owned) return;
     try {
       const { error } = await supabase
         .from('circles')
@@ -269,6 +271,7 @@ const CircleSettingsModal: React.FC<CircleSettingsModalProps> = ({ open, onOpenC
             </div>
           </div>
 
+          {circle.is_owned && <>
           <Separator />
 
           {/* Subscribers */}
@@ -334,6 +337,7 @@ const CircleSettingsModal: React.FC<CircleSettingsModalProps> = ({ open, onOpenC
               </div>
             )}
           </div>
+          </>}
 
           {/* Save Button */}
           <div className="flex gap-2 pt-2">

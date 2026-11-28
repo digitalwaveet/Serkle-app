@@ -1,267 +1,172 @@
-import { SerkleLoader } from '@/components/ui/SerkleLoader';
-import { useState, useEffect } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ArrowLeft, ArrowUpRight, MessageSquare, Search, Trash2 } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Skeleton } from '@/components/ui/skeleton';
+import { useUser } from '@/contexts/UserContext';
 import { supabase } from '@/integrations/supabase/client';
-import { useAdminAudit } from '@/hooks/useAdminAudit';
-import { toast } from '@/hooks/use-toast';
-import {
-  HelpCircle, MessageSquare, Search, Trash2, Eye, ShieldCheck,
-  RefreshCw, Award, Clock, ThumbsUp, Star, CheckCircle, XCircle,
-} from 'lucide-react';
+import { ASK_CATEGORIES, askCategory, formatAskCount } from '@/lib/askPresentation';
 
-interface QuestionRow {
-  id: string;
-  title: string;
-  body: string;
-  category: string | null;
-  is_anonymous: boolean | null;
-  user_id: string | null;
-  created_at: string | null;
-  upvotes_count: number | null;
-  answers_count: number | null;
-}
-
-interface AnswerRow {
-  id: string;
-  question_id: string;
-  answer: string;
-  user_id: string | null;
-  is_helpful: boolean | null;
-  created_at: string | null;
-}
-
-interface ExpertRow {
-  id: string;
-  user_id: string;
-  specialty: string;
-  is_verified: boolean | null;
-  verified: boolean | null;
-  years_experience: number | null;
-  bio: string | null;
-  created_at: string | null;
-}
+const PAGE_SIZE = 20;
+type Removal = { kind: 'question' | 'answer'; id: string; text: string };
 
 export default function AdminAskModeration() {
-  const { logAction } = useAdminAudit();
-  const [tab, setTab] = useState('questions');
-  const [questions, setQuestions] = useState<QuestionRow[]>([]);
-  const [answers, setAnswers] = useState<AnswerRow[]>([]);
-  const [experts, setExperts] = useState<ExpertRow[]>([]);
+  const { session } = useUser();
+  const userId = session?.user.id;
+  const queryClient = useQueryClient();
+  const queryKey = ['admin', 'ask', userId] as const;
+  const [draft, setDraft] = useState('');
   const [search, setSearch] = useState('');
-  const [filterCategory, setFilterCategory] = useState('all');
-  const [selectedQuestion, setSelectedQuestion] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [category, setCategory] = useState('all');
+  const [page, setPage] = useState(0);
+  const [thread, setThread] = useState<{ id: string; title: string } | null>(null);
+  const [answerPage, setAnswerPage] = useState(0);
+  const [removal, setRemoval] = useState<Removal | null>(null);
 
-  const fetchQuestions = async () => {
-    setLoading(true);
-    let q = supabase.from('questions').select('*').order('created_at', { ascending: false }).limit(100);
-    if (search.trim()) q = q.ilike('title', `%${search.trim()}%`);
-    if (filterCategory !== 'all') q = q.eq('category', filterCategory);
-    const { data } = await q;
-    if (data) setQuestions(data as any);
-    setLoading(false);
-  };
+  const questions = useQuery({
+    queryKey: [...queryKey, 'questions', search, category, page], enabled: Boolean(userId) && !thread,
+    gcTime: 0, networkMode: 'always', retry: false,
+    queryFn: async ({ signal }) => {
+      let query = supabase.from('questions').select('id,question,category,is_anonymous,created_at,answers(count)', { count: 'exact' })
+        .order('created_at', { ascending: false }).order('id');
+      if (search) query = query.ilike('question', `%${search}%`);
+      if (category !== 'all') query = query.eq('category', category);
+      const { data, error, count } = await query.range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1).abortSignal(signal);
+      if (error) throw error;
+      if (count === null) throw new Error('Missing question count');
+      return { items: data, count };
+    },
+  });
 
-  const fetchAnswers = async (questionId: string) => {
-    setSelectedQuestion(questionId);
-    const { data } = await supabase.from('answers').select('*').eq('question_id', questionId).order('created_at', { ascending: false });
-    if (data) setAnswers(data);
-    setTab('answers');
-  };
+  const answers = useQuery({
+    queryKey: [...queryKey, 'answers', thread?.id, answerPage], enabled: Boolean(userId && thread),
+    gcTime: 0, networkMode: 'always', retry: false,
+    queryFn: async ({ signal }) => {
+      const { data, error, count } = await supabase.from('answers').select('id,answer,is_helpful,created_at', { count: 'exact' })
+        .eq('question_id', thread!.id).order('created_at').order('id')
+        .range(answerPage * PAGE_SIZE, (answerPage + 1) * PAGE_SIZE - 1).abortSignal(signal);
+      if (error) throw error;
+      if (count === null) throw new Error('Missing answer count');
+      return { items: data, count };
+    },
+  });
 
-  const fetchExperts = async () => {
-    const { data } = await supabase.from('expert_profiles').select('*').order('created_at', { ascending: false }).limit(100);
-    if (data) setExperts(data);
-  };
+  const remove = useMutation({
+    mutationFn: async ({ kind, id }: Removal) => {
+      const { error } = await supabase.rpc('delete_admin_ask_content', { _kind: kind, _content_id: id });
+      if (error) throw error;
+      return kind;
+    },
+    onSuccess: async (kind) => {
+      setRemoval(null);
+      if (kind === 'question') setPage(0);
+      else setAnswerPage(0);
+      toast.success(kind === 'question' ? 'Question deleted' : 'Answer deleted');
+      await queryClient.invalidateQueries({ queryKey });
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'snapshot', userId] });
+    },
+    onError: (error) => {
+      if ('code' in error && error.code === 'P0002') {
+        setRemoval(null);
+        setPage(0);
+        setAnswerPage(0);
+        toast.error('This content is already unavailable.');
+        void queryClient.invalidateQueries({ queryKey });
+      } else toast.error('Could not delete this content.');
+    },
+  });
 
-  const deleteQuestion = async (q: QuestionRow) => {
-    await supabase.from('questions').delete().eq('id', q.id);
-    await logAction('question_deleted', 'question', q.id, { title: q.title });
-    toast({ title: 'Question deleted' });
-    fetchQuestions();
-  };
-
-  const deleteAnswer = async (a: AnswerRow) => {
-    await supabase.from('answers').delete().eq('id', a.id);
-    await logAction('answer_deleted', 'answer', a.id);
-    toast({ title: 'Answer deleted' });
-    if (selectedQuestion) fetchAnswers(selectedQuestion);
-  };
-
-  const toggleExpertVerification = async (expert: ExpertRow) => {
-    const newVal = !expert.is_verified;
-    await supabase.from('expert_profiles').update({ is_verified: newVal }).eq('id', expert.id);
-    await logAction(newVal ? 'expert_verified' : 'expert_unverified', 'expert', expert.id, { specialty: expert.specialty });
-    toast({ title: newVal ? 'Expert verified' : 'Verification removed' });
-    fetchExperts();
-  };
-
-  useEffect(() => { fetchQuestions(); fetchExperts(); }, []);
-
-  const categories = [...new Set(questions.map(q => q.category).filter(Boolean))];
-
-  const totalAnswers = questions.reduce((sum, q) => sum + (q.answers_count || 0), 0);
-  const verifiedExperts = experts.filter(e => e.is_verified).length;
+  const current = thread ? answers : questions;
+  const currentPage = thread ? answerPage : page;
+  const setCurrentPage = thread ? setAnswerPage : setPage;
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-foreground">Ask/Q&A Moderation</h1>
-        <Button variant="outline" size="sm" onClick={() => { fetchQuestions(); fetchExperts(); }} disabled={loading}>
-          {loading ? <SerkleLoader size="xs" className="mr-1 text-current" label="Refreshing" /> : <RefreshCw className="h-4 w-4 mr-1" />}Refresh
-        </Button>
-      </div>
-
-      {/* Summary */}
-      <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
-        <Card><CardContent className="p-4 text-center">
-          <p className="text-2xl font-bold text-foreground">{questions.length}</p>
-          <p className="text-xs text-muted-foreground">Questions</p>
-        </CardContent></Card>
-        <Card><CardContent className="p-4 text-center">
-          <p className="text-2xl font-bold text-foreground">{totalAnswers}</p>
-          <p className="text-xs text-muted-foreground">Total Answers</p>
-        </CardContent></Card>
-        <Card><CardContent className="p-4 text-center">
-          <p className="text-2xl font-bold text-foreground">{experts.length}</p>
-          <p className="text-xs text-muted-foreground">Expert Profiles</p>
-        </CardContent></Card>
-        <Card><CardContent className="p-4 text-center">
-          <p className="text-2xl font-bold text-foreground">{verifiedExperts}</p>
-          <p className="text-xs text-muted-foreground">Verified Experts</p>
-        </CardContent></Card>
-      </div>
-
-      <Tabs value={tab} onValueChange={setTab}>
-        <TabsList>
-          <TabsTrigger value="questions"><HelpCircle className="h-4 w-4 mr-1" />Questions</TabsTrigger>
-          <TabsTrigger value="answers" disabled={!selectedQuestion}><MessageSquare className="h-4 w-4 mr-1" />Answers</TabsTrigger>
-          <TabsTrigger value="experts"><Award className="h-4 w-4 mr-1" />Experts</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="questions" className="space-y-4 mt-4">
-          <div className="flex gap-3 flex-wrap">
-            <div className="relative flex-1 min-w-[200px]">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input placeholder="Search questions..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9"
-                onKeyDown={e => e.key === 'Enter' && fetchQuestions()} />
-            </div>
-            <Select value={filterCategory} onValueChange={setFilterCategory}>
-              <SelectTrigger className="w-40"><SelectValue placeholder="Category" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Categories</SelectItem>
-                {categories.map(c => <SelectItem key={c!} value={c!}>{c}</SelectItem>)}
-              </SelectContent>
+    <div className="mx-auto max-w-6xl space-y-5">
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div><h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Ask moderation</h1><p className="mt-1.5 text-sm text-muted-foreground">Review questions and answers without revealing their authors.</p></div>
+        <Button asChild variant="outline" className="h-11"><Link to="/admin/expert-verification">Expert verification <ArrowUpRight size={15} className="ml-1.5" /></Link></Button>
+      </header>
+      <section aria-label={thread ? 'Question answers' : 'Questions'} className="rounded-2xl border bg-card">
+        {thread ? (
+          <div className="border-b p-4">
+            <Button variant="ghost" className="mb-2 h-10 px-2" onClick={() => setThread(null)}><ArrowLeft size={16} className="mr-2" />Back to questions</Button>
+            <h2 className="break-words font-semibold">{thread.title}</h2>
+          </div>
+        ) : (
+          <div className="flex flex-wrap gap-2 border-b p-4">
+            <form className="flex min-w-0 flex-1 basis-56 gap-2" role="search" aria-label="Find an Ask question" onSubmit={(event) => { event.preventDefault(); setPage(0); setSearch(draft.trim()); }}>
+              <Input className="h-11 min-w-0" value={draft} onChange={(event) => setDraft(event.target.value)} aria-label="Search question text" placeholder="Search questions" maxLength={100} />
+              <Button type="submit" variant="outline" size="icon" className="h-11 w-11 shrink-0" aria-label="Search questions"><Search size={17} /></Button>
+            </form>
+            <Select value={category} onValueChange={(value) => { setCategory(value); setPage(0); }}>
+              <SelectTrigger className="h-11 w-44" aria-label="Question category"><SelectValue /></SelectTrigger>
+              <SelectContent><SelectItem value="all">All categories</SelectItem>{ASK_CATEGORIES.map(({ value, label }) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent>
             </Select>
-            <Button variant="outline" onClick={fetchQuestions}><Search className="h-4 w-4" /></Button>
           </div>
-
-          <div className="space-y-3">
-            {questions.map(q => (
-              <Card key={q.id}>
-                <CardContent className="p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 mb-1 flex-wrap">
-                        <span className="font-semibold text-foreground line-clamp-1">{q.title}</span>
-                        {q.category && <Badge variant="outline" className="text-xs">{q.category}</Badge>}
-                        {q.is_anonymous && <Badge variant="secondary" className="text-xs">Anonymous</Badge>}
-                      </div>
-                      <p className="text-sm text-muted-foreground line-clamp-2">{q.body}</p>
-                      <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
-                        <span className="flex items-center gap-1"><ThumbsUp className="h-3 w-3" />{q.upvotes_count ?? 0} votes</span>
-                        <span className="flex items-center gap-1"><MessageSquare className="h-3 w-3" />{q.answers_count ?? 0} answers</span>
-                        <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{q.created_at ? new Date(q.created_at).toLocaleDateString() : '—'}</span>
-                      </div>
-                    </div>
-                    <div className="flex gap-2 shrink-0">
-                      <Button variant="outline" size="sm" onClick={() => fetchAnswers(q.id)}>
-                        <Eye className="h-4 w-4 mr-1" />Answers
-                      </Button>
-                      <Button variant="destructive" size="sm" onClick={() => deleteQuestion(q)}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
+        )}
+        {current.isPending && <Skeleton className="m-4 h-28" role="status" aria-label="Loading Ask content" />}
+        {current.isError && (
+          <div role="alert" className="space-y-2 p-4 text-sm">
+            <p>Could not load {thread ? 'answers' : 'questions'}.</p>
+            <Button size="sm" variant="outline" disabled={current.isFetching} onClick={() => void current.refetch()}>Retry</Button>
+            {currentPage > 0 && <Button size="sm" variant="ghost" onClick={() => setCurrentPage(0)}>First page</Button>}
+          </div>
+        )}
+        {current.isSuccess && !current.data.items.length && <p className="p-9 text-center text-sm text-muted-foreground">{thread ? 'No answers yet.' : 'No questions match these filters.'}</p>}
+        {!thread && questions.isSuccess && (
+          <ul className="divide-y">
+            {questions.data.items.map((question) => (
+              <li key={question.id} className="flex flex-wrap gap-3 p-4 sm:p-5">
+                <div className="min-w-0 flex-1 basis-48">
+                  <h3 className="whitespace-pre-wrap break-words font-semibold">{question.question}</h3>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                    {question.category && <Badge variant="outline">{askCategory(question.category)}</Badge>}
+                    {question.is_anonymous && <Badge variant="outline">Anonymous</Badge>}
                   </div>
-                </CardContent>
-              </Card>
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="outline" className="h-10" onClick={() => { setThread({ id: question.id, title: question.question }); setAnswerPage(0); }}><MessageSquare size={16} className="mr-1.5" />{typeof question.answers?.[0]?.count === 'number' ? formatAskCount(question.answers[0].count, 'answer') : 'Answers'}</Button>
+                  <Button variant="ghost" className="h-10 w-10 text-destructive" size="icon" aria-label="Delete question" onClick={() => setRemoval({ kind: 'question', id: question.id, text: question.question })}><Trash2 size={16} /></Button>
+                </div>
+              </li>
             ))}
-            {questions.length === 0 && !loading && (
-              <p className="text-center text-muted-foreground py-8">No questions found</p>
-            )}
-          </div>
-        </TabsContent>
-
-        <TabsContent value="answers" className="space-y-4 mt-4">
-          {selectedQuestion && (
-            <>
-              <div className="flex items-center gap-2">
-                <Button variant="ghost" size="sm" onClick={() => setTab('questions')}>← Back</Button>
-                <span className="text-sm text-muted-foreground">
-                  {questions.find(q => q.id === selectedQuestion)?.title} · {answers.length} answers
-                </span>
-              </div>
-              <div className="space-y-3">
-                {answers.map(a => (
-                  <Card key={a.id}>
-                    <CardContent className="p-4 flex items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm text-foreground">{a.answer}</p>
-                        <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
-                          {a.is_helpful && <Badge className="bg-green-500/10 text-green-600 border-green-500/20 text-xs"><Star className="h-3 w-3 mr-0.5" />Helpful</Badge>}
-                          <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{a.created_at ? new Date(a.created_at).toLocaleDateString() : '—'}</span>
-                          {a.user_id && <span>by {a.user_id.slice(0, 8)}…</span>}
-                        </div>
-                      </div>
-                      <Button variant="destructive" size="sm" onClick={() => deleteAnswer(a)}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </CardContent>
-                  </Card>
-                ))}
-                {answers.length === 0 && <p className="text-center text-muted-foreground py-6">No answers yet</p>}
-              </div>
-            </>
-          )}
-        </TabsContent>
-
-        <TabsContent value="experts" className="space-y-4 mt-4">
-          <div className="space-y-3">
-            {experts.map(e => (
-              <Card key={e.id}>
-                <CardContent className="p-4 flex items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 mb-1 flex-wrap">
-                      <span className="font-medium text-foreground">{e.specialty}</span>
-                      {e.is_verified
-                        ? <Badge className="bg-green-500/10 text-green-600 border-green-500/20 text-xs"><CheckCircle className="h-3 w-3 mr-0.5" />Verified</Badge>
-                        : <Badge variant="outline" className="text-xs"><XCircle className="h-3 w-3 mr-0.5" />Unverified</Badge>
-                      }
-                      {e.years_experience && <Badge variant="secondary" className="text-xs">{e.years_experience}yr exp</Badge>}
-                    </div>
-                    {e.bio && <p className="text-sm text-muted-foreground line-clamp-2">{e.bio}</p>}
-                    <p className="text-xs text-muted-foreground mt-1">User: {e.user_id.slice(0, 8)}… · {e.created_at ? new Date(e.created_at).toLocaleDateString() : ''}</p>
-                  </div>
-                  <Button
-                    variant={e.is_verified ? "destructive" : "default"}
-                    size="sm"
-                    onClick={() => toggleExpertVerification(e)}
-                  >
-                    <ShieldCheck className="h-4 w-4 mr-1" />
-                    {e.is_verified ? 'Revoke' : 'Verify'}
-                  </Button>
-                </CardContent>
-              </Card>
+          </ul>
+        )}
+        {thread && answers.isSuccess && (
+          <ul className="divide-y">
+            {answers.data.items.map((answer) => (
+              <li key={answer.id} className="flex items-start gap-3 p-4 sm:p-5">
+                <div className="min-w-0 flex-1"><p className="whitespace-pre-wrap break-words text-sm">{answer.answer}</p>{answer.is_helpful && <Badge variant="secondary" className="mt-2">Helpful</Badge>}</div>
+                <Button variant="ghost" className="h-10 w-10 shrink-0 text-destructive" size="icon" aria-label="Delete answer" onClick={() => setRemoval({ kind: 'answer', id: answer.id, text: answer.answer })}><Trash2 size={16} /></Button>
+              </li>
             ))}
-            {experts.length === 0 && <p className="text-center text-muted-foreground py-8">No expert profiles</p>}
-          </div>
-        </TabsContent>
-      </Tabs>
+          </ul>
+        )}
+        {current.isSuccess && (currentPage > 0 || current.data.count > PAGE_SIZE) && (
+          <nav aria-label="Ask results pages" className="flex items-center justify-between gap-2 border-t p-3">
+            <Button variant="outline" size="sm" disabled={currentPage === 0} onClick={() => setCurrentPage(currentPage - 1)}>Previous</Button>
+            <span className="text-sm text-muted-foreground">Page {currentPage + 1}</span>
+            <Button variant="outline" size="sm" disabled={(currentPage + 1) * PAGE_SIZE >= current.data.count} onClick={() => setCurrentPage(currentPage + 1)}>Next</Button>
+          </nav>
+        )}
+      </section>
+
+      <Dialog open={removal !== null} onOpenChange={(open) => { if (!open && !remove.isPending) setRemoval(null); }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Delete {removal?.kind}?</DialogTitle><DialogDescription>{removal?.kind === 'question' ? 'The question and its related replies will be removed.' : 'The answer will be permanently removed.'}</DialogDescription></DialogHeader>
+          <p className="line-clamp-4 break-words rounded-lg bg-muted/60 p-3 text-sm">{removal?.text}</p>
+          <DialogFooter>
+            <Button variant="outline" disabled={remove.isPending} onClick={() => setRemoval(null)}>Cancel</Button>
+            <Button variant="destructive" disabled={remove.isPending || !removal} onClick={() => { if (removal) remove.mutate(removal); }}>{remove.isPending ? 'Deleting…' : 'Delete permanently'}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

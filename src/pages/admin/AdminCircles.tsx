@@ -1,245 +1,177 @@
-import { SerkleLoader } from '@/components/ui/SerkleLoader';
-import { useState, useEffect } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
-import { refreshCircleMembership } from '@/lib/circleMembershipClient';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ArrowLeft, CircleDot, Search, Users } from 'lucide-react';
+import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Skeleton } from '@/components/ui/skeleton';
+import { useUser } from '@/contexts/UserContext';
 import { supabase } from '@/integrations/supabase/client';
-import { useAdminAudit } from '@/hooks/useAdminAudit';
 import { formatCircleCount } from '@/lib/circleCountFormat';
-import { toast } from '@/hooks/use-toast';
-import {
-  Users, Search, Eye, Ban, Shield, Crown, Globe, Lock,
-  Calendar, FileText, TrendingUp, RefreshCw,
-} from 'lucide-react';
+import { refreshCircleMembership } from '@/lib/circleMembershipClient';
+import { CIRCLE_CATEGORIES, displayCategory } from '@/lib/circleTypes';
 
-interface CircleRow {
-  id: string;
-  name: string;
-  description: string;
-  category: string;
-  creator_id: string;
-  is_private: boolean | null;
-  is_premium: boolean | null;
-  is_active: boolean | null;
-  subscription_enabled: boolean;
-  subscription_price: number;
-  created_at: string | null;
-}
-
-interface CircleStat {
-  circle_id: string;
-  members_count: number | null;
-  posts_count: number | null;
-  events_count: number | null;
-  resources_count: number | null;
-}
-
-interface MemberRow {
-  id: string;
-  user_id: string;
-  circle_id: string;
-  role: string;
-  status: string;
-  joined_at: string | null;
-}
+const PAGE_SIZE = 25;
+type Decision =
+  | { kind: 'activity'; circle: { id: string; name: string }; active: boolean }
+  | { kind: 'remove'; circle: { id: string; name: string }; memberId: string; memberName: string };
 
 export default function AdminCircles() {
+  const { session } = useUser();
+  const userId = session?.user.id;
   const queryClient = useQueryClient();
-  const { logAction } = useAdminAudit();
-  const [tab, setTab] = useState('circles');
-  const [circles, setCircles] = useState<CircleRow[]>([]);
-  const [stats, setStats] = useState<Record<string, CircleStat>>({});
-  const [members, setMembers] = useState<MemberRow[]>([]);
+  const queryKey = ['admin', 'circles', userId] as const;
+  const [input, setInput] = useState('');
   const [search, setSearch] = useState('');
-  const [filterCategory, setFilterCategory] = useState('all');
-  const [selectedCircle, setSelectedCircle] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [category, setCategory] = useState('all');
+  const [circle, setCircle] = useState<{ id: string; name: string } | null>(null);
+  const [circlePage, setCirclePage] = useState(0);
+  const [memberPage, setMemberPage] = useState(0);
+  const [decision, setDecision] = useState<Decision | null>(null);
 
-  const fetchCircles = async () => {
-    setLoading(true);
-    let q = supabase.from('circles').select('*').order('created_at', { ascending: false }).limit(100);
-    if (search.trim()) q = q.ilike('name', `%${search.trim()}%`);
-    if (filterCategory !== 'all') q = q.eq('category', filterCategory);
+  const circles = useQuery({
+    queryKey: [...queryKey, 'directory', search, category, circlePage], enabled: Boolean(userId) && !circle,
+    gcTime: 0, networkMode: 'always', retry: false,
+    queryFn: async ({ signal }) => {
+      const { data, error } = await supabase.rpc('list_admin_circles', {
+        _search: search || undefined, _category: category === 'all' ? undefined : category, _offset: circlePage * PAGE_SIZE,
+      }).abortSignal(signal);
+      if (error) throw error;
+      return data;
+    },
+  });
 
-    const { data } = await q;
-    if (data) {
-      setCircles(data);
-      const ids = data.map(c => c.id);
-      if (ids.length > 0) {
-        const { data: statsData } = await supabase.from('circle_stats').select('*').in('circle_id', ids);
-        if (statsData) {
-          const map: Record<string, CircleStat> = {};
-          statsData.forEach(s => { map[s.circle_id] = s; });
-          setStats(map);
-        }
-      }
-    }
-    setLoading(false);
-  };
+  const members = useQuery({
+    queryKey: [...queryKey, 'members', circle?.id, memberPage], enabled: Boolean(userId && circle),
+    gcTime: 0, networkMode: 'always', retry: false,
+    queryFn: async ({ signal }) => {
+      const { data, error } = await supabase.rpc('list_admin_circle_members', {
+        _circle_id: circle!.id, _offset: memberPage * PAGE_SIZE,
+      }).abortSignal(signal);
+      if (error) throw error;
+      return data;
+    },
+  });
 
-  const fetchMembers = async (circleId: string) => {
-    setSelectedCircle(circleId);
-    const { data } = await supabase.from('circle_members').select('*').eq('circle_id', circleId).order('joined_at', { ascending: false }).limit(100);
-    if (data) setMembers(data);
-    setTab('members');
-  };
+  const change = useMutation({
+    mutationFn: async (request: Decision) => {
+      const { error } = request.kind === 'activity'
+        ? await supabase.rpc('set_admin_circle_activity', { _circle_id: request.circle.id, _active: request.active })
+        : await supabase.rpc('remove_circle_member', { _circle_id: request.circle.id, _user_id: request.memberId });
+      if (error) throw error;
+      return request;
+    },
+    onSuccess: async (request) => {
+      setDecision(null);
+      toast.success(request.kind === 'activity' ? request.active ? 'Circle activated' : 'Circle deactivated' : 'Member removed');
+      await queryClient.invalidateQueries({ queryKey });
+      await refreshCircleMembership(queryClient);
+    },
+    onError: (error) => {
+      if ('code' in error && error.code === '55000') {
+        setDecision(null);
+        toast.error('This record has already changed.');
+        void queryClient.invalidateQueries({ queryKey });
+      } else toast.error('Could not save this Circle change.');
+    },
+  });
 
-  const toggleCircleActive = async (circle: CircleRow) => {
-    const newActive = !circle.is_active;
-    await supabase.from('circles').update({ is_active: newActive }).eq('id', circle.id);
-    await logAction(newActive ? 'circle_reactivated' : 'circle_deactivated', 'circle', circle.id, { name: circle.name });
-    toast({ title: newActive ? 'Circle reactivated' : 'Circle deactivated' });
-    fetchCircles();
-  };
-
-  const removeMember = async (member: MemberRow) => {
-    const { error } = await supabase.rpc('remove_circle_member' as any, { _circle_id: member.circle_id, _user_id: member.user_id });
-    if (error) { toast({ title: 'Could not remove member', description: error.message, variant: 'destructive' }); return; }
-    await refreshCircleMembership(queryClient);
-    await logAction('member_removed', 'circle_member', member.id, { circle_id: member.circle_id, user_id: member.user_id });
-    toast({ title: 'Member removed' });
-    if (selectedCircle) fetchMembers(selectedCircle);
-  };
-
-  useEffect(() => { fetchCircles(); }, []);
-
-  const categories = [...new Set(circles.map(c => c.category))];
+  const current = circle ? members : circles;
+  const page = circle ? memberPage : circlePage;
+  const setPage = circle ? setMemberPage : setCirclePage;
+  const action = decision?.kind === 'activity' ? decision.active ? 'Activate Circle' : 'Deactivate Circle' : 'Remove member';
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-foreground">Circle Moderation</h1>
-        <Button variant="outline" size="sm" onClick={fetchCircles} disabled={loading}>
-          {loading ? <SerkleLoader size="xs" className="mr-1 text-current" label="Refreshing" /> : <RefreshCw className="h-4 w-4 mr-1" />}Refresh
-        </Button>
-      </div>
-
-      <Tabs value={tab} onValueChange={setTab}>
-        <TabsList>
-          <TabsTrigger value="circles"><Globe className="h-4 w-4 mr-1" />All Circles</TabsTrigger>
-          <TabsTrigger value="members" disabled={!selectedCircle}><Users className="h-4 w-4 mr-1" />Members</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="circles" className="space-y-4 mt-4">
-          <div className="flex gap-3 flex-wrap">
-            <div className="relative flex-1 min-w-[200px]">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input placeholder="Search circles..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9"
-                onKeyDown={e => e.key === 'Enter' && fetchCircles()} />
-            </div>
-            <Select value={filterCategory} onValueChange={v => { setFilterCategory(v); }}>
-              <SelectTrigger className="w-40"><SelectValue placeholder="Category" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Categories</SelectItem>
-                {categories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-              </SelectContent>
+    <div className="mx-auto max-w-6xl space-y-5">
+      <header><h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Circle moderation</h1><p className="mt-1.5 text-sm text-muted-foreground">Find communities and review membership records.</p></header>
+      <section className="rounded-2xl border bg-card" aria-label={circle ? 'Circle members' : 'Circle directory'}>
+        {circle ? (
+          <div className="border-b p-4">
+            <Button variant="ghost" className="mb-2 h-10 px-2" onClick={() => setCircle(null)}><ArrowLeft size={16} className="mr-2" />Back to Circles</Button>
+            <h2 className="break-words font-semibold">{circle.name}</h2>
+          </div>
+        ) : (
+          <div className="flex flex-wrap gap-2 border-b p-4">
+            <form className="flex min-w-0 flex-1 basis-56 gap-2" role="search" aria-label="Find a Circle" onSubmit={(event) => { event.preventDefault(); setSearch(input.trim()); setCirclePage(0); }}>
+              <Input className="h-11 min-w-0" aria-label="Circle name" placeholder="Search Circle names" value={input} maxLength={100} onChange={(event) => setInput(event.target.value)} />
+              <Button type="submit" variant="outline" size="icon" className="h-11 w-11 shrink-0" aria-label="Search Circles"><Search size={17} /></Button>
+            </form>
+            <Select value={category} onValueChange={(value) => { setCategory(value); setCirclePage(0); }}>
+              <SelectTrigger className="h-11 w-44" aria-label="Circle category"><SelectValue /></SelectTrigger>
+              <SelectContent><SelectItem value="all">All categories</SelectItem>{CIRCLE_CATEGORIES.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent>
             </Select>
-            <Button variant="outline" onClick={fetchCircles}><Search className="h-4 w-4" /></Button>
           </div>
+        )}
+        {current.isPending && <Skeleton className="m-4 h-28" role="status" aria-label="Loading Circle records" />}
+        {current.isError && <div role="alert" className="space-y-2 p-4 text-sm"><p>Could not load {circle ? 'membership records' : 'Circles'}.</p><Button variant="outline" size="sm" onClick={() => void current.refetch()} disabled={current.isFetching}>Retry</Button></div>}
+        {current.isSuccess && current.data.length === 0 && <p className="p-9 text-center text-sm text-muted-foreground">{circle ? 'No membership records on this page.' : 'No Circles match these filters.'}</p>}
 
-          {/* Summary cards */}
-          <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
-            <Card><CardContent className="p-4 text-center">
-              <p className="text-2xl font-bold text-foreground">{circles.length}</p>
-              <p className="text-xs text-muted-foreground">Total Circles</p>
-            </CardContent></Card>
-            <Card><CardContent className="p-4 text-center">
-              <p className="text-2xl font-bold text-foreground">{circles.filter(c => c.is_active).length}</p>
-              <p className="text-xs text-muted-foreground">Active</p>
-            </CardContent></Card>
-            <Card><CardContent className="p-4 text-center">
-              <p className="text-2xl font-bold text-foreground">{circles.filter(c => c.is_premium).length}</p>
-              <p className="text-xs text-muted-foreground">Premium</p>
-            </CardContent></Card>
-            <Card><CardContent className="p-4 text-center">
-              <p className="text-2xl font-bold text-foreground">{circles.filter(c => c.is_private).length}</p>
-              <p className="text-xs text-muted-foreground">Private</p>
-            </CardContent></Card>
-          </div>
+        {!circle && circles.isSuccess && (
+          <ul className="divide-y">
+            {circles.data.slice(0, PAGE_SIZE).map((row) => (
+              <li key={row.id} className="flex flex-wrap items-start gap-3 p-4 sm:p-5">
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary" aria-hidden="true"><CircleDot size={17} /></span>
+                <div className="min-w-0 flex-1 basis-48">
+                  <h3 className="break-words font-semibold">{row.name}</h3>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                    {row.category && <Badge variant="outline">{displayCategory(row.category)}</Badge>}
+                    {row.is_private && <Badge variant="outline">Private</Badge>}
+                    {row.is_premium && <Badge variant="outline">Premium</Badge>}
+                    {!row.is_active && <Badge variant="secondary">Inactive</Badge>}
+                  </div>
+                  {row.description && <p className="mt-2 line-clamp-2 break-words text-sm text-muted-foreground">{row.description}</p>}
+                  <p className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                    {row.members_count !== null && <span>{formatCircleCount(row.members_count, 'member')}</span>}
+                    {row.posts_count !== null && <span>{formatCircleCount(row.posts_count, 'post')}</span>}
+                    {row.events_count !== null && <span>{formatCircleCount(row.events_count, 'event')}</span>}
+                    {row.subscription_enabled && row.subscription_price !== null && <span>{row.subscription_price.toLocaleString()} coins/month</span>}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="outline" className="h-10" onClick={() => { setCircle({ id: row.id, name: row.name }); setMemberPage(0); }}><Users size={16} className="mr-1.5" />Members</Button>
+                  <Button variant="ghost" className={`h-10 ${row.is_active ? 'text-destructive' : ''}`} onClick={() => setDecision({ kind: 'activity', active: !row.is_active, circle: row })}>{row.is_active ? 'Deactivate' : 'Activate'}</Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+        {circle && members.isSuccess && (
+          <ul className="divide-y">
+            {members.data.slice(0, PAGE_SIZE).map((member) => (
+              <li key={member.id} className="flex flex-wrap items-center gap-3 p-4 sm:p-5">
+                <div className="min-w-0 flex-1 basis-40">
+                  <p className="break-words text-sm font-semibold">{member.name || member.username || 'Member'}</p>
+                  {member.username && <p className="break-all text-xs text-muted-foreground">@{member.username}</p>}
+                  <div className="mt-1.5 flex flex-wrap gap-1.5"><Badge variant="outline" className="capitalize">{member.is_owner ? 'Owner' : member.role}</Badge><Badge variant="secondary" className="capitalize">{member.status}</Badge></div>
+                </div>
+                {member.status === 'active' && !member.is_owner && <Button variant="ghost" className="h-10 text-destructive" onClick={() => setDecision({ kind: 'remove', circle, memberId: member.user_id, memberName: member.name || member.username || 'this member' })}>Remove</Button>}
+              </li>
+            ))}
+          </ul>
+        )}
+        {current.isSuccess && (page > 0 || current.data.length > PAGE_SIZE) && (
+          <nav aria-label="Circle results pages" className="flex items-center justify-between gap-2 border-t p-3">
+            <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(page - 1)}>Previous</Button>
+            <span className="text-sm text-muted-foreground">Page {page + 1}</span>
+            <Button variant="outline" size="sm" disabled={current.data.length <= PAGE_SIZE} onClick={() => setPage(page + 1)}>Next</Button>
+          </nav>
+        )}
+      </section>
 
-          {/* Circle list */}
-          <div className="space-y-3">
-            {circles.map(circle => {
-              const s = stats[circle.id];
-              return (
-                <Card key={circle.id}>
-                  <CardContent className="p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 mb-1 flex-wrap">
-                          <span className="font-semibold text-foreground">{circle.name}</span>
-                          <Badge variant="outline" className="text-xs">{circle.category}</Badge>
-                          {circle.is_private && <Badge variant="secondary" className="text-xs"><Lock className="h-3 w-3 mr-0.5" />Private</Badge>}
-                          {circle.is_premium && <Badge className="text-xs bg-primary/10 text-primary border-primary/20"><Crown className="h-3 w-3 mr-0.5" />Premium</Badge>}
-                          {!circle.is_active && <Badge variant="destructive" className="text-xs">Inactive</Badge>}
-                        </div>
-                        <p className="text-sm text-muted-foreground line-clamp-1">{circle.description}</p>
-                        <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
-                          <span className="flex items-center gap-1"><Users className="h-3 w-3" />{formatCircleCount(s?.members_count ?? 0, 'member')}</span>
-                          <span className="flex items-center gap-1"><FileText className="h-3 w-3" />{formatCircleCount(s?.posts_count ?? 0, 'post')}</span>
-                          <span className="flex items-center gap-1"><Calendar className="h-3 w-3" />{formatCircleCount(s?.events_count ?? 0, 'event')}</span>
-                          {circle.subscription_enabled && (
-                            <span className="flex items-center gap-1"><TrendingUp className="h-3 w-3" />{circle.subscription_price} coins/mo</span>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex gap-2 shrink-0">
-                        <Button variant="outline" size="sm" onClick={() => fetchMembers(circle.id)}>
-                          <Eye className="h-4 w-4 mr-1" />Members
-                        </Button>
-                        <Button variant={circle.is_active ? "destructive" : "default"} size="sm" onClick={() => toggleCircleActive(circle)}>
-                          {circle.is_active ? <><Ban className="h-4 w-4 mr-1" />Deactivate</> : <><Shield className="h-4 w-4 mr-1" />Activate</>}
-                        </Button>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
-            {circles.length === 0 && !loading && (
-              <p className="text-center text-muted-foreground py-8">No circles found</p>
-            )}
-          </div>
-        </TabsContent>
-
-        <TabsContent value="members" className="space-y-4 mt-4">
-          {selectedCircle && (
-            <>
-              <div className="flex items-center gap-2">
-                <Button variant="ghost" size="sm" onClick={() => setTab('circles')}>← Back to circles</Button>
-                <span className="text-sm text-muted-foreground">
-                  {circles.find(c => c.id === selectedCircle)?.name} · {formatCircleCount(members.length, 'member')}
-                </span>
-              </div>
-              <div className="space-y-2">
-                {members.map(m => (
-                  <Card key={m.id}>
-                    <CardContent className="p-3 flex items-center justify-between">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium text-foreground">{m.user_id.slice(0, 8)}…</span>
-                          <Badge variant="outline" className="text-xs capitalize">{m.role}</Badge>
-                          <Badge variant={m.status === 'active' ? 'secondary' : 'destructive'} className="text-xs">{m.status}</Badge>
-                        </div>
-                        {m.joined_at && <p className="text-xs text-muted-foreground mt-0.5">Joined {new Date(m.joined_at).toLocaleDateString()}</p>}
-                      </div>
-                      {m.status === 'active' && m.role !== 'creator' && (
-                        <Button variant="destructive" size="sm" onClick={() => removeMember(m)}>Remove</Button>
-                      )}
-                    </CardContent>
-                  </Card>
-                ))}
-                {members.length === 0 && <p className="text-center text-muted-foreground py-6">No members</p>}
-              </div>
-            </>
-          )}
-        </TabsContent>
-      </Tabs>
+      <Dialog open={decision !== null} onOpenChange={(open) => { if (!open && !change.isPending) setDecision(null); }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>{action}?</DialogTitle><DialogDescription>
+            {decision?.kind === 'remove' ? `${decision.memberName} will lose membership in ${decision.circle.name}. Billing is managed separately.` : `Change the active status of ${decision?.circle.name ?? 'this Circle'}.`}
+          </DialogDescription></DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" disabled={change.isPending} onClick={() => setDecision(null)}>Cancel</Button>
+            <Button variant={decision?.kind === 'activity' && decision.active ? 'default' : 'destructive'} disabled={change.isPending || !decision} onClick={() => { if (decision) change.mutate(decision); }}>{change.isPending ? 'Saving…' : action}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -8,7 +8,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { supabase } from '@/integrations/supabase/client';
-import { useAdminAudit } from '@/hooks/useAdminAudit';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { Zap, Users, FileText, Ban, Trash2, Eye, EyeOff, History, AlertTriangle } from 'lucide-react';
@@ -28,7 +27,7 @@ interface UserRow {
   username: string;
   name: string;
   email: string;
-  is_banned: boolean;
+  banned_at: string | null;
 }
 
 export default function AdminBulkActions() {
@@ -42,7 +41,6 @@ export default function AdminBulkActions() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [pendingAction, setPendingAction] = useState<string>('');
   const [reason, setReason] = useState('');
-  const { logAction } = useAdminAudit();
 
   const searchItems = useCallback(async () => {
     if (!search.trim()) return;
@@ -50,18 +48,20 @@ export default function AdminBulkActions() {
     setSelected(new Set());
 
     if (targetType === 'users') {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('profiles')
-        .select('id, username, name, email')
+        .select('id, username, name, email, banned_at')
         .or(`username.ilike.%${search}%,name.ilike.%${search}%,email.ilike.%${search}%`)
         .limit(50);
-      setUsers((data as unknown as UserRow[]) || []);
+      if (error) toast.error('Could not load matching users.');
+      setUsers(data || []);
     } else {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('posts')
         .select('id, content, user_id, created_at, moderation_status')
         .ilike('content', `%${search}%`)
         .limit(50);
+      if (error) toast.error('Could not load matching posts.');
       setPosts(data || []);
     }
     setLoading(false);
@@ -75,6 +75,8 @@ export default function AdminBulkActions() {
       .limit(20);
     setLogs((data as BulkLog[]) || []);
   }, []);
+
+  useEffect(() => { void fetchLogs(); }, [fetchLogs]);
 
   const toggleSelect = (id: string) => {
     setSelected(prev => {
@@ -105,35 +107,8 @@ export default function AdminBulkActions() {
     setLoading(true);
 
     try {
-      const { data: session } = await supabase.auth.getSession();
-      const adminId = session.session?.user?.id;
-
-      if (targetType === 'users') {
-        if (pendingAction === 'ban') {
-          await supabase.from('profiles').update({ is_banned: true } as any).in('id', ids);
-        } else if (pendingAction === 'unban') {
-          await supabase.from('profiles').update({ is_banned: false } as any).in('id', ids);
-        }
-      } else {
-        if (pendingAction === 'hide') {
-          await supabase.from('posts').update({ moderation_status: 'hidden' }).in('id', ids);
-        } else if (pendingAction === 'remove') {
-          await supabase.from('posts').update({ moderation_status: 'removed' }).in('id', ids);
-        } else if (pendingAction === 'restore') {
-          await supabase.from('posts').update({ moderation_status: null }).in('id', ids);
-        }
-      }
-
-      // Log the bulk action
-      await supabase.from('bulk_action_logs').insert({
-        action_type: pendingAction,
-        target_type: targetType,
-        target_ids: ids,
-        performed_by: adminId,
-        details: { reason, count: ids.length },
-      });
-
-      await logAction(`bulk_${pendingAction}`, targetType, undefined, { count: ids.length, reason });
+      const { error } = await supabase.rpc('apply_admin_bulk_action', { _target: targetType, _action: pendingAction, _ids: ids, _reason: reason || undefined });
+      if (error) throw error;
       toast.success(`Bulk ${pendingAction} applied to ${ids.length} ${targetType}`);
       setSelected(new Set());
       setReason('');
@@ -223,7 +198,7 @@ export default function AdminBulkActions() {
                     <p className="text-sm font-medium text-foreground">{u.name} <span className="text-muted-foreground">@{u.username}</span></p>
                     <p className="text-xs text-muted-foreground">{u.email}</p>
                   </div>
-                  {u.is_banned && <Badge variant="destructive" className="text-[10px]">Banned</Badge>}
+                  {u.banned_at && <Badge variant="destructive" className="text-[10px]">Banned</Badge>}
                 </label>
               )) : posts.map(p => (
                 <label key={p.id} className="flex items-center gap-3 p-3 hover:bg-muted/50 cursor-pointer">

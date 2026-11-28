@@ -18,6 +18,7 @@ const fixture = `
   import AdminLayout from '/src/pages/admin/AdminLayout.tsx';
   import AdminDashboard from '/src/pages/admin/AdminDashboard.tsx';
   import AdminPlatformHealth from '/src/pages/admin/AdminPlatformHealth.tsx';
+  import AdminWalletOperations from '/src/pages/admin/AdminWalletOperations.tsx';
   import '/src/index.css';
 
   document.title = 'Serkle admin test fixture';
@@ -30,7 +31,8 @@ const fixture = `
           h(Routes, {},
             h(Route, { path: '/admin', element: h(AdminRoute, {}, h(AdminLayout)) },
               h(Route, { path: 'dashboard', element: h(AdminDashboard) }),
-              h(Route, { path: 'platform-health', element: h(AdminPlatformHealth) })
+              h(Route, { path: 'platform-health', element: h(AdminPlatformHealth) }),
+              h(Route, { path: 'wallet', element: h(AdminWalletOperations) })
             ),
             h(Route, { path: '/login', element: h('h1', {}, 'Sign in') })
           )
@@ -57,6 +59,8 @@ const userContext = `
 const client = `
   const query = new URLSearchParams(location.search);
   let attempts = 0;
+  let activeMode = 'test';
+  let withdrawalChecked = false;
   const counts = Object.fromEntries([
     'profiles', 'banned_profiles', 'posts', 'videos', 'stories', 'comments', 'messages',
     'circles', 'questions', 'orders', 'live_streams', 'pending_reports', 'pending_appeals',
@@ -76,8 +80,19 @@ const client = `
         },
       };
     },
-    rpc() {
+    rpc(name, args) {
       return { async abortSignal() {
+        if (name === 'get_admin_wallet_operations') {
+          const live = args._mode === 'live';
+          const tx = live ? 'serkle-live-fixture' : 'serkle-test-fixture';
+          const matches = !args._reference || args._reference === tx;
+          return { data: {
+            checked_at: '2026-11-27T11:30:00Z', summary: { pending: live ? 1 : 0, failed: live ? 0 : 1, due: 0 },
+            latest_run: live ? { started_at: '2026-11-27T11:28:00Z', completed_at: '2026-11-27T11:29:00Z', checked: 1, errors: 0 } : null,
+            items: matches && (!args._kind || args._kind === 'all' || args._kind === (live ? 'withdrawal' : 'topup')) ? [{ id: 'one', tx_ref: tx, kind: live ? 'withdrawal' : 'topup', status: live ? (withdrawalChecked ? 'succeeded' : 'pending') : 'failed', amount: 500,
+              currency: 'ETB', created_at: '2026-11-27T11:30:00Z', attempts: 1, has_check_error: !live }] : [],
+          } };
+        }
         if (query.has('snapshot-error')) return { error: new Error('Snapshot unavailable') };
         return { data: {
           checked_at: '2026-11-27T11:30:00Z', counts,
@@ -85,6 +100,15 @@ const client = `
         } };
       } };
     },
+    functions: { async invoke(name, { body }) {
+      if (name !== 'chapa-admin') throw new Error('Unexpected function');
+      if (body.action === 'check_withdrawal') {
+        withdrawalChecked = true;
+        return { data: { reference: body.reference, status: 'succeeded' } };
+      }
+      if (body.action === 'set_mode') activeMode = body.mode;
+      return { data: { activeMode, availableModes: ['live', 'test'] } };
+    } },
     auth: { async getUser() { return { data: { user: { id: query.get('account') || 'admin' } } }; } },
   };
 `;
@@ -95,7 +119,7 @@ before(async () => {
     cacheDir: 'node_modules/.vite-admin-operations-ui',
     resolve: { alias: { '@': fileURLToPath(new URL('../', import.meta.url)) } },
     optimizeDeps: {
-      entries: ['src/components/AdminRoute.tsx', 'src/pages/admin/Admin{Layout,Dashboard,PlatformHealth}.tsx'],
+      entries: ['src/components/AdminRoute.tsx', 'src/pages/admin/Admin{Layout,Dashboard,PlatformHealth,WalletOperations}.tsx'],
       include: ['react', 'react/jsx-runtime', 'react/jsx-dev-runtime', 'react-dom/client', 'react-router-dom', '@tanstack/react-query'],
     },
     server: { host: '127.0.0.1', port: 8898, strictPort: true, hmr: false, watch: null },
@@ -103,7 +127,7 @@ before(async () => {
       name: 'admin-operations-fixture',
       enforce: 'pre',
       resolveId(id) {
-        const path = id.replaceAll('\\', '/');
+        const path = id.replace(/\\/g, '/');
         if (path === '/admin-operations-fixture.js') return '\0admin-operations-fixture';
         if (path.endsWith('/contexts/UserContext') || path.endsWith('/contexts/UserContext.tsx')) return '\0admin-operations-user';
         if (path.endsWith('/integrations/supabase/client')) return '\0admin-operations-client';
@@ -165,6 +189,65 @@ test('health passes authentication while leaving a failed database request and u
     await expect(page.getByRole('listitem').filter({ hasText: 'Admin database request' })).toContainText('Unavailable');
     await expect(page.getByRole('listitem').filter({ hasText: 'Authentication session' })).toContainText('Passed');
     await expect(page.getByRole('listitem').filter({ hasText: 'Payment provider and webhooks' })).toContainText('Not checked');
+  } finally {
+    await page.context().close();
+  }
+});
+
+test('mobile navigation searches workspace pages and closes after opening a destination', async () => {
+  const page = await adminPage('account=super');
+  try {
+    await expect(page.getByRole('heading', { name: 'Operations dashboard' })).toBeVisible({ timeout: 30_000 });
+    await page.getByRole('button', { name: 'Open admin navigation' }).click();
+    const drawer = page.getByRole('dialog', { name: 'Admin navigation' });
+    await drawer.getByRole('textbox', { name: 'Find an admin page' }).fill('health');
+    await expect(drawer.getByRole('link', { name: 'Users', exact: true })).toHaveCount(0);
+    await drawer.getByRole('link', { name: 'Platform health', exact: true }).click();
+    await expect(drawer).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Platform health' })).toBeVisible();
+  } finally {
+    await page.context().close();
+  }
+});
+
+test('wallet support filters live and test receipts and keeps financial details behind the super-admin state', async () => {
+  const denied = await adminPage('account=admin&path=/admin/wallet');
+  try {
+    await expect(denied.getByText('Payment monitoring is available to super admins.')).toBeVisible({ timeout: 30_000 });
+    await expect(denied.getByText('serkle-live-fixture')).toHaveCount(0);
+  } finally {
+    await denied.context().close();
+  }
+
+  const page = await adminPage('account=super&path=/admin/wallet');
+  try {
+    await expect(page.getByText('serkle-live-fixture')).toBeVisible({ timeout: 30_000 });
+    await page.getByRole('button', { name: 'Test payments' }).click();
+    await expect(page.getByText('serkle-live-fixture')).toHaveCount(0);
+    await page.getByText('serkle-test-fixture').click();
+    await expect(page.getByText('Test payments do not create spendable coins.')).toBeVisible();
+    await page.getByRole('textbox', { name: 'Exact transaction reference' }).fill('wrong-reference');
+    await page.getByRole('button', { name: 'Search payments' }).click();
+    await expect(page.getByText('No payments match these filters.')).toBeVisible();
+  } finally {
+    await page.context().close();
+  }
+});
+
+test('a mode change requires confirmation and withdrawal checks refresh the recorded outcome', async () => {
+  const page = await adminPage('account=super&path=/admin/wallet');
+  try {
+    await page.getByRole('button', { name: 'Use live mode' }).click({ timeout: 30_000 });
+    const dialog = page.getByRole('dialog', { name: 'Switch to live mode?' });
+    await expect(dialog.getByText(/will use real money/)).toBeVisible();
+    await dialog.getByRole('button', { name: 'Cancel' }).click();
+    await expect(page.getByRole('button', { name: 'Use live mode' })).toBeEnabled();
+    await page.getByRole('button', { name: 'Use live mode' }).click();
+    await dialog.getByRole('button', { name: 'Confirm mode change' }).click();
+    await expect(page.getByRole('button', { name: 'Use live mode' })).toBeDisabled();
+    await page.getByText('serkle-live-fixture').click();
+    await page.getByRole('button', { name: 'Check withdrawal status' }).click();
+    await expect(page.getByText('Succeeded', { exact: true })).toBeVisible();
   } finally {
     await page.context().close();
   }
