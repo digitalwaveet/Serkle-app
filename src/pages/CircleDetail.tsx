@@ -221,6 +221,8 @@ const CircleDetail: React.FC<CircleDetailProps> = ({
   const canManage = membership.canManage;
   const typeConfig = getCircleType(circle.circle_type);
   const TypeIcon = typeConfig.icon;
+  const categoryLabel = displayCategory(circle.category).trim();
+  const showCategory = categoryLabel.toLocaleLowerCase() !== typeConfig.label.trim().toLocaleLowerCase();
   const navTabs = getCircleNav(circle, canManage);
   const isPremiumCircle = !!circle.subscription_enabled;
   const isVerifiedCreator = !!circle.creator?.is_verified;
@@ -489,9 +491,11 @@ const CircleDetail: React.FC<CircleDetailProps> = ({
               <TypeIcon className="h-3 w-3" />
               {typeConfig.label}
             </Badge>
-            <Badge variant="outline" className="text-badge">
-              {displayCategory(circle.category)}
-            </Badge>
+            {showCategory && categoryLabel && (
+              <Badge variant="outline" className="text-badge">
+                {categoryLabel}
+              </Badge>
+            )}
             {!isPremiumCircle && (
               <Badge variant="outline" className="text-badge text-success border-success/30">Free</Badge>
             )}
